@@ -71,7 +71,7 @@ pub fn derive_lifted_transform(input: TokenStream) -> TokenStream {
                 SD: ::num_traits::Num
                     + ::num_traits::NumAssignOps
                     + Copy
-                    + ::num_traits::MulAdd<#generic_ident, SD, Output=SD>
+                    + ::std::ops::Mul<#generic_ident, Output=SD>
                     + ::std::ops::MulAssign<#generic_ident>,
                 BC: crate::lwt::BoundaryExtension
             {
@@ -86,7 +86,7 @@ pub fn derive_lifted_transform(input: TokenStream) -> TokenStream {
                 SD: ::num_traits::Num
                     + ::num_traits::NumAssignOps
                     + Copy
-                    + ::num_traits::MulAdd<#generic_ident, SD, Output=SD>
+                    + ::std::ops::Mul<#generic_ident, Output=SD>
                     + ::std::ops::MulAssign<#generic_ident>,
                 BC: crate::lwt::BoundaryExtension
             {

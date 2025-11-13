@@ -6,7 +6,7 @@ use wavelets_macros::LiftedTransform;
 use crate::lwt::steps::{UpdateD, UpdateS, ScaleStep};
 
 #[derive(LiftedTransform)]
-pub struct Daubechies1<T: Copy + Neg<Output=T> + Num=f64>{
+pub struct Daubechies1<T: Copy + Neg<Output=T> + Num>{
     steps: (UpdateD<T, 1>, UpdateS<T, 1>, ScaleStep<T>)
 }
 impl<T: Copy + Neg<Output=T> + Num> WaveletLength for Daubechies1<T>{
@@ -24,7 +24,7 @@ impl<T: Copy + Neg<Output=T> + Num + From<f64>> Daubechies1<T>{
 
 
 #[derive(LiftedTransform)]
-pub struct Daubechies2<T: Copy + Neg<Output=T> + Num=f64>{
+pub struct Daubechies2<T: Copy + Neg<Output=T> + Num>{
     steps: (UpdateD<T, 1>, UpdateS<T, 2>, UpdateD<T, 1>, ScaleStep<T>)
 }
 impl<T: Copy + Neg<Output=T> + Num> WaveletLength for Daubechies2<T>{
@@ -46,7 +46,7 @@ impl<T: Copy + Neg<Output=T> + Num + From<f64>> Daubechies2<T>{
 
 
 #[derive(LiftedTransform)]
-pub struct Daubechies3<T: Copy + Neg<Output=T> + Num=f64>{
+pub struct Daubechies3<T: Copy + Neg<Output=T> + Num>{
     steps: (
         UpdateS<T, 1>,
         UpdateD<T, 2>,
@@ -81,7 +81,7 @@ impl<T: Copy + Neg<Output=T> + Num + From<f64>> Daubechies3<T>{
 }
 
 #[derive(LiftedTransform)]
-pub struct Daubechies4<T: Copy + Neg<Output=T> + Num=f64>{
+pub struct Daubechies4<T: Copy + Neg<Output=T> + Num>{
     steps: (
         UpdateD<T, 1>,
         UpdateS<T, 2>,
@@ -121,7 +121,7 @@ impl<T: Copy + Neg<Output=T> + Num + From<f64>> Daubechies4<T>{
 }
 
 #[derive(LiftedTransform)]
-pub struct Daubechies5<T: Copy + Neg<Output=T> + Num=f64>{
+pub struct Daubechies5<T: Copy + Neg<Output=T> + Num>{
     steps: (
         UpdateS<T, 1>,
         UpdateD<T, 2>,
@@ -166,7 +166,7 @@ impl<T: Copy + Neg<Output=T> + Num + From<f64>> Daubechies5<T>{
 }
 
 #[derive(LiftedTransform)]
-pub struct Daubechies6<T: Copy + Neg<Output=T> + Num=f64>{
+pub struct Daubechies6<T: Copy + Neg<Output=T> + Num>{
     steps: (
         UpdateD<T, 1>,
         UpdateS<T, 2>,
@@ -231,7 +231,7 @@ mod tests{
     #[test]
     fn test_daubechies1(){
 
-        let wvlt = Daubechies1::new();
+        let wvlt = Daubechies1::<f64>::new();
 
         let mut x = [0.0;10];
         x[4] = 1.0;

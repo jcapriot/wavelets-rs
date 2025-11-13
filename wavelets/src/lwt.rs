@@ -1,9 +1,9 @@
 mod steps;
 pub mod daubechies;
 
-use num_traits::{MulAdd, Num, NumAssignOps};
+use num_traits::{Num, NumAssignOps};
 use itertools::{izip};
-use std::ops::{MulAssign, Neg};
+use std::ops::{MulAssign, Neg, Mul};
 
 use crate::{boundarys::BoundaryExtension};
 
@@ -16,10 +16,10 @@ where
     fn get_steps(&self) -> &Self::StepListType;
     fn forward<SD, BC: BoundaryExtension>(&self, s: &mut [SD], d: &mut[SD], bc: &BC)
     where 
-        SD: Num + NumAssignOps + Copy + MulAdd<W, SD, Output=SD> + MulAssign<W>;
+        SD: Num + NumAssignOps + Copy + Mul<W, Output=SD> + MulAssign<W>;
     fn inverse<SD, BC: BoundaryExtension>(&self, s: &mut [SD], d: &mut[SD], bc: &BC)
     where 
-        SD: Num + NumAssignOps + Copy + MulAdd<W, SD, Output=SD> + MulAssign<W>;
+        SD: Num + NumAssignOps + Copy + Mul<W, Output=SD> + MulAssign<W>;
 }
 
 pub fn deinterleave<T: Copy>(x: &[T], evens: &mut [T], odds: &mut [T]){
@@ -56,6 +56,34 @@ pub fn interleave<T: Copy>(evens: &[T], odds: &[T], x: &mut [T]){
             xc[1] = *odd;
         });
     rem.iter_mut().zip(ev_iter).for_each(|(x, ev)| *x = *ev);
+}
+
+mod play{
+    use crate::lwt::steps::{UpdateD, UpdateS, ScaleStep};
+
+    struct Haar;
+
+    pub trait LWTTest<U>{
+        type StepListType;
+        const STEPS: Self::StepListType;
+    }
+
+    macro_rules! make_haar_data {
+        ( $( $t:ty ),* ) => {
+            $(
+            impl LWTTest<$t> for Haar{
+                type StepListType = (UpdateD<$t, 1>, UpdateS<$t, 1>, ScaleStep<$t>);
+                const STEPS: Self::StepListType = (
+                    UpdateD{offset:0, coefs:[-1.0]},
+                    UpdateS{offset:0, coefs:[0.5]},
+                    ScaleStep{scale: 0.123}
+                );
+            }
+            )*
+        }
+    }
+    make_haar_data!(f32, f64);
+
 }
 
 

@@ -1,29 +1,29 @@
 use crate::boundarys::BoundaryExtension;
-use num_traits::{MulAdd, Num, NumAssignOps};
-use std::ops::{Neg, MulAssign};
+use num_traits::{Num, NumAssignOps};
+use std::ops::{Neg, MulAssign, Mul};
 
 mod ops{
     use super::*;
     #[inline(always)]
-    fn max_offset<const N: usize>(offset: isize) -> isize{(N as isize) - 1 - offset}
+    const fn max_offset<const N: usize>(offset: isize) -> isize{(N as isize) - 1 - offset}
      #[inline(always)]
-    fn max_offset_r<const N: usize>(offset: isize) -> isize{(N as isize) - 1 + offset_r::<N>(offset)}
+    const fn max_offset_r<const N: usize>(offset: isize) -> isize{(N as isize) - 1 + offset_r::<N>(offset)}
      #[inline(always)]
-    fn n_front<const N: usize>(offset: isize) -> usize{ if offset < 0 { (-offset) as usize} else {0}}
+    const fn n_front<const N: usize>(offset: isize) -> usize{ if offset < 0 { (-offset) as usize} else {0}}
      #[inline(always)]
-    fn n_back<const N: usize>(offset: isize) -> usize{ if max_offset::<N>(offset) < 0 {0} else {max_offset::<N>(offset) as usize}}
+    const fn n_back<const N: usize>(offset: isize) -> usize{ if max_offset::<N>(offset) < 0 {0} else {max_offset::<N>(offset) as usize}}
     #[inline(always)]
-    fn offset_r<const N: usize>(offset: isize) -> isize{ - max_offset::<N>(offset)}
+    const fn offset_r<const N: usize>(offset: isize) -> isize{ - max_offset::<N>(offset)}
      #[inline(always)]
-    fn n_front_r<const N: usize>(offset: isize) -> usize {if offset_r::<N>(offset) < 0 {(-offset_r::<N>(offset)) as usize} else {0}}
+    const fn n_front_r<const N: usize>(offset: isize) -> usize {if offset_r::<N>(offset) < 0 {(-offset_r::<N>(offset)) as usize} else {0}}
      #[inline(always)]
-    fn n_back_r<const N: usize>(offset: isize) -> usize {if max_offset_r::<N>(offset) < 0 {0} else {(-max_offset_r::<N>(offset)) as usize}}
+    const fn n_back_r<const N: usize>(offset: isize) -> usize {if max_offset_r::<N>(offset) < 0 {0} else {(-max_offset_r::<N>(offset)) as usize}}
 
     
     pub fn update_step<T, const N: usize, U, BC>(offset: isize, coefs: &[T; N], x: &[U], y: &mut[U], _bc: &BC)
     where 
         T: Copy,
-        U: Num + NumAssignOps + Copy + MulAdd<T, U, Output = U>,
+        U: Num + NumAssignOps + Copy + Mul<T, Output = U>,
         BC: BoundaryExtension,
     {
         let nf = n_front::<N>(offset);
@@ -37,16 +37,13 @@ mod ops{
                 .fold(U::zero(), |acc, (idx, c)|
                     {
                         let xo = BC::extend_front(x, i_offset + (idx as isize));
-                        xo.mul_add(
-                            *c,
-                            acc
-                        )
+                        xo * *c + acc
                     }
                 );
 
             *v += c_iter
                 .zip(x.iter())
-                .fold(U::zero(), |acc, ((_, c), xo)| xo.mul_add(*c, acc));
+                .fold(U::zero(), |acc, ((_, c), xo)| *xo * *c + acc);
         }
 
         let nx_skip = if offset < 0 {0} else {offset as usize};
@@ -57,7 +54,7 @@ mod ops{
                 *v += coefs.iter()
                     .zip(xs.iter())
                     .fold(
-                        U::zero(), |acc, (c, xo)| xo.mul_add(*c, acc)
+                        U::zero(), |acc, (c, xo)| *xo * *c + acc
                     );
             });
 
@@ -70,13 +67,13 @@ mod ops{
             *v += c_iter.by_ref()
                 .zip(x.iter().skip(ix_start))
                 .fold(U::zero(), |acc, ((_idx, c), xo)| {
-                    xo.mul_add(*c,acc)
+                    *xo * *c + acc
                 });
             
             // iterate the rest with boundary extension
             *v += c_iter.fold(U::zero(), |acc, (idx, c)| {
                 let xo = BC::extend_back(x, ix_start + idx);
-                xo.mul_add(*c, acc)
+                xo * *c + acc
             });
         }
 
@@ -170,14 +167,14 @@ pub trait LiftedStep<SD>{
     fn inverse<BC: BoundaryExtension>(&self, s: &mut[SD], d: &mut[SD], bc: &BC);
 }
 
-pub struct UpdateD<T:Copy + Neg<Output=T>, const N: usize>{
+pub struct UpdateD<T, const N: usize>{
     pub offset: isize,
     pub coefs: [T; N],
 }
 
-impl<T: Copy + Neg<Output=T>, U, const N: usize> LiftedStep<U> for UpdateD<T, N>
+impl<T: Copy + Neg<Output = T>, U, const N: usize> LiftedStep<U> for UpdateD<T, N>
 where
-    U: Num + Copy + MulAdd<T, U, Output=U> + NumAssignOps,
+    U: Num + Copy + Mul<T, Output = U> + NumAssignOps,
 {
     fn forward<BC: BoundaryExtension>(&self, s: &mut[U], d: &mut[U], bc: &BC){
         ops::update_step(self.offset, &self.coefs, s, d, bc);
@@ -188,14 +185,14 @@ where
     }
 }
 
-pub struct UpdateS<T: Copy + Neg<Output=T>, const N: usize>{
+pub struct UpdateS<T, const N: usize>{
     pub offset: isize,
     pub coefs: [T; N],
 }
 
 impl<T: Copy + Neg<Output=T>, U, const N: usize> LiftedStep<U> for UpdateS<T, N>
 where
-    U: Num + Copy + MulAdd<T, U, Output=U> + NumAssignOps
+    U: Num + Copy + Mul<T, Output = U> + NumAssignOps
 {
     fn forward<BC: BoundaryExtension>(&self, s: &mut[U], d: &mut[U], bc: &BC){
         ops::update_step(self.offset, &self.coefs, d, s, bc);
@@ -206,7 +203,7 @@ where
     }
 }
 
-pub struct ScaleStep<T: Num + Copy>{
+pub struct ScaleStep<T>{
     pub scale: T
 }
 impl<T: Num + Copy, U: MulAssign<T>> LiftedStep<U> for ScaleStep<T>{
