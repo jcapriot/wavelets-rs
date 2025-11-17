@@ -2,7 +2,7 @@ mod steps;
 pub mod daubechies;
 
 use num_traits::{Num, NumAssignOps};
-use itertools::{izip};
+use itertools::{Itertools, izip};
 use std::ops::{MulAssign, Neg, Mul};
 
 use crate::{boundarys::BoundaryExtension};
@@ -56,6 +56,28 @@ pub fn interleave<T: Copy>(evens: &[T], odds: &[T], x: &mut [T]){
             xc[1] = *odd;
         });
     rem.iter_mut().zip(ev_iter).for_each(|(x, ev)| *x = *ev);
+}
+
+
+pub fn forward_transform<W, T, BC, WT>(wvlt: W, input: &[T], output: &mut[T], shape: &[usize], axes: &[usize])
+where
+    W: LiftedTransform<WT>,
+    T: Num + NumAssignOps + Copy + Mul<WT, Output=T> + MulAssign<T>,
+    BC: BoundaryExtension,
+    WT: Copy + Clone + Neg<Output = WT>,
+{
+    for ax in axes{
+        // Collapse all shapes up to and including axes to apply over
+        let mut shp = shape.iter();
+        let n_upper = shp.by_ref().take(*ax + 1).fold(1, |acc, e| acc * e);
+        let n_lower = shp.fold(1, |acc, e| acc * e);
+        
+        if n_lower == 1{
+            // n_upper calls
+        }
+
+    }
+
 }
 
 mod play{

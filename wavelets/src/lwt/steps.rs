@@ -22,8 +22,8 @@ mod ops{
     
     pub fn update_step<T, const N: usize, U, BC>(offset: isize, coefs: &[T; N], x: &[U], y: &mut[U], _bc: &BC)
     where 
-        T: Copy,
-        U: Num + NumAssignOps + Copy + Mul<T, Output = U>,
+        T: Clone,
+        U: Num + NumAssignOps + Clone + Mul<T, Output = U>,
         BC: BoundaryExtension,
     {
         let nf = n_front::<N>(offset);
@@ -37,13 +37,13 @@ mod ops{
                 .fold(U::zero(), |acc, (idx, c)|
                     {
                         let xo = BC::extend_front(x, i_offset + (idx as isize));
-                        xo * *c + acc
+                        xo * c.clone() + acc
                     }
                 );
 
             *v += c_iter
                 .zip(x.iter())
-                .fold(U::zero(), |acc, ((_, c), xo)| *xo * *c + acc);
+                .fold(U::zero(), |acc, ((_, c), xo)| xo.clone() * c.clone() + acc);
         }
 
         let nx_skip = if offset < 0 {0} else {offset as usize};
@@ -54,7 +54,7 @@ mod ops{
                 *v += coefs.iter()
                     .zip(xs.iter())
                     .fold(
-                        U::zero(), |acc, (c, xo)| *xo * *c + acc
+                        U::zero(), |acc, (c, xo)| xo.clone() * c.clone() + acc
                     );
             });
 
@@ -67,20 +67,20 @@ mod ops{
             *v += c_iter.by_ref()
                 .zip(x.iter().skip(ix_start))
                 .fold(U::zero(), |acc, ((_idx, c), xo)| {
-                    *xo * *c + acc
+                    xo.clone() * c.clone() + acc
                 });
             
             // iterate the rest with boundary extension
             *v += c_iter.fold(U::zero(), |acc, (idx, c)| {
                 let xo = BC::extend_back(x, ix_start + idx);
-                xo * *c + acc
+                xo * c.clone() + acc
             });
         }
 
     }
 
-    pub fn scale_slice<T: Copy, U: MulAssign<T>>(s: T, x: &mut [U]){
-        x.iter_mut().for_each(|v| *v *= s);
+    pub fn scale_slice<T: Clone, U: MulAssign<T>>(s: T, x: &mut [U]){
+        x.iter_mut().for_each(|v| *v *= s.clone());
     }
 
     #[cfg(test)]
@@ -172,15 +172,15 @@ pub struct UpdateD<T, const N: usize>{
     pub coefs: [T; N],
 }
 
-impl<T: Copy + Neg<Output = T>, U, const N: usize> LiftedStep<U> for UpdateD<T, N>
+impl<T: Clone + Neg<Output = T>, U, const N: usize> LiftedStep<U> for UpdateD<T, N>
 where
-    U: Num + Copy + Mul<T, Output = U> + NumAssignOps,
+    U: Num + Clone + Mul<T, Output = U> + NumAssignOps,
 {
     fn forward<BC: BoundaryExtension>(&self, s: &mut[U], d: &mut[U], bc: &BC){
         ops::update_step(self.offset, &self.coefs, s, d, bc);
     }
     fn inverse<BC: BoundaryExtension>(&self, s: &mut[U], d: &mut[U], bc: &BC){
-        let inv_coefs: [T; N] = std::array::from_fn(|i| -self.coefs[i]);
+        let inv_coefs = self.coefs.clone().map(|v| -v);
         ops::update_step(self.offset, &inv_coefs, s, d, bc);
     }
 }
@@ -190,15 +190,15 @@ pub struct UpdateS<T, const N: usize>{
     pub coefs: [T; N],
 }
 
-impl<T: Copy + Neg<Output=T>, U, const N: usize> LiftedStep<U> for UpdateS<T, N>
+impl<T:Clone + Neg<Output=T>, U, const N: usize> LiftedStep<U> for UpdateS<T, N>
 where
-    U: Num + Copy + Mul<T, Output = U> + NumAssignOps
+    U: Num + Clone + Mul<T, Output = U> + NumAssignOps
 {
     fn forward<BC: BoundaryExtension>(&self, s: &mut[U], d: &mut[U], bc: &BC){
         ops::update_step(self.offset, &self.coefs, d, s, bc);
     }
     fn inverse<BC: BoundaryExtension>(&self, s: &mut[U], d: &mut[U], bc: &BC){
-        let inv_coefs: [T; N] = std::array::from_fn(|i| -self.coefs[i]);
+        let inv_coefs = self.coefs.clone().map(|v| -v);
         ops::update_step(self.offset, &inv_coefs, d, s, bc);
     }
 }
@@ -206,15 +206,15 @@ where
 pub struct ScaleStep<T>{
     pub scale: T
 }
-impl<T: Num + Copy, U: MulAssign<T>> LiftedStep<U> for ScaleStep<T>{
+impl<T: Num + Clone, U: MulAssign<T>> LiftedStep<U> for ScaleStep<T>{
     fn forward<BC: BoundaryExtension>(&self, s: &mut[U], d: &mut[U], _bc: &BC){
-        ops::scale_slice(self.scale, s);
-        ops::scale_slice(T::one() / self.scale, d);
+        ops::scale_slice(self.scale.clone(), s);
+        ops::scale_slice(T::one() / self.scale.clone(), d);
     }
 
     fn inverse<BC: BoundaryExtension>(&self, s: &mut[U], d: &mut[U], _bc: &BC){
-        ops::scale_slice(T::one() / self.scale, s);
-        ops::scale_slice(self.scale, d);
+        ops::scale_slice(T::one() / self.scale.clone(), s);
+        ops::scale_slice(self.scale.clone(), d);
     }
 
 }

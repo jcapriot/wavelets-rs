@@ -5,5 +5,7 @@ edition = "2024"
 
 [dependencies]
 itertools = "0.14.0"
+ndarray = { version = "0.17.1", features = ["rayon"] }
 num-traits = "0.2.19"
+rayon = "1.11.0"
 wavelets-macros = {path = "../wavelets-macros"}

@@ -1,5 +1,7 @@
 pub mod boundarys;
 pub mod lwt;
+pub mod vector;
+pub mod iter;
 
 pub enum TransformDirection{
     Forward,
@@ -132,7 +134,7 @@ mod hid{
             Complex::new(re, im)
         }
     }
-    impl<'a, 'b, T: Clone + Num + MulAdd<Output = T>> MulAdd<&'b Complex<T>, &'b T> for &'a Complex<T> {
+    impl<T: Clone + Num + MulAdd<Output = T>> MulAdd<&Complex<T>, &T> for &Complex<T> {
         type Output = Complex<T>;
 
         #[inline]
