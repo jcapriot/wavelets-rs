@@ -2,6 +2,7 @@ pub mod boundarys;
 pub mod lwt;
 pub mod vector;
 pub mod iter;
+mod utils;
 
 pub enum TransformDirection{
     Forward,
@@ -45,7 +46,7 @@ mod tests {
 mod hid{
     use num_traits::Num;
     use num_traits::MulAdd;
-    
+
     #[derive(PartialEq, Eq, Copy, Clone, Hash, Debug, Default)]
     pub struct Complex<T>{
         pub re: T,

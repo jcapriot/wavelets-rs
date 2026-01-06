@@ -1,5 +1,6 @@
-use std::ops::{Mul, Add, Sub, Div, Rem, Neg, AddAssign, SubAssign, MulAssign, DivAssign};
-use num_traits::{MulAdd, Num, One, Zero};
+use std::ops::{Mul, Add, Sub, Div, Rem, Neg, AddAssign, SubAssign, MulAssign, DivAssign, RemAssign};
+use std::ops::{Index, IndexMut};
+use num_traits::{MulAdd, Num, NumAssign, NumAssignOps, One, Zero};
 
 use itertools::Itertools;
 
@@ -10,7 +11,7 @@ pub struct Vector<T, const N: usize>{
 
 impl<T: Clone, const N: usize> Vector<T,N >{
     const WIDTH: usize = N;
-    
+
     pub fn new(a: [T; N]) -> Self{
         Vector{data: a}
     }
@@ -21,6 +22,29 @@ impl<T: Clone, const N: usize> Vector<T,N >{
 
     pub fn fill(&mut self, a: &[T; N]){
         self.data = a.clone();
+    }
+
+    pub fn iter(&self)-> impl Iterator<Item = &T>{
+        self.data.iter()
+    }
+
+    pub fn iter_mut(&mut self)-> impl Iterator<Item = &mut T>{
+        self.data.iter_mut()
+    }
+}
+
+impl<T, const N: usize> Index<usize> for Vector<T, N>{
+    type Output = T;
+
+    fn index(&self, index: usize) -> &Self::Output{
+        &self.data[index]
+    }
+}
+
+impl<T, const N: usize> IndexMut<usize> for Vector<T, N>{
+
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output{
+        &mut self.data[index]
     }
 }
 
@@ -97,7 +121,7 @@ macro_rules! impl_vector_ops {
             // Ref Vector <op> Ref Scalar
             impl<T, const N: usize> $trait<&T> for &Vector<T, N>
             where
-                T: Clone + $trait<T, Output = T>,
+                T: Clone + $trait<T, Output = T>
             {
                 type Output = Vector<T, N>;
 
@@ -216,6 +240,7 @@ impl_vector_op_assign!{
     SubAssign, sub_assign;
     MulAssign, mul_assign;
     DivAssign, div_assign;
+    RemAssign, rem_assign;
 }
 
 #[derive(Debug, PartialEq)]
@@ -277,6 +302,94 @@ where
 }
 
 
+
+#[allow(dead_code)]
+pub mod simd_lanes {
+    use super::Vector;
+    // ============================
+    // x86 / x86_64
+    // ============================
+
+    // -------- AVX512 (512-bit) --------
+    #[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "avx512f"))]
+    pub const LANE_SIZE: usize = 512;
+
+    // -------- AVX (256-bit) --------
+    #[cfg(all(
+        any(target_arch = "x86", target_arch = "x86_64"),
+        target_feature = "avx",
+        not(target_feature = "avx512f")
+    ))]
+    pub const LANE_SIZE: usize = 256;
+
+    // -------- SSE2 (128-bit) --------
+    #[cfg(all(
+        any(target_arch = "x86", target_arch = "x86_64"),
+        target_feature = "sse2",
+        not(target_feature = "avx")
+    ))]
+    pub const LANE_SIZE: usize = 128;
+
+    // ============================
+    // ARM / AArch64
+    // ============================
+
+    // -------- NEON (128-bit) --------
+    #[cfg(all(
+        any(target_arch = "arm", target_arch = "aarch64"),
+        target_feature = "neon"
+    ))]
+    pub const LANE_SIZE: usize = 128;
+
+    // -------- SVE: Scalable vectors (length varies) --------
+    #[cfg(all(target_arch = "aarch64", target_feature = "sve"))]
+    pub const LANE_SIZE: usize = {
+        // "Unknown at compile time": user must runtime check using
+        // std::arch::asm or OS queries. Placeholder:
+        0
+    };
+
+    // ============================
+    // Default / no SIMD
+    // ============================
+
+    #[cfg(not(any(
+        all(any(target_arch = "x86", target_arch = "x86_64")),
+        all(any(target_arch = "arm", target_arch = "aarch64"))
+    )))]
+    pub const LANE_SIZE: usize = 0;
+
+
+    pub const LANE8: usize = LANE_SIZE / 8;
+    pub const LANE16: usize = LANE_SIZE / 16;
+    pub const LANE32: usize = LANE_SIZE / 32;
+    pub const LANE64: usize = LANE_SIZE / 64;
+    pub const LANE128: usize = LANE_SIZE / 128;
+    pub const LANE256: usize = LANE_SIZE / 256;
+
+    pub trait VectorType{
+        type VType;
+    }
+    impl VectorType for f32{
+        type VType = Vector<f32, LANE32>;
+    }
+    impl VectorType for f64{
+        type VType = Vector<f64, LANE64>;
+    }
+    impl VectorType for i8{
+        type VType = Vector<i8, LANE8>;
+    }
+    impl VectorType for i16{
+        type VType = Vector<i16, LANE16>;
+    }
+    impl VectorType for i32{
+        type VType = Vector<i32, LANE32>;
+    }
+    impl VectorType for i64{
+        type VType = Vector<i64, LANE64>;
+    }
+}
+
 #[cfg(test)]
 mod tests{
     use super::*;
@@ -308,15 +421,15 @@ mod tests{
         assert_eq!(one * 2.0, two);
         assert_eq!(one * two, two);
 
-        assert_eq!(one / 2.0, half);    
         assert_eq!(one / 2.0, half);
-        
+        assert_eq!(one / 2.0, half);
+
         assert_eq!(-one, -1.0);
         assert_eq!(-one, Vector::splat(-1.0));
-    
+
         assert_eq!(one - 2.0, -one);
         assert_eq!(one - two, -one);
-    
+
         assert_eq!((one + 2.0) % 2.0, one);
         assert_eq!((one + two) % two, one);
     }
@@ -336,17 +449,17 @@ mod tests{
         assert_eq!(&one / &two, half);
         assert_eq!(&one - &2.0, -one);
         assert_eq!(&one - &two, -one);
-    
+
         assert_eq!(&(one + 2.0) % &2.0, one);
         assert_eq!(&(one + two) % &two, one);
     }
-    
+
     #[test]
     fn from_string(){
         let res: Result<Vector<P,N>, <Vector<P,N> as Num>::FromStrRadixErr> =
             Num::from_str_radix("1,1,1,1", 10);
         assert_eq!(res.unwrap(), Vector::<P, N>::splat(1.0));
-        
+
         let res: Result<Vector<P,N>, <Vector<P,N> as Num>::FromStrRadixErr> =
 
             Num::from_str_radix("[1,1,1,1]", 10);

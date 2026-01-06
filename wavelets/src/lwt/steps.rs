@@ -19,9 +19,9 @@ mod ops{
      #[inline(always)]
     const fn n_back_r<const N: usize>(offset: isize) -> usize {if max_offset_r::<N>(offset) < 0 {0} else {(-max_offset_r::<N>(offset)) as usize}}
 
-    
+
     pub fn update_step<T, const N: usize, U, BC>(offset: isize, coefs: &[T; N], x: &[U], y: &mut[U], _bc: &BC)
-    where 
+    where
         T: Clone,
         U: Num + NumAssignOps + Clone + Mul<T, Output = U>,
         BC: BoundaryExtension,
@@ -61,7 +61,7 @@ mod ops{
         // back boundary loop
         for (i, v) in y_iter{
             let mut c_iter = coefs.iter().enumerate();
-            
+
             let ix_start = ((i as isize) + offset) as usize;
             // iterate from ix_start until end of x
             *v += c_iter.by_ref()
@@ -69,7 +69,7 @@ mod ops{
                 .fold(U::zero(), |acc, ((_idx, c), xo)| {
                     xo.clone() * c.clone() + acc
                 });
-            
+
             // iterate the rest with boundary extension
             *v += c_iter.fold(U::zero(), |acc, (idx, c)| {
                 let xo = BC::extend_back(x, ix_start + idx);
@@ -82,7 +82,6 @@ mod ops{
     pub fn scale_slice<T: Clone, U: MulAssign<T>>(s: T, x: &mut [U]){
         x.iter_mut().for_each(|v| *v *= s.clone());
     }
-
     #[cfg(test)]
     mod tests{
         use super::*;

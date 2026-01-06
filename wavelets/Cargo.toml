@@ -4,8 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+bytemuck = "1.24.0"
+chrono = "0.4.42"
 itertools = "0.14.0"
 ndarray = { version = "0.17.1", features = ["rayon"] }
 num-traits = "0.2.19"
+pulp = "0.22.2"
 rayon = "1.11.0"
 wavelets-macros = {path = "../wavelets-macros"}

@@ -34,4 +34,4 @@ mod tests{
         assert_eq!(ZeroBoundary::extend_back(&data, 5), 0);
         assert_eq!(ZeroBoundary::extend_back(&data, 10), 0);
     }
-}   
+}

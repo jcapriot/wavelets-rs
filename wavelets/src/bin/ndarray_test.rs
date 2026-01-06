@@ -1,10 +1,10 @@
 use ndarray::{ArrayView, Axis, ArrayViewMut};
 use rayon::prelude::*;
-use wavelets::iter::par::{
+use wavelets::iter::ndarray::par::{
     ParLaneChunksExactIterator,
     ParLaneChunksExactIteratorMut,
 };
-use wavelets::iter::{
+use wavelets::iter::ndarray::{
     LaneChunksExactIterator,
     LaneChunksExactIteratorMut
 };
