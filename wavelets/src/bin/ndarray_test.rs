@@ -4,10 +4,10 @@ use wavelets::iter::ndarray::par::{
     ParLaneChunksExactIterator,
     ParLaneChunksExactIteratorMut,
 };
-use wavelets::iter::ndarray::{
-    LaneChunksExactIterator,
-    LaneChunksExactIteratorMut
-};
+// use wavelets::iter::ndarray::{
+//     LaneChunksExactIterator,
+//     LaneChunksExactIteratorMut
+// };
 
 
 fn main(){

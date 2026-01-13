@@ -1,19 +1,26 @@
 use num_traits::Num;
 
-
 pub trait BoundaryExtension{
-    fn extend_front<T: Num>(data: &[T], i: isize) -> T;
-    fn extend_back<T: Num>(data: &[T], i: usize) -> T;
+    fn get_bc<T: Num + Clone>(data: &[T], i: isize) -> T;
+    #[inline(always)]
+    fn extend_front<T: Num + Clone>(data: &[T], i: isize) -> T{
+        Self::get_bc(data, i)
+    }
+    #[inline(always)]
+    fn extend_back<T: Num + Clone>(data: &[T], i: usize) -> T{
+        Self::get_bc(data, i as isize)
+    }
 }
 
 pub struct ZeroBoundary;
 impl BoundaryExtension for ZeroBoundary{
-    fn extend_front<T: Num>(_: &[T], _: isize) -> T{
-        T::zero()
-    }
-
-    fn extend_back<T: Num>(_: &[T], _: usize) -> T{
-        T::zero()
+    #[inline(always)]
+    fn get_bc<T: Num + Clone>(data: &[T], i: isize) -> T{
+        if i < 0 {
+            T::zero()
+        }else{
+            data.get(i as usize).cloned().unwrap_or(T::zero())
+        }
     }
 }
 

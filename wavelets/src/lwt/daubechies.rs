@@ -1,237 +1,134 @@
-use std::ops::Neg;
-use num_traits::Num;
+pub use crate::wavelets::daubechies::*;
+pub use crate::lwt::LiftingTransform;
+use wavelets_macros::{implement_lifting_scheme};
 
-use crate::{WaveletLength};
-use wavelets_macros::LiftedTransform;
-use crate::lwt::steps::{UpdateD, UpdateS, ScaleStep};
+implement_lifting_scheme!(
+    Daubechies1,
+    UpdateD(0, [-1.0]),
+    UpdateS(0, [0.5]),
+    Scale(1.41421356237309504880168872420969807856967187537694807317668)
+);
 
-#[derive(LiftedTransform)]
-pub struct Daubechies1<T: Copy + Neg<Output=T> + Num>{
-    steps: (UpdateD<T, 1>, UpdateS<T, 1>, ScaleStep<T>)
-}
-impl<T: Copy + Neg<Output=T> + Num> WaveletLength for Daubechies1<T>{
-    const WIDTH: usize = 2;
-}
-impl<T: Copy + Neg<Output=T> + Num + From<f64>> Daubechies1<T>{
-    pub fn new()-> Self{
-        Self{steps:(
-            UpdateD{offset:0, coefs:[T::from(-1.0)]},
-            UpdateS{offset:0, coefs:[T::from(0.5)]},
-            ScaleStep{scale: T::from(1.41421356237309504880168872420969807856967187537694807317668)},
-        )}
-    }
-}
+implement_lifting_scheme!(
+    Daubechies2,
+    UpdateD(0, [-1.73205080756887729352744634150587236694280525381038062805581]),
+    UpdateS(0, [
+        0.433012701892219323381861585376468091735701313452595157013952,
+        -0.0669872981077806766181384146235319082642986865474048429860483
+        ]),
+    UpdateD(0, [1.0]),
+    Scale(1.93185165257813657349948639945779473526780967801680910080469)
+);
+
+implement_lifting_scheme!(
+    Daubechies3,
+    UpdateS(0, [2.42549724391195830853534735792805013148173539788185404597169]),
+    UpdateD(-1,
+        [0.0793394561851575665709854468556681022464175974577020488100928,
+        -0.352387657674855469319634307041734500360168717199626110489802
+    ]),
+    UpdateS(1,
+        [-2.89534745414509893429485976731702946529529368748135552662476,
+        0.561414909153505374525726237570322812332695442156902611352901]
+    ),
+    UpdateD(-2,
+        [-0.019750529242293006004979050052766598262001873036524279141228]
+    ),
+    Scale(0.431879991517282793698835833676951360096586647014001193148804)
+);
+
+implement_lifting_scheme!(
+    Daubechies4,
+    UpdateD(0, [-3.10293148583032589470063811758833883204289885795495381963662]),
+    UpdateS(0, [
+        0.291953126003475318556841072165741485752300908535736046765408,
+        -0.0763000865730822647117716642303829704900132630734716898217313
+    ]),
+    UpdateD(-2,[
+        -1.66252835290918420695309216797834224617770151758624450562630,
+        5.19949157307254554931197031659870769733798631513761235614244
+    ]),
+    UpdateS(2,[
+        0.0378927481279514768107649771704322007124977302352613448672599,
+        -0.00672237263307937367389807287370832440934919551535679032055690]
+    ),
+    UpdateD(-3,
+        [0.3141064933959557065391048234478969083531725328477611313704]
+    ),
+    Scale(2.61311836977700528153533622961553870584070279281549965816974)
+);
+
+implement_lifting_scheme!(
+    Daubechies5,
+    UpdateS(0, [3.77151921168926894757552366178790881698024090635846510016028]),
+    UpdateD(-1, [
+        0.0698842923341383375213513979361008347245073868657407740184605,
+        -0.247729291360329682294999795251047782875275189599695961483240
+        ]),
+    UpdateS(1, [
+        -7.59757973540575405854153663362110608451687695913930970651012,
+        3.03368979135389213275426841861823490779263829963269704719700
+    ]),
+    UpdateD(-3,[
+        0.0157993238122452355950658463497927543465183810596906799882017,
+        -0.0503963526115147652552264735912933014908335872176681805787989
+    ]),
+    UpdateS(3,[
+        -1.10314632826313117312599754225554155377077047715385824307618,
+        0.172572555625945876870245572286755166281402778242781642128057]
+    ),
+    UpdateD(-4,
+        [-0.002514343828207810116980039456958207159821965712982241017850]
+    ),
+    Scale(0.347389040193226710460416754871479443615028875117970218575475)
+);
 
 
-#[derive(LiftedTransform)]
-pub struct Daubechies2<T: Copy + Neg<Output=T> + Num>{
-    steps: (UpdateD<T, 1>, UpdateS<T, 2>, UpdateD<T, 1>, ScaleStep<T>)
-}
-impl<T: Copy + Neg<Output=T> + Num> WaveletLength for Daubechies2<T>{
-    const WIDTH: usize = 4;
-}
-impl<T: Copy + Neg<Output=T> + Num + From<f64>> Daubechies2<T>{
-    pub fn new()-> Self{
-        Self{steps:(
-            UpdateD{offset:0, coefs:[T::from(-1.73205080756887729352744634150587236694280525381038062805581)]},
-            UpdateS{offset:0, coefs:[
-                T::from(0.433012701892219323381861585376468091735701313452595157013952),
-                T::from(-0.0669872981077806766181384146235319082642986865474048429860483)
-                ]},
-            UpdateD{offset:0, coefs:[T::from(1.0)]},
-            ScaleStep{scale: T::from(1.93185165257813657349948639945779473526780967801680910080469)},
-        )}
-    }
-}
 
-
-#[derive(LiftedTransform)]
-pub struct Daubechies3<T: Copy + Neg<Output=T> + Num>{
-    steps: (
-        UpdateS<T, 1>,
-        UpdateD<T, 2>,
-        UpdateS<T, 2>,
-        UpdateD<T, 1>,
-        ScaleStep<T>
-    )
-}
-impl<T: Copy + Neg<Output=T> + Num> WaveletLength for Daubechies3<T>{
-    const WIDTH: usize = 6;
-}
-impl<T: Copy + Neg<Output=T> + Num + From<f64>> Daubechies3<T>{
-    pub fn new()-> Self{
-        Self{steps:(
-            UpdateS{offset:0, coefs:[
-                T::from(2.42549724391195830853534735792805013148173539788185404597169)
-            ]},
-            UpdateD{offset:-1, coefs:[
-                T::from(0.0793394561851575665709854468556681022464175974577020488100928),
-                T::from(-0.352387657674855469319634307041734500360168717199626110489802)
-            ]},
-            UpdateS{offset:1, coefs:[
-                T::from(-2.89534745414509893429485976731702946529529368748135552662476),
-                T::from(0.561414909153505374525726237570322812332695442156902611352901)
-            ]},
-            UpdateD{offset:-2, coefs:[
-                T::from(-0.019750529242293006004979050052766598262001873036524279141228)
-            ]},
-            ScaleStep{scale: T::from(0.431879991517282793698835833676951360096586647014001193148804)},
-        )}
-    }
-}
-
-#[derive(LiftedTransform)]
-pub struct Daubechies4<T: Copy + Neg<Output=T> + Num>{
-    steps: (
-        UpdateD<T, 1>,
-        UpdateS<T, 2>,
-        UpdateD<T, 2>,
-        UpdateS<T, 2>,
-        UpdateD<T, 1>,
-        ScaleStep<T>
-    )
-}
-impl<T: Copy + Neg<Output=T> + Num> WaveletLength for Daubechies4<T>{
-    const WIDTH: usize = 8;
-}
-impl<T: Copy + Neg<Output=T> + Num + From<f64>> Daubechies4<T>{
-    pub fn new()-> Self{
-        Self{steps:(
-            UpdateD{offset:0, coefs:[
-                T::from(-3.10293148583032589470063811758833883204289885795495381963662)
-            ]},
-            UpdateS{offset:0, coefs:[
-                T::from(0.291953126003475318556841072165741485752300908535736046765408),
-                T::from(-0.0763000865730822647117716642303829704900132630734716898217313)
-            ]},
-            UpdateD{offset:-2, coefs:[
-                T::from(-1.66252835290918420695309216797834224617770151758624450562630),
-                T::from(5.19949157307254554931197031659870769733798631513761235614244)
-            ]},
-            UpdateS{offset:2, coefs:[
-                T::from(0.0378927481279514768107649771704322007124977302352613448672599),
-                T::from(-0.00672237263307937367389807287370832440934919551535679032055690)
-            ]},
-            UpdateD{offset:-3, coefs:[
-                T::from(0.3141064933959557065391048234478969083531725328477611313704)
-            ]},
-            ScaleStep{scale: T::from(2.61311836977700528153533622961553870584070279281549965816974)},
-        )}
-    }
-}
-
-#[derive(LiftedTransform)]
-pub struct Daubechies5<T: Copy + Neg<Output=T> + Num>{
-    steps: (
-        UpdateS<T, 1>,
-        UpdateD<T, 2>,
-        UpdateS<T, 2>,
-        UpdateD<T, 2>,
-        UpdateS<T, 2>,
-        UpdateD<T, 1>,
-        ScaleStep<T>
-    )
-}
-impl<T: Copy + Neg<Output=T> + Num> WaveletLength for Daubechies5<T>{
-    const WIDTH: usize = 10;
-}
-impl<T: Copy + Neg<Output=T> + Num + From<f64>> Daubechies5<T>{
-    pub fn new()-> Self{
-        Self{steps:(
-            UpdateS{offset:0, coefs:[
-                T::from(3.77151921168926894757552366178790881698024090635846510016028)
-            ]},
-            UpdateD{offset:-1, coefs:[
-                T::from(0.0698842923341383375213513979361008347245073868657407740184605),
-                T::from(-0.247729291360329682294999795251047782875275189599695961483240)
-            ]},
-            UpdateS{offset:1, coefs:[
-                T::from(-7.59757973540575405854153663362110608451687695913930970651012),
-                T::from(3.03368979135389213275426841861823490779263829963269704719700)
-            ]},
-            UpdateD{offset:-3, coefs:[
-                T::from(0.0157993238122452355950658463497927543465183810596906799882017),
-                T::from(-0.0503963526115147652552264735912933014908335872176681805787989)
-            ]},
-            UpdateS{offset:3, coefs:[
-                T::from(-1.10314632826313117312599754225554155377077047715385824307618),
-                T::from(0.172572555625945876870245572286755166281402778242781642128057)
-            ]},
-            UpdateD{offset:-4, coefs:[
-                T::from(-0.002514343828207810116980039456958207159821965712982241017850)
-            ]},
-            ScaleStep{scale: T::from(0.347389040193226710460416754871479443615028875117970218575475)},
-        )}
-    }
-}
-
-#[derive(LiftedTransform)]
-pub struct Daubechies6<T: Copy + Neg<Output=T> + Num>{
-    steps: (
-        UpdateD<T, 1>,
-        UpdateS<T, 2>,
-        UpdateD<T, 2>,
-        UpdateS<T, 2>,
-        UpdateD<T, 2>,
-        UpdateS<T, 2>,
-        UpdateD<T, 1>,
-        ScaleStep<T>
-    )
-}
-impl<T: Copy + Neg<Output=T> + Num> WaveletLength for Daubechies6<T>{
-    const WIDTH: usize = 12;
-}
-impl<T: Copy + Neg<Output=T> + Num + From<f64>> Daubechies6<T>{
-    pub fn new()-> Self{
-        Self{steps:(
-            UpdateD{offset:0, coefs:[
-                T::from(-4.43446829869067456522902386901421595117929955784397002766726)
-            ]},
-            UpdateS{offset:0, coefs:[
-                T::from(0.214593450003008209156010000739498614149390366235009628657503),
-                T::from(-0.0633131925460940277584543253045170400260191584783746185619816),
-            ]},
-            UpdateD{offset:-2, coefs:[
-                T::from(-4.49311316887101738480447295831022985715670304865394507715493),
-                T::from(9.97001561279871984191261047001888284698487613742269103059835)
-            ]},
-            UpdateS{offset:2, coefs:[
-                T::from(0.0574139368483299602834412946783536920860387960959081807080617),
-                T::from(-0.0236634936624266945597991164435457276455333750966623043873005)
-            ]},
-            UpdateD{offset:-4, coefs:[
-                T::from(-0.678784346153377860800578862111733303605730559399948511853599),
-                T::from(2.35649702197482872471682359887683553808556485181375033959333)
-            ]},
-            UpdateS{offset:4, coefs:[
-                T::from(0.00718356311583346870790647002569199987967970725769484660306772),
-                T::from(-0.000991165530519446158731723517460535223234500789445981449538906)
-            ]},
-            UpdateD{offset:-5, coefs:[
-                T::from(0.0941066740419976307126245842066834084085931268118251639620)
-            ]},
-            ScaleStep{scale: T::from(3.12146472110567217396698691201148558733292298702703900943590)},
-        )}
-    }
-}
-
+implement_lifting_scheme!(
+    Daubechies6,
+    UpdateD(0, [-4.43446829869067456522902386901421595117929955784397002766726]),
+    UpdateS(0, [
+        0.214593450003008209156010000739498614149390366235009628657503,
+        -0.0633131925460940277584543253045170400260191584783746185619816
+    ]),
+    UpdateD(-2, [
+        -4.49311316887101738480447295831022985715670304865394507715493,
+        9.97001561279871984191261047001888284698487613742269103059835
+    ]),
+    UpdateS(2, [
+        0.0574139368483299602834412946783536920860387960959081807080617,
+        -0.0236634936624266945597991164435457276455333750966623043873005
+    ]),
+    UpdateD(-4,[
+        -0.678784346153377860800578862111733303605730559399948511853599,
+        2.35649702197482872471682359887683553808556485181375033959333
+    ]),
+    UpdateS(4,[
+        0.00718356311583346870790647002569199987967970725769484660306772,
+        -0.000991165530519446158731723517460535223234500789445981449538906
+    ]),
+    UpdateD(-5,
+        [0.0941066740419976307126245842066834084085931268118251639620]
+    ),
+    Scale(3.12146472110567217396698691201148558733292298702703900943590)
+);
 
 #[cfg(test)]
 mod tests{
     use core::f64;
 
     use super::*;
-    use crate::{boundarys::ZeroBoundary};
-    use crate::test_approx_equal;
-    use crate::lwt::LiftedTransform;
+    
+    //use crate::lwt::LiftingTransform;
+    use crate::boundarys::ZeroBoundary;
+    use crate::tests::test_approx_equal;
 
     const RTOL: f64 = 1E-6;
     const ATOL: f64 = 1E-14;
 
     #[test]
     fn test_daubechies1(){
-
-        let wvlt = Daubechies1::<f64>::new();
 
         let mut x = [0.0;10];
         x[4] = 1.0;
@@ -248,10 +145,10 @@ mod tests{
             d[i] = xc[1];
         });
 
-        wvlt.forward(&mut s, &mut d, &ZeroBoundary{});
+        Daubechies1::forward(&mut s, &mut d, &ZeroBoundary{});
 
-        test_approx_equal!(&s, &s_ref, RTOL, ATOL);
-        test_approx_equal!(&d, &d_ref, RTOL, ATOL);
+        test_approx_equal(&s, &s_ref, RTOL, ATOL);
+        test_approx_equal(&d, &d_ref, RTOL, ATOL);
 
         let mut x = [0.0;10];
         x[5] = 1.0;
@@ -268,10 +165,10 @@ mod tests{
             d[i] = xc[1];
         });
 
-        wvlt.forward(&mut s, &mut d, &ZeroBoundary{});
+        Daubechies1::forward(&mut s, &mut d, &ZeroBoundary{});
 
-        test_approx_equal!(&s, &s_ref, RTOL, ATOL);
-        test_approx_equal!(&d, &d_ref, RTOL, ATOL);
+        test_approx_equal(&s, &s_ref, RTOL, ATOL);
+        test_approx_equal(&d, &d_ref, RTOL, ATOL);
 
     }
 }
