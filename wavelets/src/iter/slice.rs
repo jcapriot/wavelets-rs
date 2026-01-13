@@ -2016,7 +2016,7 @@ mod tests{
             for axis in 0..shape.len(){
                 arr.par_iter_lanes_mut(&shape, axis).enumerate().for_each( | (lane_ind, mut lane)| {
                     assert_eq!(lane.len(), shape[axis]);
-                    let mut index = lane_ind * shape[axis];
+                    let index = lane_ind * shape[axis];
                     lane.iter_mut().enumerate().for_each(|(ii, v)| {
                         *v = index + ii;
                     });
