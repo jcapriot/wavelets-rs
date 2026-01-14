@@ -1,6 +1,7 @@
 pub mod wavelets;
 pub mod boundarys;
 pub mod lwt;
+pub mod dwt;
 //pub mod vector;
 pub mod iter;
 
