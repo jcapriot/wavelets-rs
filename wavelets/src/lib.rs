@@ -1,21 +1,20 @@
-pub mod wavelets;
 pub mod boundarys;
-pub mod lwt;
 pub mod dwt;
+pub mod lwt;
+pub mod wavelets;
 //pub mod vector;
 pub mod iter;
 
-pub enum TransformDirection{
+pub enum TransformDirection {
     Forward,
     Inverse,
 }
 
-
 #[cfg(test)]
 mod tests {
     pub fn test_approx_equal<T>(actual: &[T], desired: &[T], rtol: T, atol: T)
-    where 
-        T: num_traits::Float + std::fmt::Debug
+    where
+        T: num_traits::Float + std::fmt::Debug,
     {
         let mut mismatch = None;
         actual.iter().zip(desired.iter()).for_each(|(a, d)| {
@@ -31,6 +30,5 @@ mod tests {
                 mismatch, actual, desired
             );
         }
-
     }
 }

@@ -1,5 +1,3 @@
-
-
 macro_rules! gen_wavelet_struct {
     (
         $( ($name:ident, $width:expr) ),* $(,)?
@@ -14,7 +12,7 @@ macro_rules! gen_wavelet_struct {
         )*
     };
 }
-pub mod daubechies{
+pub mod daubechies {
     gen_wavelet_struct!(
         (Daubechies1, 2),
         (Daubechies2, 4),
