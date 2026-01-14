@@ -1,6 +1,4 @@
-use std::iter::Sum;
-
-use num_traits::{Num, NumOps};
+use num_traits::Num;
 
 use crate::boundarys::BoundaryExtension;
 
