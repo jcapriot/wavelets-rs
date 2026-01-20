@@ -1,7 +1,8 @@
 use num_traits::{Num, NumAssignOps};
+
 use wavelets::boundarys::ZeroBoundary;
-use wavelets::lwt;
-use wavelets::lwt::{LiftingTransform, daubechies};
+use wavelets::wavelets::daubechies;
+use wavelets::{lwt, lwt::LiftingTransform};
 
 use chrono::prelude::*;
 

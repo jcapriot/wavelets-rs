@@ -1,5 +1,7 @@
 extern crate proc_macro;
 
+use std::arch::global_asm;
+
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{
@@ -229,7 +231,7 @@ fn expand_lifting_step(
                             let i_off = offset + j as isize;
                             let j = syn::Index::from(j);
                             quote! {
-                                c.#j.clone() * BC::get_bc(#r, i + #i_off)
+                                c.#j.clone() * bc.get_bc(#r, i + #i_off)
                             }
                         });
                 loop_body = quote! {
@@ -298,7 +300,7 @@ fn expand_lifting_step(
                             let i_off = offset + j as isize;
                             let j = syn::Index::from(j);
                             quote! {
-                                c.#j.clone() * BC::get_bc(#r, i + #i_off)
+                                c.#j.clone() * bc.get_bc(#r, i + #i_off)
                             }
                         });
                 loop_body = quote! {
@@ -341,7 +343,7 @@ fn generate_forward_op(steps: &[LiftingStep<f64>]) -> proc_macro2::TokenStream {
     }
 
     quote! {
-        fn forward<T, BC>(s: &mut [T], d: &mut [T], _bc: &BC)
+        fn forward<T, BC>(s: &mut [T], d: &mut [T], bc: &BC)
         where
             T: ::num_traits::Num
                 + ::num_traits::NumAssignOps
@@ -365,7 +367,7 @@ fn generate_inverse_op(steps: &[LiftingStep<f64>]) -> proc_macro2::TokenStream {
     }
 
     quote! {
-        fn inverse<T, BC>(s: &mut [T], d: &mut [T], _bc: &BC)
+        fn inverse<T, BC>(s: &mut [T], d: &mut [T], bc: &BC)
         where
             T: ::num_traits::Num
                 + ::num_traits::NumAssignOps
@@ -394,6 +396,119 @@ pub fn implement_lifting_scheme(input: TokenStream) -> TokenStream {
     impl crate::lwt::LiftingTransform for #name {
             #forward_func
             #inverse_func
+    }
+    }
+    .into()
+}
+
+struct OrthogonalDWT<T> {
+    name: Ident,
+    g: Vec<T>,
+}
+
+impl Parse for OrthogonalDWT<f64> {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let name = input.parse()?;
+        input.parse::<Token![,]>()?;
+
+        let coeff_content;
+        syn::bracketed!(coeff_content in input);
+        let g: Vec<f64> = coeff_content
+            .parse_terminated(syn::LitFloat::parse, Token![,])?
+            .into_iter()
+            .map(|lit| lit.base10_parse().unwrap())
+            .collect();
+        Ok(Self { name, g })
+    }
+}
+
+#[proc_macro]
+pub fn implement_dwt_orthogonal(input: TokenStream) -> TokenStream {
+    let OrthogonalDWT { name, g } = parse_macro_input!(input as OrthogonalDWT<f64>);
+    let gi = g.clone().into_iter().rev().collect::<Vec<_>>();
+    let h = gi
+        .iter()
+        .enumerate()
+        .map(|(i, &v)| match i % 2 {
+            0 => -v,
+            1 => v,
+            _ => unreachable!(),
+        })
+        .collect::<Vec<_>>();
+    let hi = h.clone().into_iter().rev().collect::<Vec<_>>();
+
+    quote! {
+    impl crate::dwt::DiscreteTransform<f64, {#name::WIDTH}> for #name {
+            const G: [f64; #name::WIDTH] = [#(#g), *];
+            const H: [f64; #name::WIDTH] = [#(#h), *];
+            const GI: [f64; #name::WIDTH] = [#(#gi), *];
+            const HI: [f64; #name::WIDTH] = [#(#hi), *];
+    }
+    }
+    .into()
+}
+
+struct BiorthogonalDWT<T> {
+    name: Ident,
+    g: Vec<T>,
+    h: Vec<T>,
+}
+
+impl Parse for BiorthogonalDWT<f64> {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let name = input.parse()?;
+        input.parse::<Token![,]>()?;
+
+        let coeff_content;
+        syn::bracketed!(coeff_content in input);
+        let g: Vec<f64> = coeff_content
+            .parse_terminated(syn::LitFloat::parse, Token![,])?
+            .into_iter()
+            .map(|lit| lit.base10_parse().unwrap())
+            .collect();
+
+        input.parse::<Token![,]>()?;
+
+        let coeff_content;
+        syn::bracketed!(coeff_content in input);
+        let h: Vec<f64> = coeff_content
+            .parse_terminated(syn::LitFloat::parse, Token![,])?
+            .into_iter()
+            .map(|lit| lit.base10_parse().unwrap())
+            .collect();
+        Ok(Self { name, g, h })
+    }
+}
+
+#[proc_macro]
+pub fn implement_dwt_biorthogonal(input: TokenStream) -> TokenStream {
+    let BiorthogonalDWT { name, g, h } = parse_macro_input!(input as BiorthogonalDWT<f64>);
+    let hi = g
+        .iter()
+        .enumerate()
+        .map(|(i, &v)| match i % 2 {
+            0 => v,
+            1 => -v,
+            _ => unreachable!(),
+        })
+        .collect::<Vec<_>>();
+
+    let gi = h
+        .iter()
+        .enumerate()
+        .map(|(i, &v)| match i % 2 {
+            0 => -v,
+            1 => v,
+            _ => unreachable!(),
+        })
+        .collect::<Vec<_>>();
+
+    quote! {
+    impl crate::dwt::DiscreteTransform<f64, {#name::WIDTH}> for #name {
+            const G: [f64; #name::WIDTH] = [#(#g), *];
+            const H: [f64; #name::WIDTH] = [#(#h), *];
+            const GI: [f64; #name::WIDTH] = [#(#gi), *];
+            const HI: [f64; #name::WIDTH] = [#(#hi), *];
     }
     }
     .into()

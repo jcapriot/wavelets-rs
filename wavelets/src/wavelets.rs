@@ -19,6 +19,10 @@ pub mod daubechies {
         (Daubechies3, 6),
         (Daubechies4, 8),
         (Daubechies5, 10),
-        (Daubechies6, 12)
+        (Daubechies6, 12),
     );
+}
+
+pub mod bior {
+    gen_wavelet_struct!((Bior3_1, 4));
 }

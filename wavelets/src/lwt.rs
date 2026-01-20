@@ -1,3 +1,4 @@
+pub mod bior;
 pub mod daubechies;
 
 use itertools::{Itertools, izip};
@@ -292,7 +293,7 @@ mod tests {
     use crate::tests::test_approx_equal;
     use wavelets_macros::implement_lifting_scheme;
 
-    use crate::boundarys::ZeroBoundary;
+    use crate::boundarys::BoundaryCondition;
 
     const RTOL: f64 = 1E-6;
     const ATOL: f64 = 1E-14;
@@ -313,25 +314,30 @@ mod tests {
         let mut s = [0.0; 8];
         let mut d = [0.0; 8];
 
-        let (chunks, _rem) = input.as_chunks::<2>();
-        chunks.iter().enumerate().for_each(|(i, xc)| {
-            s[i] = xc[0];
-            d[i] = xc[1];
-        });
+        let bcs = [
+            BoundaryCondition::ZeroBoundary {},
+            BoundaryCondition::PeriodicBoundary,
+        ];
 
-        let bc = ZeroBoundary {};
+        for bc in bcs {
+            let (chunks, _rem) = input.as_chunks::<2>();
+            chunks.iter().enumerate().for_each(|(i, xc)| {
+                s[i] = xc[0];
+                d[i] = xc[1];
+            });
 
-        TestWavelet::forward(&mut s, &mut d, &bc);
+            TestWavelet::forward(&mut s, &mut d, &bc);
 
-        TestWavelet::inverse(&mut s, &mut d, &bc);
+            TestWavelet::inverse(&mut s, &mut d, &bc);
 
-        let mut output = [0.0; 8];
-        let (chunks, _rem) = output.as_chunks_mut::<2>();
-        chunks.iter_mut().enumerate().for_each(|(i, out)| {
-            out[0] = s[i];
-            out[1] = d[i];
-        });
+            let mut output = [0.0; 8];
+            let (chunks, _rem) = output.as_chunks_mut::<2>();
+            chunks.iter_mut().enumerate().for_each(|(i, out)| {
+                out[0] = s[i];
+                out[1] = d[i];
+            });
 
-        test_approx_equal(&input, &output, RTOL, ATOL);
+            test_approx_equal(&input, &output, RTOL, ATOL);
+        }
     }
 }

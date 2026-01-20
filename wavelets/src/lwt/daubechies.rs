@@ -2,14 +2,14 @@ pub use crate::lwt::LiftingTransform;
 pub use crate::wavelets::daubechies::*;
 use wavelets_macros::implement_lifting_scheme;
 
-implement_lifting_scheme!(
+implement_lifting_scheme! {
     Daubechies1,
     UpdateD(0, [-1.0]),
     UpdateS(0, [0.5]),
     Scale(1.41421356237309504880168872420969807856967187537694807317668)
-);
+}
 
-implement_lifting_scheme!(
+implement_lifting_scheme! {
     Daubechies2,
     UpdateD(
         0,
@@ -24,9 +24,9 @@ implement_lifting_scheme!(
     ),
     UpdateD(0, [1.0]),
     Scale(1.93185165257813657349948639945779473526780967801680910080469)
-);
+}
 
-implement_lifting_scheme!(
+implement_lifting_scheme! {
     Daubechies3,
     UpdateS(
         0,
@@ -51,9 +51,9 @@ implement_lifting_scheme!(
         [-0.019750529242293006004979050052766598262001873036524279141228]
     ),
     Scale(0.431879991517282793698835833676951360096586647014001193148804)
-);
+}
 
-implement_lifting_scheme!(
+implement_lifting_scheme! {
     Daubechies4,
     UpdateD(
         0,
@@ -85,9 +85,9 @@ implement_lifting_scheme!(
         [0.3141064933959557065391048234478969083531725328477611313704]
     ),
     Scale(2.61311836977700528153533622961553870584070279281549965816974)
-);
+}
 
-implement_lifting_scheme!(
+implement_lifting_scheme! {
     Daubechies5,
     UpdateS(
         0,
@@ -126,9 +126,9 @@ implement_lifting_scheme!(
         [-0.002514343828207810116980039456958207159821965712982241017850]
     ),
     Scale(0.347389040193226710460416754871479443615028875117970218575475)
-);
+}
 
-implement_lifting_scheme!(
+implement_lifting_scheme! {
     Daubechies6,
     UpdateD(
         0,
@@ -174,7 +174,7 @@ implement_lifting_scheme!(
         [0.0941066740419976307126245842066834084085931268118251639620]
     ),
     Scale(3.12146472110567217396698691201148558733292298702703900943590)
-);
+}
 
 #[cfg(test)]
 mod tests {
