@@ -1,7 +1,7 @@
 use itertools::Itertools;
 use num_traits::Num;
 
-use crate::boundarys::{BoundaryExtension, PeriodicBoundary, ZeroBoundary};
+use crate::boundarys::BoundaryExtension;
 
 pub mod bior;
 pub mod daubechies;
@@ -145,6 +145,7 @@ pub fn dwt_inverse<T: Num + Clone + From<U>, U: Clone, const N: usize>(
 
     let offset = (N as isize - 2) / 2;
     let n_bcs = N as isize / 4;
+    // TODO: Remove enumeratiion part of the sd_iter after more testing.
     let mut sd_iter = (-n_bcs..(ns as isize - n_bcs)).zip(s.windows(N / 2).zip(d.windows(N / 2)));
     let g: [T; N] = g
         .iter()
@@ -163,7 +164,7 @@ pub fn dwt_inverse<T: Num + Clone + From<U>, U: Clone, const N: usize>(
     let pair_shift = offset as usize % 2;
 
     if pair_shift > 0
-        && let (Some(x), Some((i_s, (s, d)))) = (x.first_mut(), sd_iter.next())
+        && let (Some(x), Some((_i_s, (s, d)))) = (x.first_mut(), sd_iter.next())
     {
         *x = gh_iter
             .clone()
@@ -194,7 +195,7 @@ pub fn dwt_inverse<T: Num + Clone + From<U>, U: Clone, const N: usize>(
         });
 
     if let Some(x) = x.last_mut() {
-        sd_iter.for_each(|(i_s, (s, d))| {
+        sd_iter.for_each(|(_i_s, (s, d))| {
             *x = gh_iter
                 .clone()
                 .zip(s.iter().zip(d.iter()))
