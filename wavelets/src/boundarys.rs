@@ -13,23 +13,60 @@ pub trait BoundaryExtension {
 }
 
 pub enum BoundaryCondition {
-    ZeroBoundary,
-    PeriodicBoundary,
+    Zero,
+    Periodic,
+    Constant,
+    Symmetric,
+    Reflect,
 }
 impl BoundaryExtension for BoundaryCondition {
     #[inline(always)]
     fn get_bc<T: Num + Clone>(&self, data: &[T], i: isize) -> T {
         match self {
-            Self::ZeroBoundary => {
+            Self::Zero => {
                 if i < 0 {
                     T::zero()
                 } else {
                     data.get(i as usize).cloned().unwrap_or(T::zero())
                 }
             }
-            Self::PeriodicBoundary => {
+            Self::Periodic => {
                 let i = i.rem_euclid(data.len() as isize) as usize;
                 data.get(i).cloned().unwrap()
+            }
+            Self::Constant => {
+                if i < 0 {
+                    data.first().cloned().unwrap_or(T::zero())
+                } else {
+                    data.get(i as usize)
+                        .or(data.last())
+                        .cloned()
+                        .unwrap_or(T::zero())
+                }
+            }
+            Self::Symmetric => {
+                let mut io = i;
+                let n = data.len() as isize;
+                while io >= n || io < 0 {
+                    if io < 0 {
+                        io = -(io + 1);
+                    } else {
+                        io = 2 * (n - 1) - (io - 1);
+                    }
+                }
+                data.get(io as usize).cloned().unwrap_or(T::zero())
+            }
+            Self::Reflect => {
+                let mut io = i;
+                let n = data.len() as isize;
+                while io >= n || io < 0 {
+                    if io < 0 {
+                        io = -io;
+                    } else {
+                        io = 2 * (n - 1) - io;
+                    }
+                }
+                data.get(io as usize).cloned().unwrap_or(T::zero())
             }
         }
     }

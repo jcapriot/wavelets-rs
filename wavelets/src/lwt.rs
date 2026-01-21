@@ -315,8 +315,11 @@ mod tests {
         let mut d = [0.0; 8];
 
         let bcs = [
-            BoundaryCondition::ZeroBoundary {},
-            BoundaryCondition::PeriodicBoundary,
+            BoundaryCondition::Zero,
+            BoundaryCondition::Periodic,
+            BoundaryCondition::Constant,
+            BoundaryCondition::Reflect,
+            BoundaryCondition::Symmetric,
         ];
 
         for bc in bcs {

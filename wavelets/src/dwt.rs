@@ -127,8 +127,8 @@ pub fn dwt_forward<T: Num + Clone + From<U>, U: Clone, const N: usize, BC: Bound
 }
 
 pub fn dwt_inverse<T: Num + Clone + From<U>, U: Clone, const N: usize>(
-    g: &[U; N],
-    h: &[U; N],
+    gi: &[U; N],
+    hi: &[U; N],
     s: &[T],
     d: &[T],
     x: &mut [T],
@@ -147,13 +147,13 @@ pub fn dwt_inverse<T: Num + Clone + From<U>, U: Clone, const N: usize>(
     let n_bcs = N as isize / 4;
     // TODO: Remove enumeratiion part of the sd_iter after more testing.
     let mut sd_iter = (-n_bcs..(ns as isize - n_bcs)).zip(s.windows(N / 2).zip(d.windows(N / 2)));
-    let g: [T; N] = g
+    let g: [T; N] = gi
         .iter()
         .rev()
         .map(|v| v.clone().into())
         .collect_array()
         .expect("N=N");
-    let h: [T; N] = h
+    let h: [T; N] = hi
         .iter()
         .rev()
         .map(|v| v.clone().into())

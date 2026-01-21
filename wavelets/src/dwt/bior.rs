@@ -36,10 +36,7 @@ mod test {
         let mut s = vec![0.0; nsd];
         let mut d = vec![0.0; nsd];
 
-        let bcs = [
-            BoundaryCondition::ZeroBoundary,
-            BoundaryCondition::PeriodicBoundary,
-        ];
+        let bcs = [BoundaryCondition::Zero, BoundaryCondition::Periodic];
 
         for bc in bcs {
             WVLT::forward(&x, &mut s, &mut d, &bc);
