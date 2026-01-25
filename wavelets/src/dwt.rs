@@ -1,7 +1,7 @@
 use itertools::Itertools;
 use num_traits::Num;
 
-use crate::boundarys::BoundaryExtension;
+use crate::boundarys::{BoundaryExtension, PeriodicBoundary};
 
 pub mod bior;
 pub mod daubechies;
@@ -28,6 +28,30 @@ pub trait DiscreteTransform<U: Clone, const N: usize> {
     }
 
     #[inline]
+    fn forward_per<T: Num + Clone + From<U>>(x: &[T], s: &mut [T], d: &mut [T]) {
+        dwt_per_forward(&Self::G, &Self::H, x, s, d);
+    }
+
+    #[inline]
+    fn adjoint_forward_per<T: Num + Clone + From<U>>(s: &[T], d: &[T], x: &mut [T]) {
+        let ga: [_; N] = Self::G.clone().into_iter().rev().collect_array().unwrap();
+        let ha: [_; N] = Self::H.clone().into_iter().rev().collect_array().unwrap();
+        dwt_per_inverse(&ga, &ha, s, d, x);
+    }
+
+    #[inline]
+    fn inverse_per<T: Num + Clone + From<U>>(s: &[T], d: &[T], x: &mut [T]) {
+        dwt_per_inverse(&Self::GI, &Self::HI, s, d, x);
+    }
+
+    #[inline]
+    fn adjoint_inverse_per<T: Num + Clone + From<U>>(x: &[T], s: &mut [T], d: &mut [T]) {
+        let gia: [_; N] = Self::GI.clone().into_iter().rev().collect_array().unwrap();
+        let hia: [_; N] = Self::HI.clone().into_iter().rev().collect_array().unwrap();
+        dwt_per_forward(&gia, &hia, x, s, d);
+    }
+
+    #[inline]
     fn get_outlen(n: usize) -> usize {
         get_outlen::<N>(n)
     }
@@ -43,6 +67,7 @@ pub fn get_outlen<const N: usize>(n: usize) -> usize {
         n_ds
     }
 }
+
 pub fn dwt_forward<T: Num + Clone + From<U>, U: Clone, const N: usize, BC: BoundaryExtension>(
     g: &[U; N],
     h: &[U; N],
@@ -202,6 +227,253 @@ pub fn dwt_inverse<T: Num + Clone + From<U>, U: Clone, const N: usize>(
                 .map(|((g, h), (s, d))| g[1].clone() * s.clone() + h[1].clone() * d.clone())
                 .fold(T::zero(), |acc, v| acc + v);
         });
+    }
+}
+
+pub fn dwt_per_forward<T: Num + Clone + From<U>, U: Clone, const N: usize>(
+    g: &[U; N],
+    h: &[U; N],
+    x: &[T],
+    s: &mut [T],
+    d: &mut [T],
+) {
+    let (nx, ns, nd) = (x.len(), s.len(), d.len());
+
+    assert!(
+        (ns == nd) || (ns == nd + 1),
+        "'d.len()' must be equal to or 1 less than 's.len()'"
+    );
+
+    assert_eq!(
+        nx,
+        ns + nd,
+        "'s.len()` + `d.len()' must be equal to `x.len()'"
+    );
+    let (x, s) = if ns > nd {
+        // for the odd length transform, the last x value just becomes the last approximation coefficient.
+        // Then shorten x and s by one element.
+        if let Some(sl) = s.last_mut()
+            && let Some(xl) = x.last()
+        {
+            *sl = xl.clone();
+        }
+        (&x[0..nx - 1], &mut s[0..nd])
+    } else {
+        (x, s)
+    };
+
+    let offset = (N as isize - 2) / 2;
+    let g: [T; N] = g
+        .iter()
+        .rev()
+        .map(|v| v.clone().into())
+        .collect_array()
+        .expect("N=N");
+    let h: [T; N] = h
+        .iter()
+        .rev()
+        .map(|v| v.clone().into())
+        .collect_array()
+        .expect("N=N");
+
+    let gh_iter = g.iter().zip(h.iter());
+
+    // front boundary:
+    let n_bcs = N / 4;
+    let mut sd_iter = (0..nd as isize).zip(s.iter_mut().zip(d.iter_mut()));
+
+    let per_bc = PeriodicBoundary {};
+
+    sd_iter.by_ref().take(n_bcs).for_each(|(i, (s, d))| {
+        dbg!(i);
+        let ix = 2 * i - offset;
+        (*s, *d) = (0..N as isize)
+            .zip(gh_iter.clone())
+            .map(|(j, (g, h))| {
+                let xo = per_bc.get_bc(x, ix + j);
+                (g.clone() * xo.clone(), h.clone() * xo)
+            })
+            .fold((T::zero(), T::zero()), |(s_s, d_s), (s, d)| {
+                (s + s_s, d + d_s)
+            });
+    });
+
+    let first_x = offset as usize % 2;
+
+    sd_iter
+        .by_ref()
+        .zip(x[first_x..].windows(N).step_by(2))
+        .for_each(|((_i, (s, d)), x)| {
+            (*s, *d) = gh_iter
+                .clone()
+                .zip(x)
+                .map(|((g, h), xi)| (g.clone() * xi.clone(), h.clone() * xi.clone()))
+                .fold((T::zero(), T::zero()), |(s_s, d_s), (s, d)| {
+                    (s + s_s, d + d_s)
+                });
+        });
+
+    sd_iter.for_each(|(i, (s, d))| {
+        let ix = 2 * i - offset;
+        (*s, *d) = (0..N as isize)
+            .zip(gh_iter.clone())
+            .map(|(j, (g, h))| {
+                let xo = per_bc.get_bc(x, ix + j);
+                (g.clone() * xo.clone(), h.clone() * xo)
+            })
+            .fold((T::zero(), T::zero()), |(s_s, d_s), (s, d)| {
+                (s + s_s, d + d_s)
+            });
+    });
+}
+
+pub fn dwt_per_inverse<T: Num + Clone + From<U>, U: Clone, const N: usize>(
+    gi: &[U; N],
+    hi: &[U; N],
+    s: &[T],
+    d: &[T],
+    x: &mut [T],
+) {
+    let (nx, ns, nd) = (x.len(), s.len(), d.len());
+
+    assert!(
+        (ns == nd) || (ns == nd + 1),
+        "'d.len()' must be equal to or 1 less than 's.len()'"
+    );
+
+    assert_eq!(
+        nx,
+        ns + nd,
+        "'s.len()` + `d.len()' must be equal to `x.len()'"
+    );
+    let (x, s) = if ns > nd {
+        // for the odd length inverse transform, the last detail coefficient just becomes the last x coefficient.
+        // Then shorten x and d by one element.
+        if let Some(sl) = s.last()
+            && let Some(xl) = x.last_mut()
+        {
+            *xl = sl.clone();
+        }
+        (&mut x[0..nx - 1], &s[0..nd])
+    } else {
+        (x, s)
+    };
+
+    let offset = (N as isize - 2) / 2;
+    let n_bcs = N as isize / 4;
+    // TODO: Remove enumeratiion part of the sd_iter after more testing.
+    let g: [T; N] = gi
+        .iter()
+        .rev()
+        .map(|v| v.clone().into())
+        .collect_array()
+        .expect("N=N");
+    let h: [T; N] = hi
+        .iter()
+        .rev()
+        .map(|v| v.clone().into())
+        .collect_array()
+        .expect("N=N");
+
+    let gh_iter = g.chunks_exact(2).zip(h.chunks_exact(2));
+    let pair_shift = offset as usize % 2;
+
+    // s and d have lengths equal to N / 2
+    // gh_iter is an N/2 length iterator that produces items of length 2
+    // need to do for each x0 =
+
+    let per_bc = PeriodicBoundary {};
+
+    if pair_shift > 0
+        && let Some(x) = x.first_mut()
+    {
+        let i_sd = -n_bcs;
+        *x = (0..N as isize / 2)
+            .zip(gh_iter.clone())
+            .map(|(j, (g, h))| {
+                let s0 = per_bc.get_bc(s, i_sd + j);
+                let d0 = per_bc.get_bc(d, i_sd + j);
+                g[0].clone() * s0 + h[0].clone() * d0
+            })
+            .fold(T::zero(), |acc, v| acc + v);
+    }
+    let mut x_iter =
+        (pair_shift as isize - n_bcs..nd as isize - n_bcs).zip(x[pair_shift..].chunks_exact_mut(2));
+
+    // front boundarys
+    x_iter
+        .by_ref()
+        .take(n_bcs as usize - pair_shift)
+        .for_each(|(i_sd, x)| {
+            (x[0], x[1]) = (0..N as isize / 2)
+                .zip(gh_iter.clone())
+                .map(|(j, (g, h))| {
+                    let s0 = per_bc.get_bc(s, i_sd + j);
+                    let d0 = per_bc.get_bc(d, i_sd + j);
+                    (
+                        g[1].clone() * s0.clone() + h[1].clone() * d0.clone(),
+                        g[0].clone() * s0 + h[0].clone() * d0,
+                    )
+                })
+                .fold((T::zero(), T::zero()), |(x0_acc, x1_acc), (x0, x1)| {
+                    (x0_acc + x0, x1_acc + x1)
+                });
+        });
+
+    // main loop
+    x_iter
+        .by_ref()
+        .zip(s.windows(N / 2).zip(d.windows(N / 2)))
+        .for_each(|((_i_sd, x), (s, d))| {
+            dbg!(_i_sd);
+            (x[0], x[1]) = gh_iter
+                .clone()
+                .zip(s.iter().zip(d.iter()))
+                .map(|((g, h), (s, d))| {
+                    (
+                        g[1].clone() * s.clone() + h[1].clone() * d.clone(),
+                        g[0].clone() * s.clone() + h[0].clone() * d.clone(),
+                    )
+                })
+                .fold((T::zero(), T::zero()), |(x0_acc, x1_acc), (x0, x1)| {
+                    (x0_acc + x0, x1_acc + x1)
+                });
+        });
+
+    // back bc loop until the x chunks run out
+    x_iter
+        .by_ref()
+        .take(n_bcs as usize - pair_shift)
+        .for_each(|(i_sd, x)| {
+            dbg!(i_sd);
+            (x[0], x[1]) = (0..N as isize / 2)
+                .zip(gh_iter.clone())
+                .map(|(j, (g, h))| {
+                    let s0 = per_bc.get_bc(s, i_sd + j);
+                    let d0 = per_bc.get_bc(d, i_sd + j);
+                    (
+                        g[1].clone() * s0.clone() + h[1].clone() * d0.clone(),
+                        g[0].clone() * s0 + h[0].clone() * d0,
+                    )
+                })
+                .fold((T::zero(), T::zero()), |(x0_acc, x1_acc), (x0, x1)| {
+                    (x0_acc + x0, x1_acc + x1)
+                });
+        });
+
+    if pair_shift > 0
+        && let Some(x) = x.last_mut()
+    {
+        let i_sd = nd as isize - n_bcs;
+        dbg!(i_sd);
+        *x = (0..N as isize / 2)
+            .zip(gh_iter.clone())
+            .map(|(j, (g, h))| {
+                let s0 = per_bc.get_bc(s, i_sd + j);
+                let d0 = per_bc.get_bc(d, i_sd + j);
+                g[1].clone() * s0 + h[1].clone() * d0
+            })
+            .fold(T::zero(), |acc, v| acc + v);
     }
 }
 

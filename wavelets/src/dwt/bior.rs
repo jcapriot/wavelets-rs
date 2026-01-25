@@ -46,4 +46,58 @@ mod test {
             test_approx_equal(&x2, &x, 1E-14, 0.0);
         }
     }
+
+    #[test]
+    fn test_bior3_1_per() {
+        let n = 32;
+        type WVLT = Bior3_1;
+        let x: Vec<f64> = (0..n).map(|i| (i + 1) as f64).collect();
+        let mut x2 = vec![0.0; n];
+        let nd = n / 2;
+        let ns = (n + 1) / 2;
+
+        let mut s = vec![0.0; ns];
+        let mut d = vec![0.0; nd];
+
+        WVLT::forward_per(&x, &mut s, &mut d);
+
+        dbg!(&s);
+        dbg!(&d);
+
+        WVLT::inverse_per(&s, &d, &mut x2);
+
+        test_approx_equal(&x2, &x, 1E-14, 0.0);
+    }
+
+    #[test]
+    fn test_bior3_1_adj() {
+        let n = 32;
+        type WVLT = Bior3_1;
+        let x: Vec<f64> = (0..n).map(|i| (i + 1) as f64).collect();
+        let mut x2 = vec![0.0; n];
+        let nd = n / 2;
+        let ns = (n + 1) / 2;
+
+        let mut s = vec![0.0; ns];
+        let mut d = vec![0.0; nd];
+
+        WVLT::adjoint_inverse_per(&x, &mut s, &mut d);
+
+        WVLT::adjoint_forward_per(&s, &d, &mut x2);
+
+        test_approx_equal(&x2, &x, 1E-14, 0.0);
+
+        let u = (0..n as isize).map(|i| (i + 1) as f64).collect::<Vec<_>>();
+        let v = (0..n as isize).map(|i| (5 - i) as f64).collect::<Vec<_>>();
+        let (vs, vd) = v.split_at(ns);
+
+        WVLT::forward_per(&u, &mut s, &mut d);
+        let v_dot_f_u = vs.iter().zip(s.iter()).map(|(v1, v2)| v1 * v2).sum::<f64>()
+            + vd.iter().zip(d.iter()).map(|(v1, v2)| v1 * v2).sum::<f64>();
+
+        WVLT::adjoint_forward_per(&vs, &vd, &mut x2);
+        let v_f_t_dot_u = x2.iter().zip(u.iter()).map(|(a, b)| a * b).sum::<f64>();
+
+        assert_eq!(v_dot_f_u, v_f_t_dot_u);
+    }
 }
