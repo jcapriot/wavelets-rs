@@ -285,7 +285,6 @@ pub fn dwt_per_forward<T: Num + Clone + From<U>, U: Clone, const N: usize>(
     let per_bc = PeriodicBoundary {};
 
     sd_iter.by_ref().take(n_bcs).for_each(|(i, (s, d))| {
-        dbg!(i);
         let ix = 2 * i - offset;
         (*s, *d) = (0..N as isize)
             .zip(gh_iter.clone())
@@ -347,8 +346,8 @@ pub fn dwt_per_inverse<T: Num + Clone + From<U>, U: Clone, const N: usize>(
         "'s.len()` + `d.len()' must be equal to `x.len()'"
     );
     let (x, s) = if ns > nd {
-        // for the odd length inverse transform, the last detail coefficient just becomes the last x coefficient.
-        // Then shorten x and d by one element.
+        // for the odd length inverse transform, the last smooth coefficient just becomes the last x coefficient.
+        // Then shorten x and s by one element.
         if let Some(sl) = s.last()
             && let Some(xl) = x.last_mut()
         {
@@ -425,7 +424,6 @@ pub fn dwt_per_inverse<T: Num + Clone + From<U>, U: Clone, const N: usize>(
         .by_ref()
         .zip(s.windows(N / 2).zip(d.windows(N / 2)))
         .for_each(|((_i_sd, x), (s, d))| {
-            dbg!(_i_sd);
             (x[0], x[1]) = gh_iter
                 .clone()
                 .zip(s.iter().zip(d.iter()))
@@ -445,7 +443,6 @@ pub fn dwt_per_inverse<T: Num + Clone + From<U>, U: Clone, const N: usize>(
         .by_ref()
         .take(n_bcs as usize - pair_shift)
         .for_each(|(i_sd, x)| {
-            dbg!(i_sd);
             (x[0], x[1]) = (0..N as isize / 2)
                 .zip(gh_iter.clone())
                 .map(|(j, (g, h))| {
@@ -465,7 +462,6 @@ pub fn dwt_per_inverse<T: Num + Clone + From<U>, U: Clone, const N: usize>(
         && let Some(x) = x.last_mut()
     {
         let i_sd = nd as isize - n_bcs;
-        dbg!(i_sd);
         *x = (0..N as isize / 2)
             .zip(gh_iter.clone())
             .map(|(j, (g, h))| {

@@ -1,11 +1,12 @@
 pub mod bior;
 pub mod daubechies;
 
-use itertools::{Itertools, izip};
 use num_traits::{Num, NumAssignOps};
 
 use crate::boundarys::BoundaryExtension;
-use crate::iter::slice::{ChunkStridedSlice, MutChunkStridedSlice, MutStridedSlice, StridedSlice};
+use crate::boundarys::LiftedAdjointBoundary;
+
+const N: usize = 4;
 
 pub trait LiftingTransform {
     fn forward<T: NumAssignOps + Num + From<f64> + Clone, BC: BoundaryExtension>(
@@ -18,130 +19,16 @@ pub trait LiftingTransform {
         d: &mut [T],
         bc: &BC,
     );
-}
-
-pub fn deinterleave<T: Clone>(x: &[T], evens: &mut [T], odds: &mut [T]) {
-    let nx = x.len();
-    let n_e = evens.len();
-    let n_o = odds.len();
-
-    assert_eq!(nx / 2, n_o);
-    assert_eq!((nx + 1) / 2, n_e);
-
-    x.iter()
-        .zip(evens.iter_mut().interleave(odds.iter_mut()))
-        .for_each(|(x, v)| *v = x.clone());
-}
-
-pub fn deinterleave_strided<T: Clone>(x: &StridedSlice<T>, evens: &mut [T], odds: &mut [T]) {
-    let nx = x.len();
-    let n_e = evens.len();
-    let n_o = odds.len();
-
-    assert_eq!(nx / 2, n_o);
-    assert_eq!((nx + 1) / 2, n_e);
-
-    x.iter()
-        .zip(evens.iter_mut().interleave(odds.iter_mut()))
-        .for_each(|(v, ou)| {
-            *ou = v.clone();
-        });
-}
-
-pub fn stack_to_strided<'a, T: Clone>(
-    first: &[T],
-    second: &[T],
-    out: &'a mut MutStridedSlice<'a, T>,
-) {
-    assert_eq!(first.len() + second.len(), out.len());
-    first
-        .iter()
-        .chain(second.iter())
-        .zip(out.iter_mut())
-        .for_each(|(v_in, v_out)| *v_out = v_in.clone());
-}
-
-pub fn interleave<T: Clone>(evens: &[T], odds: &[T], x: &mut [T]) {
-    let nx = x.len();
-    let n_e = evens.len();
-    let n_o = odds.len();
-
-    assert_eq!(nx / 2, n_o);
-    assert_eq!((nx + 1) / 2, n_e);
-
-    let (chunks, rem) = x.as_chunks_mut::<2>();
-    let mut ev_iter = evens.iter();
-    izip!(chunks.iter_mut(), ev_iter.by_ref(), odds.iter()).for_each(|(xc, even, odd)| {
-        xc[0] = even.clone();
-        xc[1] = odd.clone();
-    });
-    rem.iter_mut()
-        .zip(ev_iter)
-        .for_each(|(x, ev)| *x = ev.clone());
-}
-
-const N: usize = 4;
-
-pub fn deinterleave_strided_chunk<T: Clone, const N: usize>(
-    x: &ChunkStridedSlice<T, N>,
-    evens: &mut [T],
-    odds: &mut [T],
-) {
-    assert_ne!(N, 0);
-
-    let nx = x.len();
-
-    let n_e = evens.len() / N;
-    let n_o = odds.len() / N;
-
-    assert_eq!(nx / 2, n_o);
-    assert_eq!(nx - n_o, n_e);
-
-    let mut e_chunks = evens.chunks_exact_mut(n_e).collect::<Vec<_>>();
-    let mut o_chunks = odds.chunks_exact_mut(n_o).collect::<Vec<_>>();
-    assert_eq!(e_chunks.len(), N);
-    assert_eq!(o_chunks.len(), N);
-
-    x.iter().enumerate().for_each(|(i_row, x)| {
-        let ind_io = i_row / 2;
-        x.enumerate().for_each(|(i, x)| unsafe {
-            if i_row % 2 == 0 {
-                *e_chunks[i].get_unchecked_mut(ind_io) = x.clone();
-            } else {
-                *o_chunks[i].get_unchecked_mut(ind_io) = x.clone();
-            }
-        });
-    });
-}
-
-pub fn stack_to_strided_chunk<'a, T: Clone, const N: usize>(
-    first: &[T],
-    second: &[T],
-    out: &'a mut MutChunkStridedSlice<'a, T, N>,
-) {
-    assert_ne!(N, 0);
-
-    let nx = out.len();
-
-    let n_first = first.len() / N;
-    let n_second = second.len() / N;
-
-    let f_chunks = first.chunks_exact(n_first).collect::<Vec<_>>();
-    let s_chunks = second.chunks_exact(n_second).collect::<Vec<_>>();
-    assert_eq!(f_chunks.len(), N);
-    assert_eq!(s_chunks.len(), N);
-
-    assert_eq!(n_first + n_second, nx);
-
-    out.iter_mut().enumerate().for_each(|(i_row, out)| {
-        out.enumerate().for_each(|(i, out)| unsafe {
-            if i_row < n_first {
-                *out = f_chunks[i].get_unchecked(i_row).clone();
-            } else {
-                *out = s_chunks[i].get_unchecked(i_row - n_first).clone();
-            }
-        });
-    });
+    fn adjoint_forward<T: NumAssignOps + Num + From<f64> + Clone, BC: LiftedAdjointBoundary>(
+        s: &mut [T],
+        d: &mut [T],
+        bc: &BC,
+    );
+    fn adjoint_inverse<T: NumAssignOps + Num + From<f64> + Clone, BC: LiftedAdjointBoundary>(
+        s: &mut [T],
+        d: &mut [T],
+        bc: &BC,
+    );
 }
 
 pub fn general_nd_forward<T>(
@@ -154,6 +41,9 @@ pub fn general_nd_forward<T>(
     T: Num + NumAssignOps + Clone + From<f64>,
 {
     use crate::iter::slice::LanesIterator;
+    use crate::utils::{
+        deinterleave_strided, deinterleave_strided_chunk, stack_to_strided, stack_to_strided_chunk,
+    };
 
     assert_eq!(input.len(), output.len());
     assert_eq!(input.len(), shape.iter().product());
@@ -224,6 +114,10 @@ pub mod parallel {
         T: Num + NumAssignOps + Clone + From<f64> + Sync + Send,
     {
         use crate::iter::slice::parallel::ParallelLanesIterator;
+        use crate::utils::{
+            deinterleave_strided, deinterleave_strided_chunk, stack_to_strided,
+            stack_to_strided_chunk,
+        };
 
         assert_eq!(input.len(), output.len());
         assert_eq!(input.len(), shape.iter().product());
@@ -291,6 +185,7 @@ mod tests {
     use super::*;
 
     use crate::tests::test_approx_equal;
+    use itertools::Itertools;
     use wavelets_macros::implement_lifting_scheme;
 
     use crate::boundarys::BoundaryCondition;
@@ -302,18 +197,69 @@ mod tests {
 
     implement_lifting_scheme!(
         TestWavelet,
-        UpdateD(-1, [1.0, 2.0]),
-        UpdateS(1, [-1.0, 2.0]),
+        UpdateD(-1, [1.0, 2.0, 3.0, 4.0]),
+        UpdateS(-2, [-1.0, 2.0, -3.0, 4.0, -5.0]),
         Scale(0.5)
     );
 
     #[test]
     fn test_multisteps_forward_inverse() {
-        let input = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+        let bcs = [
+            BoundaryCondition::Zero,
+            BoundaryCondition::Periodic,
+            BoundaryCondition::Constant,
+            BoundaryCondition::Reflect,
+            BoundaryCondition::Symmetric,
+        ];
+        for n in [32, 31] {
+            let ns = (n + 1) / 2;
+            let input = (0..n).map(|i| (i + 1) as f64).collect_vec();
 
-        let mut s = [0.0; 8];
-        let mut d = [0.0; 8];
+            for bc in bcs.iter() {
+                let mut s = input[..ns].to_vec();
+                let mut d = input[ns..].to_vec();
 
+                TestWavelet::forward(&mut s, &mut d, bc);
+
+                TestWavelet::inverse(&mut s, &mut d, bc);
+
+                let output = s.iter().chain(d.iter()).cloned().collect_vec();
+
+                test_approx_equal(&output, &input, RTOL, ATOL);
+            }
+        }
+    }
+
+    #[test]
+    fn test_multisteps_adjoint_forward_inverse() {
+        let bcs = [
+            BoundaryCondition::Zero,
+            BoundaryCondition::Periodic,
+            BoundaryCondition::Constant,
+            BoundaryCondition::Reflect,
+            BoundaryCondition::Symmetric,
+        ];
+        for n in [32, 31] {
+            let ns = (n + 1) / 2;
+            let input = (0..n).map(|i| (i + 1) as f64).collect_vec();
+
+            for bc in bcs.iter() {
+                let mut s = input[..ns].to_vec();
+                let mut d = input[ns..].to_vec();
+
+                TestWavelet::adjoint_forward(&mut s, &mut d, bc);
+
+                TestWavelet::adjoint_inverse(&mut s, &mut d, bc);
+
+                let output = s.iter().chain(d.iter()).cloned().collect_vec();
+
+                test_approx_equal(&output, &input, RTOL, ATOL);
+            }
+        }
+    }
+
+    #[test]
+    fn test_multisteps_forward_adjoint() {
         let bcs = [
             BoundaryCondition::Zero,
             BoundaryCondition::Periodic,
@@ -322,25 +268,83 @@ mod tests {
             BoundaryCondition::Symmetric,
         ];
 
-        for bc in bcs {
-            let (chunks, _rem) = input.as_chunks::<2>();
-            chunks.iter().enumerate().for_each(|(i, xc)| {
-                s[i] = xc[0];
-                d[i] = xc[1];
-            });
+        let n = 32;
+        let ns = (n + 1) / 2;
 
-            TestWavelet::forward(&mut s, &mut d, &bc);
+        for bc in bcs.iter() {
+            let u = (0..n).map(|v| v as f64).collect::<Vec<_>>();
+            let v = (0..n).map(|v| -((v + 500) as f64)).collect::<Vec<_>>();
 
-            TestWavelet::inverse(&mut s, &mut d, &bc);
+            let mut s_u = u[..ns].iter().cloned().collect::<Vec<_>>();
+            let mut d_u = u[ns..n].iter().cloned().collect::<Vec<_>>();
 
-            let mut output = [0.0; 8];
-            let (chunks, _rem) = output.as_chunks_mut::<2>();
-            chunks.iter_mut().enumerate().for_each(|(i, out)| {
-                out[0] = s[i];
-                out[1] = d[i];
-            });
+            TestWavelet::forward(&mut s_u, &mut d_u, bc);
 
-            test_approx_equal(&input, &output, RTOL, ATOL);
+            let left: f64 = s_u
+                .iter()
+                .chain(d_u.iter())
+                .zip(v.iter())
+                .map(|(v1, v2)| v1 * v2)
+                .sum();
+
+            let mut s_v = v[..ns].iter().cloned().collect::<Vec<_>>();
+            let mut d_v = v[ns..n].iter().cloned().collect::<Vec<_>>();
+
+            TestWavelet::adjoint_forward(&mut s_v, &mut d_v, bc);
+
+            let right: f64 = s_v
+                .iter()
+                .chain(d_v.iter())
+                .zip(u.iter())
+                .map(|(v1, v2)| v1 * v2)
+                .sum();
+
+            assert_eq!(left, right)
+        }
+    }
+
+    #[test]
+    fn test_multisteps_inverse_adjoint() {
+        let bcs = [
+            BoundaryCondition::Zero,
+            BoundaryCondition::Periodic,
+            BoundaryCondition::Constant,
+            BoundaryCondition::Reflect,
+            BoundaryCondition::Symmetric,
+        ];
+
+        let n = 32;
+        let ns = (n + 1) / 2;
+
+        for bc in bcs.iter() {
+            let u = (0..n).map(|v| v as f64).collect::<Vec<_>>();
+            let v = (0..n).map(|v| -((v + 500) as f64)).collect::<Vec<_>>();
+
+            let mut s_u = u[..ns].iter().cloned().collect::<Vec<_>>();
+            let mut d_u = u[ns..n].iter().cloned().collect::<Vec<_>>();
+
+            TestWavelet::inverse(&mut s_u, &mut d_u, bc);
+
+            let left: f64 = s_u
+                .iter()
+                .chain(d_u.iter())
+                .zip(v.iter())
+                .map(|(v1, v2)| v1 * v2)
+                .sum();
+
+            let mut s_v = v[..ns].iter().cloned().collect::<Vec<_>>();
+            let mut d_v = v[ns..n].iter().cloned().collect::<Vec<_>>();
+
+            TestWavelet::adjoint_inverse(&mut s_v, &mut d_v, bc);
+
+            let right: f64 = s_v
+                .iter()
+                .chain(d_v.iter())
+                .zip(u.iter())
+                .map(|(v1, v2)| v1 * v2)
+                .sum();
+
+            assert_eq!(left, right)
         }
     }
 }

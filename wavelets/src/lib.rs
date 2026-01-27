@@ -4,6 +4,7 @@ pub mod lwt;
 pub mod wavelets;
 //pub mod vector;
 pub mod iter;
+pub mod utils;
 
 pub enum TransformDirection {
     Forward,
