@@ -75,7 +75,7 @@ fn interleave_benchmark(c: &mut Criterion) {
 
 fn interleave_strided_benchmark(c: &mut Criterion) {
     use wavelets::iter::slice::LanesIterator;
-    use wavelets::utils::{interleave, interleave_inplace};
+    use wavelets::utils::interleave;
 
     let n = 100;
 
@@ -153,7 +153,7 @@ fn interleave_strided_benchmark(c: &mut Criterion) {
 
 fn deinterleave_benchmark(c: &mut Criterion) {
     use wavelets::iter::slice::LanesIterator;
-    use wavelets::utils::{deinterleave_nd, deinterleave_strided, deinterleave_strided_chunk};
+    use wavelets::utils::{deinterleave_nd, deinterleave_strided};
 
     const D: usize = 2;
     let n = 100;
@@ -164,9 +164,6 @@ fn deinterleave_benchmark(c: &mut Criterion) {
     let n_total = shape.iter().product();
     let x1 = (0..n_total).collect_vec();
     let mut x2 = (0..n_total).collect_vec();
-
-    let mut work_e = vec![0; n];
-    let mut work_o = vec![0; n];
 
     group.bench_function("using lanes", |b| {
         b.iter(|| {
@@ -202,7 +199,6 @@ fn broadcasted_vs_strided_db2(c: &mut Criterion) {
     use wavelets::lwt::LiftingTransform;
     use wavelets::utils::deinterleave_nd;
 
-    const D: usize = 2;
     let n = 500;
 
     let shape = [n, n];
