@@ -18,7 +18,7 @@ struct LiftingScheme<T> {
     steps: Vec<LiftingStep<T>>,
 }
 
-impl Parse for LiftingStep<f64> {
+impl Parse for LiftingStep<LitFloat> {
     fn parse(input: ParseStream) -> Result<Self> {
         let ident: Ident = input.parse()?;
 
@@ -34,10 +34,9 @@ impl Parse for LiftingStep<f64> {
 
                 let coeff_content;
                 syn::bracketed!(coeff_content in content);
-                let coefs: Vec<f64> = coeff_content
+                let coefs: Vec<LitFloat> = coeff_content
                     .parse_terminated(syn::LitFloat::parse, Token![,])?
                     .into_iter()
-                    .map(|lit| lit.base10_parse().unwrap())
                     .collect();
 
                 if ident == "UpdateD" {
@@ -47,8 +46,7 @@ impl Parse for LiftingStep<f64> {
                 }
             }
             "Scale" => {
-                let lit: LitFloat = content.parse()?;
-                let scale = lit.base10_parse()?;
+                let scale: LitFloat = content.parse()?;
                 Ok(Self::Scale { scale })
             }
             _ => Err(input.error("unknown lifting step")),
@@ -56,13 +54,13 @@ impl Parse for LiftingStep<f64> {
     }
 }
 
-impl Parse for LiftingScheme<f64> {
+impl Parse for LiftingScheme<LitFloat> {
     fn parse(input: ParseStream) -> Result<Self> {
         let name = input.parse()?;
         input.parse::<Token![,]>()?;
 
-        let steps: Vec<LiftingStep<f64>> = input
-            .parse_terminated(LiftingStep::<f64>::parse, Token![,])?
+        let steps: Vec<LiftingStep<LitFloat>> = input
+            .parse_terminated(LiftingStep::<LitFloat>::parse, Token![,])?
             .into_iter()
             .collect();
         Ok(Self { name, steps })
@@ -75,11 +73,18 @@ enum LiftingDirection {
 }
 
 fn expand_lifting_step(
-    step: &LiftingStep<f64>,
+    step: &LiftingStep<LitFloat>,
     direction: LiftingDirection,
 ) -> proc_macro2::TokenStream {
     match step {
-        LiftingStep::UpdateD { offset, coefs } | LiftingStep::UpdateS { offset, coefs } => {
+        LiftingStep::UpdateD {
+            offset,
+            coefs: lit_coefs,
+        }
+        | LiftingStep::UpdateS {
+            offset,
+            coefs: lit_coefs,
+        } => {
             let (l, r, is_s) = match step {
                 LiftingStep::UpdateS { .. } => (quote! {s}, quote! {d}, true),
                 LiftingStep::UpdateD { .. } => (quote! {d}, quote! {s}, false),
@@ -96,6 +101,11 @@ fn expand_lifting_step(
                 LiftingDirection::Forward => quote! {+=},
                 LiftingDirection::Inverse => quote! {-=},
             };
+
+            let coefs = lit_coefs
+                .iter()
+                .map(|v| v.base10_parse().unwrap())
+                .collect::<Vec<f64>>();
 
             let n_coefs = coefs.len();
             let n_front = std::cmp::max(0, -offset) as usize;
@@ -114,22 +124,26 @@ fn expand_lifting_step(
             };
 
             if *offset < 0 {
-                let accumulators =
-                    coefs
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, v)| **v != 0.0)
-                        .map(|(j, _)| {
-                            let i_off = offset + j as isize;
-                            let j = syn::Index::from(j);
-                            quote! {
-                                c.#j.clone() * bc.get_bc(#r, i + #i_off)
-                            }
-                        });
+                let accumulators = lit_coefs.iter().enumerate().filter_map(|(j, v)| {
+                    if let Ok(v) = v.base10_parse::<f64>()
+                        && v == 0.0
+                    {
+                        None
+                    } else {
+                        let i_off = offset + j as isize;
+                        let j = syn::Index::from(j);
+                        Some(quote! {
+                            bc.get_bc(#r, i + #i_off).and_then(|v| Some(v * c.#j.clone()))
+                        })
+                    }
+                });
                 loop_body = quote! {
                     #loop_body
                     for (i, #l_i) in #l_iter.by_ref().take(#n_front){
-                        *#l_i #update_op #(#accumulators)+*;
+                        let vs = [#(#accumulators), *];
+                        if let Some(v) = vs.into_iter().filter_map(|v| v).reduce(|acc, v| acc + v){
+                            *#l_i #update_op v;
+                        }
                     }
                 };
             }
@@ -152,17 +166,16 @@ fn expand_lifting_step(
             };
 
             if n_coefs > 1 {
-                let accumulators =
-                    coefs
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, v)| **v != 0.0)
-                        .map(|(j, _)| {
-                            let j = syn::Index::from(j);
-                            quote! {
-                                c.#j.clone() * #r_i[#j].clone()
-                            }
-                        });
+                let accumulators = coefs.iter().enumerate().filter_map(|(j, v)| {
+                    if *v == 0.0 {
+                        None
+                    } else {
+                        let j = syn::Index::from(j);
+                        Some(quote! {
+                            #r_i[#j].clone() * c.#j.clone()
+                        })
+                    }
+                });
 
                 loop_body = quote! {
                     #loop_body
@@ -178,7 +191,7 @@ fn expand_lifting_step(
                     #main_loop_l_iter
                         .zip(#r_iter.iter())
                         .for_each(|((_, #l_i), #r_i)|{
-                            *#l_i #update_op c.0.clone() * #r_i.clone();
+                            *#l_i #update_op #r_i.clone() * c.0.clone();
                         });
                 };
             }
@@ -192,13 +205,17 @@ fn expand_lifting_step(
                             let i_off = offset + j as isize;
                             let j = syn::Index::from(j);
                             quote! {
-                                c.#j.clone() * bc.get_bc(#r, i + #i_off)
+                                bc.get_bc(#r, i + #i_off).and_then(|v| Some(v * c.#j.clone()))
                             }
                         });
                 loop_body = quote! {
                     #loop_body
                     for (i, #l_i) in #l_iter{
-                        *#l_i #update_op #(#accumulators)+*;
+                        let vs = [#(#accumulators), *];
+                        if let Some(v) = vs.into_iter().filter_map(|v| v).reduce(|acc, v| acc + v){
+                            *#l_i #update_op v;
+                        }
+                        //*#l_i #update_op #(#accumulators)+*;
                     }
                 };
             }
@@ -226,7 +243,7 @@ fn expand_lifting_step(
 }
 
 fn expand_adjoint_lifting_step(
-    step: &LiftingStep<f64>,
+    step: &LiftingStep<LitFloat>,
     direction: LiftingDirection,
 ) -> proc_macro2::TokenStream {
     match step {
@@ -247,6 +264,11 @@ fn expand_adjoint_lifting_step(
                 LiftingDirection::Forward => quote! {+=},
                 LiftingDirection::Inverse => quote! {-=},
             };
+
+            let coefs = coefs
+                .iter()
+                .map(|v| v.base10_parse().unwrap())
+                .collect::<Vec<f64>>();
 
             let n_coefs = coefs.len();
             let n_front = std::cmp::max(0, -offset) as usize;
@@ -294,22 +316,22 @@ fn expand_adjoint_lifting_step(
                 let mut #l_iter = (0..#l.len() as isize).zip(#l.iter_mut());
             };
             if n_back > 0 {
-                let accumulators = coefs
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(j, v)| {
-                        if *v == 0.0 {
-                            None
-                        }else{
-                            let i_off = offset_r + j as isize;
-                            let j = syn::Index::from(j);
-                            Some(quote!{c[#j].clone() * #r.get((i + #i_off) as usize).cloned().unwrap_or(T::zero())})
-                        }
-                    });
+                let accumulators = coefs.iter().enumerate().filter_map(|(j, v)| {
+                    if *v == 0.0 {
+                        None
+                    } else {
+                        let i_off = offset_r + j as isize;
+                        let j = syn::Index::from(j);
+                        Some(quote! {#r.get((i + #i_off) as usize).cloned().and_then(|v| Some(v * c[#j].clone()))})
+                    }
+                });
                 loop_body = quote! {
                     #loop_body
                     for (i, #l_i) in #l_iter.by_ref().take(#n_back){
-                        *#l_i #update_op #(#accumulators)+*;
+                        let vals = [#(#accumulators),*];
+                        if let Some(v) = vals.into_iter().filter_map(|v| v).reduce(|acc, v| acc + v){
+                            *#l_i #update_op v;
+                        }
                     }
                 }
             }
@@ -338,7 +360,7 @@ fn expand_adjoint_lifting_step(
                     } else {
                         let j = syn::Index::from(j);
                         Some(quote! {
-                            c[#j].clone() * #r_i[#j].clone()
+                            #r_i[#j].clone() * c[#j].clone()
                         })
                     }
                 });
@@ -357,7 +379,7 @@ fn expand_adjoint_lifting_step(
                     #main_loop_l_iter
                         .zip(#r_iter.iter())
                         .for_each(|((_, #l_i), #r_i)|{
-                            *#l_i #update_op c[0].clone() * #r_i.clone();
+                            *#l_i #update_op #r_i.clone() * c[0].clone();
                         });
                 };
             }
@@ -371,13 +393,16 @@ fn expand_adjoint_lifting_step(
                         }else{
                             let i_off = offset_r + j as isize;
                             let j = syn::Index::from(j);
-                            Some(quote!{c[#j].clone() * #r.get((i + #i_off) as usize).cloned().unwrap_or(T::zero())})
+                            Some(quote!{#r.get((i + #i_off) as usize).cloned().and_then(|v| Some(v * c[#j].clone()))})
                         }
                     });
                 loop_body = quote! {
                     #loop_body
                     for (i, #l_i) in #l_iter{
-                        *#l_i #update_op #(#accumulators)+*;
+                        let vals = [#(#accumulators),*];
+                        if let Some(v) = vals.into_iter().filter_map(|v| v).reduce(|acc, v| acc + v){
+                            *#l_i #update_op v;
+                        }
                     }
                 };
             }
@@ -415,7 +440,7 @@ fn expand_adjoint_lifting_step(
     }
 }
 
-fn generate_forward_op(steps: &[LiftingStep<f64>]) -> proc_macro2::TokenStream {
+fn generate_forward_op(steps: &[LiftingStep<LitFloat>]) -> proc_macro2::TokenStream {
     let mut func_body = quote! {
         assert!(d.len() == s.len() || d.len() + 1 == s.len(), "detail and scaling coefficient arrays must have compatible lengths");
     };
@@ -427,8 +452,9 @@ fn generate_forward_op(steps: &[LiftingStep<f64>]) -> proc_macro2::TokenStream {
     quote! {
         fn forward<T, BC>(s: &mut [T], d: &mut [T], bc: &BC)
         where
-            T: ::num_traits::Num
+            T: ::num_traits::NumOps
                 + ::num_traits::NumAssignOps
+                + ::std::ops::Neg<Output = T>
                 + Clone
                 + From<f64>,
             BC: crate::boundarys::BoundaryExtension
@@ -439,7 +465,7 @@ fn generate_forward_op(steps: &[LiftingStep<f64>]) -> proc_macro2::TokenStream {
     .into()
 }
 
-fn generate_inverse_op(steps: &[LiftingStep<f64>]) -> proc_macro2::TokenStream {
+fn generate_inverse_op(steps: &[LiftingStep<LitFloat>]) -> proc_macro2::TokenStream {
     let mut func_body = quote! {
         assert!(d.len() == s.len() || d.len() + 1 == s.len(), "detail and scaling coefficient arrays must have compatible lengths");
     };
@@ -451,8 +477,9 @@ fn generate_inverse_op(steps: &[LiftingStep<f64>]) -> proc_macro2::TokenStream {
     quote! {
         fn inverse<T, BC>(s: &mut [T], d: &mut [T], bc: &BC)
         where
-            T: ::num_traits::Num
+            T: ::num_traits::NumOps
                 + ::num_traits::NumAssignOps
+                + ::std::ops::Neg<Output = T>
                 + Clone
                 + From<f64>,
             BC: crate::lwt::BoundaryExtension
@@ -463,7 +490,7 @@ fn generate_inverse_op(steps: &[LiftingStep<f64>]) -> proc_macro2::TokenStream {
     .into()
 }
 
-fn generate_adjoint_inverse_op(steps: &[LiftingStep<f64>]) -> proc_macro2::TokenStream {
+fn generate_adjoint_inverse_op(steps: &[LiftingStep<LitFloat>]) -> proc_macro2::TokenStream {
     let mut func_body = quote! {
         assert!(d.len() == s.len() || d.len() + 1 == s.len(), "detail and scaling coefficient arrays must have compatible lengths");
     };
@@ -475,8 +502,9 @@ fn generate_adjoint_inverse_op(steps: &[LiftingStep<f64>]) -> proc_macro2::Token
     quote! {
         fn adjoint_inverse<T, BC>(s: &mut [T], d: &mut [T], bc: &BC)
         where
-            T: ::num_traits::Num
+            T: ::num_traits::NumOps
                 + ::num_traits::NumAssignOps
+                + ::std::ops::Neg<Output = T>
                 + Clone
                 + From<f64>,
             BC: crate::lwt::LiftedAdjointBoundary
@@ -487,7 +515,7 @@ fn generate_adjoint_inverse_op(steps: &[LiftingStep<f64>]) -> proc_macro2::Token
     .into()
 }
 
-fn generate_adjoint_forward_op(steps: &[LiftingStep<f64>]) -> proc_macro2::TokenStream {
+fn generate_adjoint_forward_op(steps: &[LiftingStep<LitFloat>]) -> proc_macro2::TokenStream {
     let mut func_body = quote! {
         assert!(d.len() == s.len() || d.len() + 1 == s.len(), "detail and scaling coefficient arrays must have compatible lengths");
     };
@@ -499,8 +527,9 @@ fn generate_adjoint_forward_op(steps: &[LiftingStep<f64>]) -> proc_macro2::Token
     let temp = quote! {
         fn adjoint_forward<T, BC>(s: &mut [T], d: &mut [T], bc: &BC)
         where
-            T: ::num_traits::Num
+            T: ::num_traits::NumOps
                 + ::num_traits::NumAssignOps
+                + ::std::ops::Neg<Output = T>
                 + Clone
                 + From<f64>,
             BC: crate::lwt::LiftedAdjointBoundary
@@ -515,8 +544,8 @@ fn generate_adjoint_forward_op(steps: &[LiftingStep<f64>]) -> proc_macro2::Token
 
 #[proc_macro]
 pub fn implement_lifting_scheme(input: TokenStream) -> TokenStream {
-    let scheme = parse_macro_input!(input with LiftingScheme::<f64>::parse);
-    let LiftingScheme::<f64> { name, steps } = scheme;
+    let scheme = parse_macro_input!(input with LiftingScheme::<LitFloat>::parse);
+    let LiftingScheme::<LitFloat> { name, steps } = scheme;
     //println!("parsed steps: {:?}", steps);
     //let scheme = parse_macro_input!(input as LiftingScheme<f64>);
     //expand_forward_scheme(&scheme)

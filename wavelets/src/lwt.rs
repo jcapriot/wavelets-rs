@@ -1,183 +1,105 @@
 pub mod bior;
 pub mod daubechies;
 
-use num_traits::{Num, NumAssignOps};
+use num_traits::{NumAssignOps, NumOps};
+use std::ops::Neg;
 
 use crate::boundarys::BoundaryExtension;
 use crate::boundarys::LiftedAdjointBoundary;
 
-const N: usize = 4;
-
 pub trait LiftingTransform {
-    fn forward<T: NumAssignOps + Num + From<f64> + Clone, BC: BoundaryExtension>(
+    fn forward<
+        T: NumAssignOps + NumOps + From<f64> + Neg<Output = T> + Clone,
+        BC: BoundaryExtension,
+    >(
         s: &mut [T],
         d: &mut [T],
         bc: &BC,
     );
-    fn inverse<T: NumAssignOps + Num + From<f64> + Clone, BC: BoundaryExtension>(
+    fn inverse<
+        T: NumAssignOps + NumOps + From<f64> + Neg<Output = T> + Clone,
+        BC: BoundaryExtension,
+    >(
         s: &mut [T],
         d: &mut [T],
         bc: &BC,
     );
-    fn adjoint_forward<T: NumAssignOps + Num + From<f64> + Clone, BC: LiftedAdjointBoundary>(
+    fn adjoint_forward<
+        T: NumAssignOps + NumOps + From<f64> + Neg<Output = T> + Clone,
+        BC: LiftedAdjointBoundary,
+    >(
         s: &mut [T],
         d: &mut [T],
         bc: &BC,
     );
-    fn adjoint_inverse<T: NumAssignOps + Num + From<f64> + Clone, BC: LiftedAdjointBoundary>(
+    fn adjoint_inverse<
+        T: NumAssignOps + NumOps + From<f64> + Neg<Output = T> + Clone,
+        BC: LiftedAdjointBoundary,
+    >(
         s: &mut [T],
         d: &mut [T],
         bc: &BC,
     );
 }
 
-pub fn general_nd_forward<T>(
-    func: fn(&mut [T], &mut [T]),
-    input: &[T],
-    output: &mut [T],
-    shape: &[usize],
-    axes: &[usize],
-) where
-    T: Num + NumAssignOps + Clone + From<f64>,
-{
-    use crate::iter::slice::LanesIterator;
-    use crate::utils::{
-        deinterleave_strided, deinterleave_strided_chunk, stack_to_strided, stack_to_strided_chunk,
-    };
+pub fn broadcasted_db2<'a, T: NumAssignOps + NumOps + From<f64> + Clone>(
+    s: &'a mut [T],
+    d: &'a mut [T],
+    n: usize,
+) {
+    assert_eq!(s.len() % n, 0);
+    let ns = s.len() / n;
 
-    assert_eq!(input.len(), output.len());
-    assert_eq!(input.len(), shape.iter().product());
-    let mut first = true;
+    assert_eq!(d.len() % n, 0);
+    let nd = d.len() / n;
 
-    for &ax in axes {
-        let n_ax = shape[ax];
+    assert!(ns == nd || ns == nd + 1);
 
-        let n_d = n_ax / 2;
-        let n_s = n_ax - n_d;
+    let v = T::from(-1.73205080756887729352744634150587236694280525381038062805581_f64);
+    d.chunks_exact_mut(n)
+        .zip(s.chunks_exact(n))
+        .for_each(|(d, s)| {
+            d.iter_mut()
+                .zip(s.iter())
+                .for_each(|(d, s)| *d += v.clone() * s.clone());
+        });
 
-        let input = match first {
-            false => {
-                // create a clone of the output to read from
-                // we are not reading from and writing to output during the same function
-                // it is always copied to a temporary array in between.
-                // so there is no aliasing.
-                unsafe { std::slice::from_raw_parts(output.as_ptr(), output.len()) }
-            }
-            true => {
-                first = false;
-                input
-            }
-        };
+    let c = (
+        T::from(0.433012701892219323381861585376468091735701313452595157013952),
+        T::from(-0.0669872981077806766181384146235319082642986865474048429860483),
+    );
 
-        let (iter_in_chunks, iter_in_rem) = input.iter_lane_chunks::<N>(shape, ax);
-        let (iter_out_chunks, iter_out_rem) = output.iter_lane_chunks_mut::<N>(shape, ax);
-
-        if iter_in_chunks.len() > 0 {
-            let mut s = vec![T::zero(); n_s * N];
-            let mut d = vec![T::zero(); n_d * N];
-            for (in_chunk, mut out_chunk) in iter_in_chunks.zip(iter_out_chunks) {
-                deinterleave_strided_chunk(&in_chunk, &mut s, &mut d);
-                s.chunks_exact_mut(n_s)
-                    .zip(d.chunks_exact_mut(n_d))
-                    .for_each(|(mut s, mut d)| {
-                        func(&mut s, &mut d);
-                    });
-                stack_to_strided_chunk(&s, &d, &mut out_chunk);
-            }
-        }
-        let mut s = vec![T::zero(); n_s];
-        let mut d = vec![T::zero(); n_d];
-        iter_in_rem
-            .zip(iter_out_rem)
-            .for_each(|(in_slice, mut out_slice)| {
-                // copy strided slice into local dimension storage
-                deinterleave_strided(&in_slice, &mut s, &mut d);
-                func(&mut s, &mut d);
-                // copy local back to output strided slice
-                stack_to_strided(&s, &d, &mut out_slice);
-            });
-    }
-}
-
-pub mod parallel {
-    use super::*;
-    use rayon::iter::IndexedParallelIterator;
-    use rayon::iter::ParallelIterator;
-
-    pub fn general_nd_forward<T>(
-        func: fn(&mut [T], &mut [T]),
-        input: &[T],
-        output: &mut [T],
-        shape: &[usize],
-        axes: &[usize],
-    ) where
-        T: Num + NumAssignOps + Clone + From<f64> + Sync + Send,
-    {
-        use crate::iter::slice::parallel::ParallelLanesIterator;
-        use crate::utils::{
-            deinterleave_strided, deinterleave_strided_chunk, stack_to_strided,
-            stack_to_strided_chunk,
-        };
-
-        assert_eq!(input.len(), output.len());
-        assert_eq!(input.len(), shape.iter().product());
-        let mut first = true;
-
-        for &ax in axes {
-            let n_ax = shape[ax];
-
-            let n_d = n_ax / 2;
-            let n_s = n_ax - n_d;
-
-            let input = match first {
-                false => {
-                    // create a clone of the output to read from
-                    // we are not reading from and writing to output during the same function
-                    // it is always copied to a temporary array in between.
-                    // so there is no aliasing.
-                    unsafe { std::slice::from_raw_parts(output.as_ptr(), output.len()) }
-                }
-                true => {
-                    first = false;
-                    input
-                }
-            };
-
-            let (iter_in_chunks, iter_in_rem) = input.par_iter_lane_chunks::<N>(shape, ax);
-            let (iter_out_chunks, iter_out_rem) = output.par_iter_lane_chunks_mut::<N>(shape, ax);
-
-            let n_threads = rayon::current_num_threads();
-            let min_len = std::cmp::max(1, iter_in_chunks.len() / (n_threads + 1));
-
-            if iter_in_chunks.len() > 0 {
-                iter_in_chunks
-                    .zip(iter_out_chunks)
-                    .with_min_len(min_len)
-                    .for_each_init(
-                        || (vec![T::zero(); n_s * N], vec![T::zero(); n_d * N]),
-                        |(s, d), (in_chunk, mut out_chunk)| {
-                            deinterleave_strided_chunk(&in_chunk, s, d);
-                            s.chunks_exact_mut(n_s)
-                                .zip(d.chunks_exact_mut(n_d))
-                                .for_each(|(mut s, mut d)| {
-                                    func(&mut s, &mut d);
-                                });
-                            stack_to_strided_chunk(&s, &d, &mut out_chunk);
-                        },
-                    );
-            }
-            iter_in_rem.zip(iter_out_rem).with_min_len(N).for_each_init(
-                || (vec![T::zero(); n_s], vec![T::zero(); n_d]),
-                |(s, d), (in_slice, mut out_slice)| {
-                    // copy strided slice into local dimension storage
-                    deinterleave_strided(&in_slice, s, d);
-                    func(s, d);
-                    // copy local back to output strided slice
-                    stack_to_strided(&s, &d, &mut out_slice);
-                },
-            );
+    let mut s_chunks = s.chunks_exact_mut(n).enumerate();
+    s_chunks
+        .by_ref()
+        .zip(d.chunks_exact(n).zip(d[n..].chunks_exact(n)))
+        .for_each(|((_i, s), d)| {
+            s.iter_mut()
+                .zip(d.0.iter().zip(d.1.iter()))
+                .for_each(|(s, d)| {
+                    *s += c.0.clone() * d.0.clone() + c.1.clone() * d.1.clone();
+                })
+        });
+    for (i, s) in s_chunks {
+        if i < nd {
+            s.iter_mut()
+                .zip(d[i * n..(i + 1) * n].iter())
+                .for_each(|(s, d)| *s += c.0.clone() * d.clone());
         }
     }
+
+    let v = T::from(1.0);
+    d.chunks_exact_mut(n)
+        .zip(s.chunks_exact(n))
+        .for_each(|(d, s)| {
+            d.iter_mut()
+                .zip(s.iter())
+                .for_each(|(d, s)| *d += v.clone() * s.clone());
+        });
+
+    let scale = T::from(1.93185165257813657349948639945779473526780967801680910080469);
+    s.iter_mut().for_each(|v| *v *= scale.clone());
+    d.iter_mut().for_each(|v| *v /= scale.clone());
 }
 
 #[cfg(test)]
@@ -192,7 +114,6 @@ mod tests {
 
     const RTOL: f64 = 1E-6;
     const ATOL: f64 = 1E-14;
-
     pub struct TestWavelet;
 
     implement_lifting_scheme!(

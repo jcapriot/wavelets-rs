@@ -56,8 +56,23 @@ impl<'a, T> StridedSlice<'a, T> {
     }
 
     #[inline]
+    pub fn get_mut(&mut self, index: usize) -> Option<&'a mut T> {
+        if index >= self.length {
+            None
+        } else {
+            Some(unsafe { self.get_mut_unchecked(index) })
+        }
+    }
+
+    #[inline]
     pub unsafe fn get_unchecked(&self, index: usize) -> &'a T {
         unsafe { &*self.base.add(index * self.stride) }
+    }
+
+    #[inline]
+    pub unsafe fn get_mut_unchecked(&mut self, index: usize) -> &'a mut T {
+        let base_mut = self.base as *mut T;
+        unsafe { &mut *base_mut.add(index * self.stride) }
     }
 
     #[inline]
@@ -71,6 +86,17 @@ impl<'a, T> StridedSlice<'a, T> {
         StridedIter {
             start: self.base,
             end: end,
+            stride: self.stride,
+            _member: PhantomData,
+        }
+    }
+
+    #[inline]
+    pub fn iter_mut(&mut self) -> MutStridedIter<'a, T> {
+        let end = unsafe { self.base.add(self.stride * self.length) };
+        MutStridedIter {
+            start: self.base as *mut T,
+            end: end as *mut T,
             stride: self.stride,
             _member: PhantomData,
         }
@@ -148,6 +174,19 @@ impl<'a, T, const N: usize> ChunkStridedSlice<'a, T, N> {
     }
 
     #[inline]
+    pub fn iter_mut(&'a self) -> MutChunkStridedSliceIter<'a, T, N> {
+        let end_offset = self.length * self.stride;
+        let end = unsafe { self.base.add(end_offset) };
+        MutChunkStridedSliceIter {
+            start: self.base as *mut T,
+            end: end as *mut T,
+            offsets: &self.offsets,
+            stride: self.stride,
+            _member: PhantomData,
+        }
+    }
+
+    #[inline]
     pub fn get(&self, index: (usize, usize)) -> Option<&T> {
         assert!(index.0 < self.length);
         assert!(index.1 < N);
@@ -160,6 +199,23 @@ impl<'a, T, const N: usize> ChunkStridedSlice<'a, T, N> {
             let slice_target = self.base.add(*self.offsets.get_unchecked(index.1));
             let target = slice_target.add(self.stride * index.0);
             &*target
+        }
+    }
+
+    #[inline]
+    pub fn get_mut(&mut self, index: (usize, usize)) -> Option<&mut T> {
+        assert!(index.0 < self.length);
+        assert!(index.1 < N);
+        Some(unsafe { self.get_mut_unchecked(index) })
+    }
+
+    #[inline]
+    pub unsafe fn get_mut_unchecked(&mut self, index: (usize, usize)) -> &mut T {
+        unsafe {
+            let base = self.base as *mut T;
+            let slice_target = base.add(*self.offsets.get_unchecked(index.1));
+            let target = slice_target.add(self.stride * index.0);
+            &mut *target
         }
     }
 }
@@ -265,10 +321,26 @@ pub struct LaneSliceIter<'a, T> {
 
 impl<'a, T> LaneSliceIter<'a, T> {
     pub fn from_slice(arr: &'a [T], shape: &[usize], axis: usize) -> Self {
-        assert_eq!(arr.len(), shape.iter().product());
+        let stride = stride_from_shape(shape);
+        Self::from_slice_with_stride(arr, shape, &stride, axis)
+    }
+
+    pub fn from_slice_with_stride(
+        arr: &'a [T],
+        shape: &[usize],
+        stride: &[usize],
+        axis: usize,
+    ) -> Self {
+        assert_eq!(shape.len(), stride.len());
+        let max_offset = shape
+            .iter()
+            .zip(stride.iter())
+            .map(|(n, step)| step * (n - 1))
+            .sum();
+        assert!(arr.len() > max_offset);
         assert!(axis < shape.len());
 
-        let mut stride = stride_from_shape(shape);
+        let mut stride = stride.to_owned();
         let mut shape = shape.to_owned();
 
         let lane_length = shape.remove(axis);
@@ -404,10 +476,26 @@ pub struct LaneSliceChunkIter<'a, T, const N: usize> {
 
 impl<'a, T, const N: usize> LaneSliceChunkIter<'a, T, N> {
     pub fn from_slice(arr: &'a [T], shape: &[usize], axis: usize) -> (Self, LaneSliceIter<'a, T>) {
-        assert_eq!(arr.len(), shape.iter().product());
+        let stride = stride_from_shape(shape);
+        Self::from_slice_with_stride(arr, shape, &stride, axis)
+    }
+
+    pub fn from_slice_with_stride(
+        arr: &'a [T],
+        shape: &[usize],
+        stride: &[usize],
+        axis: usize,
+    ) -> (Self, LaneSliceIter<'a, T>) {
+        assert_eq!(shape.len(), stride.len());
+        let max_offset = shape
+            .iter()
+            .zip(stride.iter())
+            .map(|(n, step)| step * (n - 1))
+            .sum();
+        assert!(arr.len() > max_offset);
         assert!(axis < shape.len());
 
-        let mut stride = stride_from_shape(shape);
+        let mut stride = stride.to_owned();
         let mut shape = shape.to_owned();
         let lane_length = shape.remove(axis);
         let lane_stride = stride.remove(axis);
@@ -419,7 +507,10 @@ impl<'a, T, const N: usize> LaneSliceChunkIter<'a, T, N> {
         let front_pos = vec![0; shape.len()];
         let front_offset = 0;
 
-        let rear_pos = unravel(n_chunkable - 1, &shape);
+        let rear_pos = match n_chunkable > 0 {
+            true => unravel(n_chunkable - 1, &shape),
+            false => vec![0; shape.len()],
+        };
         let rear_offset = rear_pos
             .iter()
             .zip(stride.iter())
@@ -572,70 +663,6 @@ impl<'a, T, const N: usize> DoubleEndedIterator for LaneSliceChunkIter<'a, T, N>
 }
 //  Mutable strided slices and chunks of strided slices
 
-pub struct MutStridedSlice<'a, T> {
-    base: *mut T,
-    length: usize,
-    stride: usize,
-    _member: PhantomData<&'a T>,
-}
-
-impl<'a, T> MutStridedSlice<'a, T> {
-    #[inline]
-    pub fn get(&self, index: usize) -> Option<&'a T> {
-        if index >= self.length {
-            None
-        } else {
-            Some(unsafe { self.get_unchecked(index) })
-        }
-    }
-
-    #[inline]
-    pub unsafe fn get_unchecked(&self, index: usize) -> &'a T {
-        unsafe { &*self.base.add(index * self.stride) }
-    }
-
-    #[inline]
-    pub fn get_mut(&mut self, index: usize) -> Option<&'a mut T> {
-        if index >= self.length {
-            None
-        } else {
-            Some(unsafe { self.get_unchecked_mut(index) })
-        }
-    }
-
-    #[inline]
-    pub unsafe fn get_unchecked_mut(&mut self, index: usize) -> &'a mut T {
-        unsafe { &mut *self.base.add(index * self.stride) }
-    }
-
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.length
-    }
-
-    #[inline]
-    pub fn iter(&self) -> StridedIter<'a, T> {
-        let end = unsafe { self.base.add(self.stride * self.length) };
-        StridedIter {
-            start: self.base,
-            end: end,
-            stride: self.stride,
-            _member: PhantomData,
-        }
-    }
-
-    #[inline]
-    pub fn iter_mut(&mut self) -> MutStridedIter<'a, T> {
-        let end = unsafe { self.base.add(self.stride * self.length) };
-        MutStridedIter {
-            start: self.base as *mut T,
-            end: end as *mut T,
-            stride: self.stride,
-            _member: PhantomData,
-        }
-    }
-}
-
 pub struct MutStridedIter<'a, T> {
     start: *mut T,
     end: *mut T,
@@ -676,62 +703,6 @@ impl<'a, T> DoubleEndedIterator for MutStridedIter<'a, T> {
                 self.end = self.end.sub(self.stride);
                 Some(&mut *self.end)
             }
-        }
-    }
-}
-
-pub struct MutChunkStridedSlice<'a, T, const N: usize> {
-    base: *mut T,
-    offsets: [usize; N],
-    length: usize,
-    stride: usize,
-    _member: PhantomData<&'a T>,
-}
-impl<'a, T, const N: usize> MutChunkStridedSlice<'a, T, N> {
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.length
-    }
-
-    #[inline]
-    pub fn iter(&'a self) -> ChunkStridedSliceIter<'a, T, N> {
-        let end_offset = self.length * self.stride;
-        let end = unsafe { self.base.add(end_offset) };
-        ChunkStridedSliceIter {
-            start: self.base,
-            end: end,
-            offsets: &self.offsets,
-            stride: self.stride,
-            _member: PhantomData,
-        }
-    }
-
-    #[inline]
-    pub fn iter_mut(&'a mut self) -> MutChunkStridedSliceIter<'a, T, N> {
-        let end_offset = self.length * self.stride;
-        let end = unsafe { self.base.add(end_offset) };
-        MutChunkStridedSliceIter {
-            start: self.base,
-            end: end,
-            offsets: &self.offsets,
-            stride: self.stride,
-            _member: PhantomData,
-        }
-    }
-
-    #[inline]
-    pub fn get(&self, index: (usize, usize)) -> Option<&T> {
-        assert!(index.0 < self.length);
-        assert!(index.1 < N);
-        Some(unsafe { self.get_unchecked(index) })
-    }
-
-    #[inline]
-    pub unsafe fn get_unchecked(&self, index: (usize, usize)) -> &T {
-        unsafe {
-            let slice_target = self.base.add(*self.offsets.get_unchecked(index.1));
-            let target = slice_target.add(self.stride * index.0);
-            &*target
         }
     }
 }
@@ -828,10 +799,26 @@ pub struct MutLaneSliceIter<'a, T> {
 
 impl<'a, T> MutLaneSliceIter<'a, T> {
     pub fn from_slice_mut(arr: &'a mut [T], shape: &[usize], axis: usize) -> Self {
-        assert_eq!(arr.len(), shape.iter().product());
+        let stride = stride_from_shape(shape);
+        Self::from_slice_mut_with_stride(arr, shape, &stride, axis)
+    }
+
+    pub fn from_slice_mut_with_stride(
+        arr: &'a mut [T],
+        shape: &[usize],
+        stride: &[usize],
+        axis: usize,
+    ) -> Self {
+        assert_eq!(shape.len(), stride.len());
+        let max_offset = shape
+            .iter()
+            .zip(stride.iter())
+            .map(|(n, step)| step * (n - 1))
+            .sum();
+        assert!(arr.len() > max_offset);
         assert!(axis < shape.len());
 
-        let mut stride = stride_from_shape(shape);
+        let mut stride = stride.to_owned();
         let mut shape = shape.to_owned();
         let lane_length = shape.remove(axis);
         let lane_stride = stride.remove(axis);
@@ -865,7 +852,7 @@ impl<'a, T> MutLaneSliceIter<'a, T> {
 }
 
 impl<'a, T> Iterator for MutLaneSliceIter<'a, T> {
-    type Item = MutStridedSlice<'a, T>;
+    type Item = StridedSlice<'a, T>;
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
@@ -880,7 +867,7 @@ impl<'a, T> Iterator for MutLaneSliceIter<'a, T> {
                 lane_stride,
             } = &self.arr_info;
 
-            let slice = MutStridedSlice {
+            let slice = StridedSlice {
                 base: unsafe { self.base.add(self.front_offset) },
                 length: *lane_length,
                 stride: *lane_stride,
@@ -925,7 +912,7 @@ impl<'a, T> DoubleEndedIterator for MutLaneSliceIter<'a, T> {
                 lane_stride,
             } = &self.arr_info;
 
-            let slice = MutStridedSlice {
+            let slice = StridedSlice {
                 base: unsafe { self.base.add(self.rear_offset) },
                 length: *lane_length,
                 stride: *lane_stride,
@@ -970,11 +957,26 @@ impl<'a, T, const N: usize> MutLaneSliceChunkIter<'a, T, N> {
         shape: &[usize],
         axis: usize,
     ) -> (Self, MutLaneSliceIter<'a, T>) {
-        assert_eq!(arr.len(), shape.iter().product());
+        let stride = stride_from_shape(shape);
+        Self::from_slice_mut_with_stride(arr, shape, &stride, axis)
+    }
+
+    pub fn from_slice_mut_with_stride(
+        arr: &'a mut [T],
+        shape: &[usize],
+        stride: &[usize],
+        axis: usize,
+    ) -> (Self, MutLaneSliceIter<'a, T>) {
+        assert_eq!(shape.len(), stride.len());
+        let max_offset = shape
+            .iter()
+            .zip(stride.iter())
+            .map(|(n, step)| step * (n - 1))
+            .sum();
+        assert!(arr.len() > max_offset);
         assert!(axis < shape.len());
 
-        let mut stride = stride_from_shape(shape);
-
+        let mut stride = stride.to_owned();
         let mut shape = shape.to_owned();
         let lane_length = shape.remove(axis);
         let lane_stride = stride.remove(axis);
@@ -986,7 +988,10 @@ impl<'a, T, const N: usize> MutLaneSliceChunkIter<'a, T, N> {
         let front_pos = vec![0; shape.len()];
         let front_offset = 0;
 
-        let rear_pos = unravel(n_chunkable - 1, &shape);
+        let rear_pos = match n_chunkable > 0 {
+            true => unravel(n_chunkable - 1, &shape),
+            false => vec![0; shape.len()],
+        };
         let rear_offset = rear_pos
             .iter()
             .zip(stride.iter())
@@ -1039,7 +1044,7 @@ impl<'a, T, const N: usize> MutLaneSliceChunkIter<'a, T, N> {
     }
 }
 impl<'a, T, const N: usize> Iterator for MutLaneSliceChunkIter<'a, T, N> {
-    type Item = MutChunkStridedSlice<'a, T, N>;
+    type Item = ChunkStridedSlice<'a, T, N>;
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         if self.remaining == 0 {
@@ -1148,6 +1153,31 @@ pub trait LanesIterator<T> {
         shape: &[usize],
         aixs: usize,
     ) -> (MutLaneSliceChunkIter<'a, T, N>, MutLaneSliceIter<'a, T>);
+
+    fn iter_lanes_strided<'a>(
+        &'a self,
+        shape: &[usize],
+        stride: &[usize],
+        axis: usize,
+    ) -> LaneSliceIter<'a, T>;
+    fn iter_lanes_mut_strided<'a>(
+        &'a mut self,
+        shape: &[usize],
+        stride: &[usize],
+        aixs: usize,
+    ) -> MutLaneSliceIter<'a, T>;
+    fn iter_lane_chunks_strided<'a, const N: usize>(
+        &'a self,
+        shape: &[usize],
+        stride: &[usize],
+        axis: usize,
+    ) -> (LaneSliceChunkIter<'a, T, N>, LaneSliceIter<'a, T>);
+    fn iter_lane_chunks_mut_strided<'a, const N: usize>(
+        &'a mut self,
+        shape: &[usize],
+        stride: &[usize],
+        aixs: usize,
+    ) -> (MutLaneSliceChunkIter<'a, T, N>, MutLaneSliceIter<'a, T>);
 }
 impl<T> LanesIterator<T> for [T] {
     fn iter_lanes<'a>(&'a self, shape: &[usize], axis: usize) -> LaneSliceIter<'a, T> {
@@ -1172,6 +1202,41 @@ impl<T> LanesIterator<T> for [T] {
     ) -> (MutLaneSliceChunkIter<'a, T, N>, MutLaneSliceIter<'a, T>) {
         MutLaneSliceChunkIter::from_slice_mut(self, shape, axis)
     }
+
+    fn iter_lanes_strided<'a>(
+        &'a self,
+        shape: &[usize],
+        stride: &[usize],
+        axis: usize,
+    ) -> LaneSliceIter<'a, T> {
+        LaneSliceIter::from_slice_with_stride(self, shape, stride, axis)
+    }
+    fn iter_lanes_mut_strided<'a>(
+        &'a mut self,
+        shape: &[usize],
+        stride: &[usize],
+        axis: usize,
+    ) -> MutLaneSliceIter<'a, T> {
+        MutLaneSliceIter::from_slice_mut_with_stride(self, shape, stride, axis)
+    }
+
+    fn iter_lane_chunks_strided<'a, const N: usize>(
+        &'a self,
+        shape: &[usize],
+        stride: &[usize],
+        axis: usize,
+    ) -> (LaneSliceChunkIter<'a, T, N>, LaneSliceIter<'a, T>) {
+        LaneSliceChunkIter::from_slice_with_stride(self, shape, stride, axis)
+    }
+
+    fn iter_lane_chunks_mut_strided<'a, const N: usize>(
+        &'a mut self,
+        shape: &[usize],
+        stride: &[usize],
+        axis: usize,
+    ) -> (MutLaneSliceChunkIter<'a, T, N>, MutLaneSliceIter<'a, T>) {
+        MutLaneSliceChunkIter::from_slice_mut_with_stride(self, shape, stride, axis)
+    }
 }
 
 pub mod parallel {
@@ -1194,10 +1259,26 @@ pub mod parallel {
 
     impl<'a, T> LaneSliceParIter<'a, T> {
         pub fn from_slice(arr: &'a [T], shape: &[usize], axis: usize) -> Self {
-            assert_eq!(arr.len(), shape.iter().product());
+            let stride = stride_from_shape(shape);
+            Self::from_slice_with_stride(arr, shape, &stride, axis)
+        }
+
+        pub fn from_slice_with_stride(
+            arr: &'a [T],
+            shape: &[usize],
+            stride: &[usize],
+            axis: usize,
+        ) -> Self {
+            assert_eq!(shape.len(), stride.len());
+            let max_offset = shape
+                .iter()
+                .zip(stride.iter())
+                .map(|(n, step)| step * (n - 1))
+                .sum();
+            assert!(arr.len() > max_offset);
             assert!(axis < shape.len());
 
-            let mut stride = stride_from_shape(shape);
+            let mut stride = stride.to_owned();
             let mut shape = shape.to_owned();
             let lane_stride = stride.remove(axis);
             let lane_length = shape.remove(axis);
@@ -1312,10 +1393,26 @@ pub mod parallel {
             shape: &[usize],
             axis: usize,
         ) -> (Self, LaneSliceParIter<'a, T>) {
-            assert_eq!(arr.len(), shape.iter().product());
+            let stride = stride_from_shape(shape);
+            Self::from_slice_with_stride(arr, shape, &stride, axis)
+        }
+
+        pub fn from_slice_with_stride(
+            arr: &'a [T],
+            shape: &[usize],
+            stride: &[usize],
+            axis: usize,
+        ) -> (Self, LaneSliceParIter<'a, T>) {
+            assert_eq!(shape.len(), stride.len());
+            let max_offset = shape
+                .iter()
+                .zip(stride.iter())
+                .map(|(n, step)| step * (n - 1))
+                .sum();
+            assert!(arr.len() > max_offset);
             assert!(axis < shape.len());
 
-            let mut stride = stride_from_shape(shape);
+            let mut stride = stride.to_owned();
             let mut shape = shape.to_owned();
             let lane_stride = stride.remove(axis);
             let lane_length = shape.remove(axis);
@@ -1427,7 +1524,6 @@ pub mod parallel {
 
     // Mutable versions
 
-    unsafe impl<'a, T> Send for MutStridedSlice<'a, T> {}
     pub struct MutLaneSliceParIter<'a, T> {
         base: *mut T,
         arr_info: ArrayInfo,
@@ -1439,10 +1535,26 @@ pub mod parallel {
 
     impl<'a, T> MutLaneSliceParIter<'a, T> {
         pub fn from_slice_mut(arr: &'a mut [T], shape: &[usize], axis: usize) -> Self {
-            assert_eq!(arr.len(), shape.iter().product());
+            let stride = stride_from_shape(shape);
+            Self::from_slice_mut_with_stride(arr, shape, &stride, axis)
+        }
+
+        pub fn from_slice_mut_with_stride(
+            arr: &'a mut [T],
+            shape: &[usize],
+            stride: &[usize],
+            axis: usize,
+        ) -> Self {
+            assert_eq!(shape.len(), stride.len());
+            let max_offset = shape
+                .iter()
+                .zip(stride.iter())
+                .map(|(n, step)| step * (n - 1))
+                .sum();
+            assert!(arr.len() > max_offset);
             assert!(axis < shape.len());
 
-            let mut stride = stride_from_shape(shape);
+            let mut stride = stride.to_owned();
             let mut shape = shape.to_owned();
             let lane_stride = stride.remove(axis);
             let lane_length = shape.remove(axis);
@@ -1465,7 +1577,7 @@ pub mod parallel {
     }
 
     impl<'a, T> ParallelIterator for MutLaneSliceParIter<'a, T> {
-        type Item = MutStridedSlice<'a, T>;
+        type Item = StridedSlice<'a, T>;
         fn drive_unindexed<C>(self, consumer: C) -> C::Result
         where
             C: UnindexedConsumer<Self::Item>,
@@ -1492,7 +1604,7 @@ pub mod parallel {
     }
 
     impl<'a, T> Producer for MutLaneSliceParIter<'a, T> {
-        type Item = MutStridedSlice<'a, T>;
+        type Item = StridedSlice<'a, T>;
         type IntoIter = MutLaneSliceIter<'a, T>;
 
         fn into_iter(self) -> Self::IntoIter {
@@ -1540,8 +1652,6 @@ pub mod parallel {
         }
     }
 
-    unsafe impl<'a, T, const N: usize> Send for MutChunkStridedSlice<'a, T, N> {}
-
     pub struct MutLaneSliceChunkParIter<'a, T, const N: usize> {
         base: *mut T,
         arr_info: ArrayInfo,
@@ -1557,10 +1667,26 @@ pub mod parallel {
             shape: &[usize],
             axis: usize,
         ) -> (Self, MutLaneSliceParIter<'a, T>) {
-            assert_eq!(arr.len(), shape.iter().product());
+            let stride = stride_from_shape(shape);
+            Self::from_slice_mut_with_stride(arr, shape, &stride, axis)
+        }
+
+        pub fn from_slice_mut_with_stride(
+            arr: &'a mut [T],
+            shape: &[usize],
+            stride: &[usize],
+            axis: usize,
+        ) -> (Self, MutLaneSliceParIter<'a, T>) {
+            assert_eq!(shape.len(), stride.len());
+            let max_offset = shape
+                .iter()
+                .zip(stride.iter())
+                .map(|(n, step)| step * (n - 1))
+                .sum();
+            assert!(arr.len() > max_offset);
             assert!(axis < shape.len());
 
-            let mut stride = stride_from_shape(shape);
+            let mut stride = stride.to_owned();
             let mut shape = shape.to_owned();
             let lane_stride = stride.remove(axis);
             let lane_length = shape.remove(axis);
@@ -1595,7 +1721,7 @@ pub mod parallel {
     }
 
     impl<'a, T, const N: usize> ParallelIterator for MutLaneSliceChunkParIter<'a, T, N> {
-        type Item = MutChunkStridedSlice<'a, T, N>;
+        type Item = ChunkStridedSlice<'a, T, N>;
         fn drive_unindexed<C>(self, consumer: C) -> C::Result
         where
             C: UnindexedConsumer<Self::Item>,
@@ -1622,7 +1748,7 @@ pub mod parallel {
     }
 
     impl<'a, T, const N: usize> Producer for MutLaneSliceChunkParIter<'a, T, N> {
-        type Item = MutChunkStridedSlice<'a, T, N>;
+        type Item = ChunkStridedSlice<'a, T, N>;
         type IntoIter = MutLaneSliceChunkIter<'a, T, N>;
 
         fn into_iter(self) -> Self::IntoIter {
@@ -1949,7 +2075,7 @@ mod tests {
     fn test_strided_mut() {
         let mut arr = [0; 6];
         let stride = 2;
-        let mut strided = MutStridedSlice {
+        let mut strided = StridedSlice {
             base: arr.as_mut_ptr(),
             stride: stride,
             length: arr.len() / stride,
@@ -1959,7 +2085,7 @@ mod tests {
         strided.iter_mut().for_each(|v| *v = 1);
         assert_eq!(arr, [1, 0, 1, 0, 1, 0]);
 
-        let mut strided = MutStridedSlice {
+        let mut strided = StridedSlice {
             base: arr[1..].as_mut_ptr(),
             stride: stride,
             length: arr.len() / stride,
@@ -2149,7 +2275,7 @@ mod tests {
             assert_eq!(n_chunks, n_lanes / N);
             assert_eq!(n_rem, n_lanes % N);
 
-            for (i_chunk, mut chunk) in iter_chunks.enumerate() {
+            for (i_chunk, chunk) in iter_chunks.enumerate() {
                 assert_eq!(chunk.len(), n_along);
                 for (i_along, items) in chunk.iter_mut().enumerate() {
                     assert_eq!(items.len(), N);
@@ -2378,7 +2504,7 @@ mod tests {
                 assert_eq!(n_chunks, n_lanes / N);
                 assert_eq!(n_rem, n_lanes % N);
 
-                iter_chunks.enumerate().for_each(|(i_chunk, mut chunk)| {
+                iter_chunks.enumerate().for_each(|(i_chunk, chunk)| {
                     assert_eq!(chunk.len(), n_along);
                     for (i_along, items) in chunk.iter_mut().enumerate() {
                         assert_eq!(items.len(), N);

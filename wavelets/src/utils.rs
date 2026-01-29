@@ -1,4 +1,4 @@
-use crate::iter::slice::{ChunkStridedSlice, MutChunkStridedSlice, MutStridedSlice, StridedSlice};
+use crate::iter::slice::{ChunkStridedSlice, StridedSlice};
 use itertools::{Itertools, izip};
 
 #[inline]
@@ -22,6 +22,102 @@ pub fn deinterleave<T: Clone>(x: &[T], evens: &mut [T], odds: &mut [T]) {
         && let Some(e) = evens.last_mut()
     {
         *e = x.clone();
+    }
+}
+
+#[inline]
+pub fn deinterleave_2d<T: Clone>(input: &[T], output: &mut [T], shape: &[usize; 2]) {
+    let n_total = shape.iter().product();
+    assert_eq!(input.len(), n_total);
+    assert_eq!(output.len(), n_total);
+
+    let n_first = (shape[0] + 1) / 2;
+    let n_sub: usize = shape[1..].iter().product();
+
+    let (first, second) = output.split_at_mut(n_first * n_sub);
+
+    let mut in_chunks = input.chunks_exact(2 * n_sub);
+
+    let mut first_chunks = first.chunks_exact_mut(n_sub);
+
+    let n_first = (shape[1] + 1) / 2;
+    first_chunks
+        .by_ref()
+        .zip(second.chunks_exact_mut(n_sub))
+        .zip(in_chunks.by_ref())
+        .for_each(|((f, s), inp)| {
+            let (f_f, f_s) = f.split_at_mut(n_first);
+            deinterleave(&inp[0..n_sub], f_f, f_s);
+            let (s_f, s_s) = s.split_at_mut(n_first);
+            deinterleave(&inp[n_sub..2 * n_sub], s_f, s_s);
+        });
+    first_chunks.for_each(|f| {
+        let (evens, odds) = f.split_at_mut(n_first);
+        deinterleave(in_chunks.remainder(), evens, odds);
+    });
+}
+
+#[inline]
+pub fn deinterleave_nd<T: Clone>(input: &[T], output: &mut [T], shape: &[usize]) {
+    match shape.len() {
+        0 => {}
+        1 => {
+            let (f, s) = output.split_at_mut((shape[0] + 1) / 2);
+            deinterleave(input, f, s);
+        }
+        2 => deinterleave_2d(
+            input,
+            output,
+            shape
+                .try_into()
+                .expect("shape length was already checked to be 2"),
+        ),
+        _ => {
+            let n_total: usize = shape.iter().product();
+            assert_eq!(input.len(), n_total);
+            assert_eq!(input.len(), n_total);
+
+            deinterleave_nd_unchecked(input, output, shape);
+        }
+    }
+}
+#[inline]
+fn deinterleave_nd_unchecked<T: Clone>(input: &[T], output: &mut [T], shape: &[usize]) {
+    match shape.len() {
+        0 => {}
+        1 => {
+            let (f, s) = output.split_at_mut((shape[0] + 1) / 2);
+            deinterleave(input, f, s);
+        }
+        2 => deinterleave_2d(
+            input,
+            output,
+            shape
+                .try_into()
+                .expect("shape length was already checked to be 2"),
+        ),
+        _ => {
+            let n_first = (shape[0] + 1) / 2;
+            let n_sub: usize = shape[1..].iter().product();
+
+            let (first, second) = output.split_at_mut(n_first * n_sub);
+
+            let mut first_chunks = first.chunks_exact_mut(n_sub);
+            let mut in_chunks = input.chunks_exact(2 * n_sub);
+
+            first_chunks
+                .by_ref()
+                .zip(second.chunks_exact_mut(n_sub))
+                .zip(in_chunks.by_ref())
+                .for_each(|((f, s), inp)| {
+                    let (in_even, in_odd) = inp.split_at(n_sub);
+                    deinterleave_nd_unchecked(in_even, f, &shape[1..]);
+                    deinterleave_nd_unchecked(in_odd, s, &shape[1..]);
+                });
+            first_chunks.for_each(|f| {
+                deinterleave_nd_unchecked(in_chunks.remainder(), f, &shape[1..]);
+            });
+        }
     }
 }
 
@@ -89,7 +185,7 @@ pub fn stack<T: Clone>(first: &[T], second: &[T], out: &mut [T]) {
 }
 
 #[inline]
-pub fn stack_to_strided<'a, T: Clone>(first: &[T], second: &[T], out: &mut MutStridedSlice<T>) {
+pub fn stack_to_strided<'a, T: Clone>(first: &[T], second: &[T], out: &mut StridedSlice<T>) {
     assert_eq!(first.len() + second.len(), out.len());
     first
         .iter()
@@ -102,7 +198,7 @@ pub fn stack_to_strided<'a, T: Clone>(first: &[T], second: &[T], out: &mut MutSt
 pub fn stack_to_strided_chunk<'a, T: Clone, const N: usize>(
     first: &[T],
     second: &[T],
-    out: &'a mut MutChunkStridedSlice<'a, T, N>,
+    out: &'a mut ChunkStridedSlice<'a, T, N>,
 ) {
     assert_ne!(N, 0);
 
@@ -155,7 +251,7 @@ pub fn interleave<T: Clone>(evens: &[T], odds: &[T], x: &mut [T]) {
 }
 
 #[inline]
-pub fn interleave_strided<T: Clone>(evens: &[T], odds: &[T], x: &mut MutStridedSlice<T>) {
+pub fn interleave_strided<T: Clone>(evens: &[T], odds: &[T], x: &mut StridedSlice<T>) {
     let nx = x.len();
     let n_e = evens.len();
     let n_o = odds.len();
@@ -172,7 +268,7 @@ pub fn interleave_strided<T: Clone>(evens: &[T], odds: &[T], x: &mut MutStridedS
 pub fn interleave_strided_chunk<'a, T: Clone, const N: usize>(
     evens: &[T],
     odds: &[T],
-    x: &'a mut MutChunkStridedSlice<'a, T, N>,
+    x: &'a mut ChunkStridedSlice<'a, T, N>,
 ) {
     assert_ne!(N, 0);
 
@@ -258,10 +354,103 @@ pub fn split_strided_chunk<T: Clone, const N: usize>(
     });
 }
 
+#[inline]
+pub fn interleave_inplace<T: Clone>(x: &mut [T]) {
+    let n = x.len();
+    if n < 2 {
+        return;
+    } else if n == 3 {
+        x.swap(1, 2);
+        return;
+    }
+    let do_sub = n % 2 == 1;
+    let x = match do_sub {
+        true => &mut x[1..],
+        false => x,
+    };
+    let n = x.len();
+    let mut m = 0;
+    while m < n {
+        let i = lookup(n - m);
+        let slice_start = m + (i - 1) / 2;
+        let slice_len = (n - m) / 2;
+        shift_n(&mut x[slice_start..slice_start + slice_len], (i - 1) / 2);
+        perfect_shuffle(&mut x[m..m + i - 1]);
+        m += i - 1;
+    }
+    if !do_sub {
+        x.chunks_exact_mut(2).for_each(|x| x.reverse());
+    }
+}
+
+#[inline(always)]
+fn cycle<T: Clone>(x: &mut [T], start: usize) {
+    let n = x.len();
+    let mut i_c = (start * 2).rem_euclid(n + 1);
+
+    let mut t1 = x[start - 1].clone();
+    std::mem::swap(&mut x[i_c - 1], &mut t1);
+    while i_c != start {
+        let i = (i_c * 2).rem_euclid(n + 1);
+        std::mem::swap(&mut x[i - 1], &mut t1);
+        i_c = i;
+    }
+}
+
+#[inline(always)]
+fn shift_n<T>(x: &mut [T], n: usize) {
+    assert!(n <= x.len());
+    let (left, right) = x.split_at_mut(x.len() - n);
+    left.reverse();
+    right.reverse();
+    x.reverse();
+}
+
+#[inline(always)]
+fn lookup(n: usize) -> usize {
+    let mut i = 3;
+    while i <= n + 1 {
+        i *= 3
+    }
+    if i > 3 {
+        i /= 3
+    };
+    i
+}
+
+#[inline(always)]
+fn perfect_shuffle<T: Clone>(x: &mut [T]) {
+    let n = x.len();
+    match n {
+        2 => x.swap(0, 1),
+        _ => {
+            let mut i = 1;
+            while i < n {
+                cycle(x, i);
+                i *= 3;
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::iter::slice::LanesIterator;
+
+    #[test]
+    fn test_interleave_inplace() {
+        for n in [20, 21, 22, 32, 432, 553] {
+            let evens = (0..n).step_by(2).collect_vec();
+            let odds = (1..n).step_by(2).collect_vec();
+
+            let mut x = vec![0; n];
+            stack(&evens, &odds, &mut x);
+
+            interleave_inplace(&mut x);
+            assert_eq!(x, (0..n).collect_vec());
+        }
+    }
 
     #[test]
     fn test_interleave() {
@@ -341,18 +530,17 @@ mod tests {
                         _ => unreachable!(),
                     };
                     let ns = (n + 1) / 2;
-                    let nd = n / 2;
 
                     let mut out = vec![0; n1 * n2];
                     let shape = [n1, n2];
                     for (i, mut slc) in out.iter_lanes_mut(&shape, ax).enumerate() {
                         let s = (i..ns + i).collect_vec();
-                        let d = (i + ns..ns + nd + i).collect_vec();
+                        let d = (i + ns..n + i).collect_vec();
                         interleave_strided(&s, &d, &mut slc);
                     }
 
                     for (i, slc) in out.iter_lanes(&shape, ax).enumerate() {
-                        let expected = (i..ns + i).interleave(i + ns..ns + nd + i).collect_vec();
+                        let expected = (i..ns + i).interleave(i + ns..n + i).collect_vec();
                         assert_eq!(slc.iter().cloned().collect_vec(), expected);
                     }
                 }
@@ -378,8 +566,8 @@ mod tests {
                     let shape = [n1, n2];
                     for (i, mut slc) in out.iter_lanes_mut(&shape, ax).enumerate() {
                         slc.iter_mut()
-                            .zip((0..ns).interleave(ns..ns + nd))
-                            .for_each(|(v1, v2)| *v1 = v2 + i);
+                            .zip((i..ns + i).interleave(ns + i..n + i))
+                            .for_each(|(v1, v2)| *v1 = v2);
                     }
 
                     for (i, slc) in out.iter_lanes(&shape, ax).enumerate() {
@@ -387,8 +575,8 @@ mod tests {
                         let mut d = vec![0; nd];
                         deinterleave_strided(&slc, &mut s, &mut d);
 
-                        assert_eq!(s, (0 + i..ns + i).collect_vec());
-                        assert_eq!(d, (ns + i..ns + nd + i).collect_vec());
+                        assert_eq!(s, (i..ns + i).collect_vec());
+                        assert_eq!(d, (ns + i..n + i).collect_vec());
                     }
                 }
             }
@@ -406,13 +594,12 @@ mod tests {
                         _ => unreachable!(),
                     };
                     let ns = (n + 1) / 2;
-                    let nd = n / 2;
 
                     let mut out = vec![0; n1 * n2];
                     let shape = [n1, n2];
                     for (i, mut slc) in out.iter_lanes_mut(&shape, ax).enumerate() {
                         let first = (i..ns + i).collect_vec();
-                        let second = (i + ns..ns + nd + i).collect_vec();
+                        let second = (i + ns..n + i).collect_vec();
                         stack_to_strided(&first, &second, &mut slc);
                     }
 
@@ -451,7 +638,7 @@ mod tests {
                         split_strided(&slc, &mut first, &mut second);
 
                         assert_eq!(first, (i..ns + i).collect_vec());
-                        assert_eq!(second, (ns + i..ns + nd + i).collect_vec());
+                        assert_eq!(second, (ns + i..n + i).collect_vec());
                     }
                 }
             }
@@ -497,7 +684,6 @@ mod tests {
 
                     for (i, mut slc) in lanes.enumerate() {
                         let i = i + n_chunks * N;
-                        let expected = (i..ns + i).interleave(i + ns..n + i).collect_vec();
 
                         let s = (i..ns + i).collect_vec();
                         let d = (i + ns..n + i).collect_vec();

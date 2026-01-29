@@ -1,36 +1,39 @@
-use num_traits::Num;
+use num_traits::{NumAssignOps, NumOps};
+use std::ops::Neg;
 
 pub trait BoundaryExtension {
-    fn get_bc<T: Num + Clone>(&self, data: &[T], i: isize) -> T;
+    fn get_bc<T: NumOps + Clone + Neg<Output = T>>(&self, data: &[T], i: isize) -> Option<T>;
     #[inline(always)]
-    fn extend_front<T: Num + Clone>(&self, data: &[T], i: isize) -> T {
+    fn extend_front<T: NumOps + Clone + Neg<Output = T>>(&self, data: &[T], i: isize) -> Option<T> {
         self.get_bc(data, i)
     }
     #[inline(always)]
-    fn extend_back<T: Num + Clone>(&self, data: &[T], i: usize) -> T {
+    fn extend_back<T: NumOps + Clone + Neg<Output = T>>(&self, data: &[T], i: usize) -> Option<T> {
         self.get_bc(data, i as isize)
     }
 }
 
+#[derive(Clone, Copy, Debug)]
 pub enum BoundaryCondition {
     Zero,
     Periodic,
     Constant,
     Symmetric,
     Reflect,
+    Antisymmetric,
 }
 impl BoundaryExtension for BoundaryCondition {
     #[inline(always)]
-    fn get_bc<T: Num + Clone>(&self, data: &[T], i: isize) -> T {
+    fn get_bc<T: NumOps + Clone + Neg<Output = T>>(&self, data: &[T], i: isize) -> Option<T> {
         match self {
-            Self::Zero => data.get(i as usize).cloned().unwrap_or(T::zero()),
+            Self::Zero => data.get(i as usize).cloned(),
             Self::Periodic => {
                 let i = i.rem_euclid(data.len() as isize) as usize;
-                data.get(i).cloned().unwrap_or(T::zero())
+                data.get(i).cloned()
             }
             Self::Constant => {
                 let i = i.clamp(0, data.len() as isize - 1) as usize;
-                data.get(i).cloned().unwrap_or(T::zero())
+                data.get(i).cloned()
             }
             Self::Symmetric => {
                 let mut io = i;
@@ -42,7 +45,7 @@ impl BoundaryExtension for BoundaryCondition {
                         io = 2 * (n - 1) - (io - 1);
                     }
                 }
-                data.get(io as usize).cloned().unwrap_or(T::zero())
+                data.get(io as usize).cloned()
             }
             Self::Reflect => {
                 let mut io = i;
@@ -54,33 +57,45 @@ impl BoundaryExtension for BoundaryCondition {
                         io = 2 * (n - 1) - io;
                     }
                 }
-                data.get(io as usize).cloned().unwrap_or(T::zero())
+                data.get(io as usize).cloned()
+            }
+            Self::Antisymmetric => {
+                let mut io = i;
+                let n = data.len() as isize;
+                while io >= n || io < 0 {
+                    if io < 0 {
+                        io = -io;
+                    } else {
+                        io = 2 * (n - 1) - io;
+                    }
+                }
+                data.get(io as usize).cloned().and_then(|v| Some(-v))
             }
         }
     }
 }
 
 pub trait UpdateOperation {
-    fn update_assign<T: Num + Clone>(left: T, right: T) -> T;
+    fn update_assign<T: NumOps + NumAssignOps + Clone>(left: &mut T, right: T);
 }
 pub struct ForwardUpdate {}
 pub struct InverseUpdate {}
 
 impl UpdateOperation for ForwardUpdate {
     #[inline(always)]
-    fn update_assign<T: Num + Clone>(left: T, right: T) -> T {
-        left + right
+    fn update_assign<T: NumOps + NumAssignOps + Clone>(left: &mut T, right: T) {
+        *left += right;
     }
 }
 impl UpdateOperation for InverseUpdate {
     #[inline(always)]
-    fn update_assign<T: Num>(left: T, right: T) -> T {
-        left - right
+    fn update_assign<T: NumOps + NumAssignOps>(left: &mut T, right: T) {
+        *left -= right;
     }
 }
 
 pub trait LiftedAdjointBoundary {
-    fn adjoint_op<T: Num + Clone, const N: usize, OP: UpdateOperation>(
+    fn adjoint_op<T: NumOps + NumAssignOps + Clone, const N: usize, OP: UpdateOperation>(
         &self,
         op: &OP,
         left: &mut [T],
@@ -92,7 +107,7 @@ pub trait LiftedAdjointBoundary {
 }
 impl LiftedAdjointBoundary for BoundaryCondition {
     #[inline(always)]
-    fn adjoint_op<T: Num + Clone, const N: usize, OP: UpdateOperation>(
+    fn adjoint_op<T: NumOps + NumAssignOps + Clone, const N: usize, OP: UpdateOperation>(
         &self,
         _op: &OP,
         left: &mut [T],
@@ -130,34 +145,48 @@ impl LiftedAdjointBoundary for BoundaryCondition {
                 }
                 io as usize
             }
+            Self::Antisymmetric => {
+                let mut io = i_left;
+                let n = left.len() as isize;
+                while io >= n || io < 0 {
+                    if io < 0 {
+                        io = -(io + 1);
+                    } else {
+                        io = 2 * (n - 1) - (io - 1);
+                    }
+                }
+                io as usize
+            }
         };
 
         if let Some(yi) = left.get_mut(io) {
-            *yi = OP::update_assign(
-                yi.clone(),
-                (i_right..i_right + N as isize)
-                    .zip(rev_c.iter())
-                    .filter_map(|(j, c)| {
-                        right
-                            .get(j as usize)
-                            .and_then(|v| Some(c.clone() * v.clone()))
-                    })
-                    .fold(T::zero(), |acc, v| acc + v),
-            );
+            let right = (i_right..i_right + N as isize)
+                .zip(rev_c.iter())
+                .filter_map(|(j, c)| {
+                    right
+                        .get(j as usize)
+                        .and_then(|v| Some(c.clone() * v.clone()))
+                })
+                .reduce(|acc, v| acc + v);
+
+            if let Some(right) = right {
+                OP::update_assign(yi, right);
+            }
         }
     }
 }
 
+#[derive(Clone, Copy, Debug)]
 pub struct ZeroBoundary;
 impl BoundaryExtension for ZeroBoundary {
     #[inline(always)]
-    fn get_bc<T: Num + Clone>(&self, data: &[T], i: isize) -> T {
-        data.get(i as usize).cloned().unwrap_or(T::zero())
+    fn get_bc<T: NumOps + Clone>(&self, data: &[T], i: isize) -> Option<T> {
+        data.get(i as usize).cloned()
     }
 }
 impl LiftedAdjointBoundary for ZeroBoundary {
     #[inline(always)]
-    fn adjoint_op<T: Num + Clone, const N: usize, OP: UpdateOperation>(
+    fn adjoint_op<T: NumOps + NumAssignOps + Clone, const N: usize, OP: UpdateOperation>(
         &self,
         _op: &OP,
         _left: &mut [T],
@@ -170,18 +199,19 @@ impl LiftedAdjointBoundary for ZeroBoundary {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
 pub struct PeriodicBoundary;
 impl BoundaryExtension for PeriodicBoundary {
     #[inline(always)]
-    fn get_bc<T: Num + Clone>(&self, data: &[T], i: isize) -> T {
+    fn get_bc<T: NumOps + Clone>(&self, data: &[T], i: isize) -> Option<T> {
         let i = i.rem_euclid(data.len() as isize) as usize;
-        data.get(i).cloned().unwrap()
+        data.get(i).cloned()
     }
 }
 
 impl LiftedAdjointBoundary for PeriodicBoundary {
     #[inline(always)]
-    fn adjoint_op<T: Num + Clone, const N: usize, OP: UpdateOperation>(
+    fn adjoint_op<T: NumOps + NumAssignOps + Clone, const N: usize, OP: UpdateOperation>(
         &self,
         _op: &OP,
         left: &mut [T],
@@ -194,17 +224,17 @@ impl LiftedAdjointBoundary for PeriodicBoundary {
         let io = i_left.rem_euclid(left.len() as isize) as usize;
 
         if let Some(yi) = left.get_mut(io) {
-            *yi = OP::update_assign(
-                yi.clone(),
-                (i_right..i_right + N as isize)
-                    .zip(rev_c.iter())
-                    .filter_map(|(j, c)| {
-                        right
-                            .get(j as usize)
-                            .and_then(|v| Some(c.clone() * v.clone()))
-                    })
-                    .fold(T::zero(), |acc, v| acc + v),
-            )
+            if let Some(right) = (i_right..i_right + N as isize)
+                .zip(rev_c.iter())
+                .filter_map(|(j, c)| {
+                    right
+                        .get(j as usize)
+                        .and_then(|v| Some(v.clone() * c.clone()))
+                })
+                .reduce(|acc, v| acc + v)
+            {
+                OP::update_assign(yi, right);
+            }
         }
     }
 }
@@ -218,9 +248,9 @@ mod tests {
         let data = [1, 2, 3, 4, 5];
         let bc = ZeroBoundary {};
 
-        assert_eq!(bc.extend_front(&data, -1), 0);
-        assert_eq!(bc.extend_front(&data, -10), 0);
-        assert_eq!(bc.extend_back(&data, 5), 0);
-        assert_eq!(bc.extend_back(&data, 10), 0);
+        assert_eq!(bc.extend_front(&data, -1), None);
+        assert_eq!(bc.extend_front(&data, -10), None);
+        assert_eq!(bc.extend_back(&data, 5), None);
+        assert_eq!(bc.extend_back(&data, 10), None);
     }
 }

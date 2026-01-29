@@ -1,42 +1,49 @@
-use num_traits::{Num, NumAssignOps};
+use itertools::Itertools;
+use num_traits::{NumAssignOps, NumOps};
+use std::ops::Neg;
 
 use wavelets::boundarys::ZeroBoundary;
+use wavelets::driver::{general_nd_forward, general_nd_inverse};
+use wavelets::lwt::LiftingTransform;
 use wavelets::wavelets::daubechies;
-use wavelets::{lwt, lwt::LiftingTransform};
 
 use chrono::prelude::*;
 
 const BC: ZeroBoundary = ZeroBoundary {};
 fn fwd_func<T>(s: &mut [T], d: &mut [T])
 where
-    T: Num + NumAssignOps + Clone + From<f64>,
+    T: NumOps + NumAssignOps + Clone + From<f64> + Neg<Output = T>,
 {
     daubechies::Daubechies6::forward(s, d, &BC);
+}
+
+fn inv_func<T>(s: &mut [T], d: &mut [T])
+where
+    T: NumOps + NumAssignOps + Clone + From<f64> + Neg<Output = T>,
+{
+    daubechies::Daubechies6::inverse(s, d, &BC);
 }
 
 fn main() {
     const N_REPEAT: usize = 50;
 
-    let shape = [1025, 1020];
-    type NDARRAY = ndarray::Array2<f64>;
-    let mut arr_in = NDARRAY::zeros(shape);
-    arr_in[(3, 3)] = 1.0;
+    let shape = [1002, 522];
+    let n = shape.iter().product();
+    let arr_in = (0..n).map(|v| v as f64 + 1.0).collect_vec();
 
-    let mut arr_out = NDARRAY::zeros(shape);
+    let mut arr_out = vec![0.0; n];
 
-    let mut arr_out2 = NDARRAY::zeros(shape);
+    let mut arr_out2 = vec![0.0; n];
 
-    let axes = [1];
+    let axes = [0, 1];
+
+    general_nd_forward(fwd_func, &arr_in, &mut arr_out, &shape, &axes);
+    general_nd_inverse(inv_func, &arr_out, &mut arr_out2, &shape, &axes);
+    wavelets::tests::test_approx_equal(&arr_out2, &arr_in, 1E-12, 0.0);
 
     let time1 = Utc::now();
     for _ in 0..N_REPEAT {
-        lwt::general_nd_forward(
-            fwd_func,
-            arr_in.as_slice().unwrap(),
-            arr_out.as_slice_mut().unwrap(),
-            &shape,
-            &axes,
-        );
+        general_nd_forward(fwd_func, &arr_in, &mut arr_out, &shape, &axes);
     }
     let time2 = Utc::now();
     let dt = time2 - time1;
@@ -47,13 +54,7 @@ fn main() {
 
     let time1 = Utc::now();
     for _ in 0..N_REPEAT {
-        lwt::parallel::general_nd_forward(
-            fwd_func,
-            arr_in.as_slice().unwrap(),
-            arr_out2.as_slice_mut().unwrap(),
-            &shape,
-            &axes,
-        );
+        general_nd_forward(fwd_func, &arr_in, &mut arr_out2, &shape, &axes);
     }
     let time2 = Utc::now();
     let dt = time2 - time1;
