@@ -91,9 +91,7 @@ fn interleave_strided_benchmark(c: &mut Criterion) {
 
     group.bench_function("strided - out of place", |b| {
         b.iter(|| {
-            for (lane_in, mut lane_out) in
-                x1.iter_lanes(&shape, 0).zip(x2.iter_lanes_mut(&shape, 0))
-            {
+            for (lane_in, lane_out) in x1.iter_lanes(&shape, 0).zip(x2.iter_lanes_mut(&shape, 0)) {
                 lane_in
                     .iter()
                     .cloned()
@@ -173,11 +171,11 @@ fn deinterleave_benchmark(c: &mut Criterion) {
                 let n_o = n / 2;
                 let mut work_e = vec![0; n_e];
                 let mut work_o = vec![0; n_o];
-                for (lane_in, mut lane_out) in
+                for (lane_in, lane_out) in
                     x1.iter_lanes(&shape, ax).zip(x2.iter_lanes_mut(&shape, ax))
                 {
-                    deinterleave_strided(&lane_in, &mut work_e, &mut work_o);
-                    stack_to_strided(&work_e, &work_o, &mut lane_out);
+                    deinterleave_strided(lane_in, &mut work_e, &mut work_o);
+                    stack_to_strided(&work_e, &work_o, lane_out);
                 }
             }
         })

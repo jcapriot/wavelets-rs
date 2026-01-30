@@ -13,9 +13,9 @@ fn ref_deinterleave_nd<T: Clone + num_traits::Zero>(x: &[T], shape: &[usize]) ->
         let mut work_e = vec![T::zero(); ne];
         let mut work_o = vec![T::zero(); no];
 
-        for mut lane in out.iter_lanes_mut(shape, ax) {
-            deinterleave_strided(&lane, &mut work_e, &mut work_o);
-            stack_to_strided(&work_e, &work_o, &mut lane);
+        for lane in out.iter_lanes_mut(shape, ax) {
+            deinterleave_strided(lane.clone().into(), &mut work_e, &mut work_o);
+            stack_to_strided(&work_e, &work_o, lane);
         }
     }
     out

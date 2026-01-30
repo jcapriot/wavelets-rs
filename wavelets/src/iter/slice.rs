@@ -1,3 +1,4 @@
+use crate::utils::stride_from_shape;
 use std::{marker::PhantomData, ops::ControlFlow};
 
 #[inline]
@@ -30,14 +31,7 @@ pub fn unravel(flat_index: usize, shape: &[usize]) -> Vec<usize> {
     inds
 }
 
-fn stride_from_shape(shape: &[usize]) -> Vec<usize> {
-    let mut stride = vec![1; shape.len()];
-    for i in (0..shape.len() - 1).rev() {
-        stride[i] = stride[i + 1] * shape[i + 1];
-    }
-    stride
-}
-
+#[derive(Clone, Copy)]
 pub struct StridedSlice<'a, T> {
     base: *const T,
     length: usize,
@@ -56,23 +50,8 @@ impl<'a, T> StridedSlice<'a, T> {
     }
 
     #[inline]
-    pub fn get_mut(&mut self, index: usize) -> Option<&'a mut T> {
-        if index >= self.length {
-            None
-        } else {
-            Some(unsafe { self.get_mut_unchecked(index) })
-        }
-    }
-
-    #[inline]
     pub unsafe fn get_unchecked(&self, index: usize) -> &'a T {
         unsafe { &*self.base.add(index * self.stride) }
-    }
-
-    #[inline]
-    pub unsafe fn get_mut_unchecked(&mut self, index: usize) -> &'a mut T {
-        let base_mut = self.base as *mut T;
-        unsafe { &mut *base_mut.add(index * self.stride) }
     }
 
     #[inline]
@@ -90,16 +69,14 @@ impl<'a, T> StridedSlice<'a, T> {
             _member: PhantomData,
         }
     }
+}
 
-    #[inline]
-    pub fn iter_mut(&mut self) -> MutStridedIter<'a, T> {
-        let end = unsafe { self.base.add(self.stride * self.length) };
-        MutStridedIter {
-            start: self.base as *mut T,
-            end: end as *mut T,
-            stride: self.stride,
-            _member: PhantomData,
-        }
+impl<'a, T> IntoIterator for StridedSlice<'a, T> {
+    type Item = &'a T;
+    type IntoIter = StridedIter<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
     }
 }
 
@@ -147,6 +124,8 @@ impl<'a, T> DoubleEndedIterator for StridedIter<'a, T> {
         }
     }
 }
+
+#[derive(Clone, Copy)]
 pub struct ChunkStridedSlice<'a, T, const N: usize> {
     base: *const T,
     offsets: [usize; N],
@@ -161,26 +140,13 @@ impl<'a, T, const N: usize> ChunkStridedSlice<'a, T, N> {
     }
 
     #[inline]
-    pub fn iter(&'a self) -> ChunkStridedSliceIter<'a, T, N> {
+    pub fn iter(&self) -> ChunkStridedSliceIter<'a, T, N> {
         let end_offset = self.length * self.stride;
         let end = unsafe { self.base.add(end_offset) };
         ChunkStridedSliceIter {
             start: self.base,
-            end: end,
-            offsets: &self.offsets,
-            stride: self.stride,
-            _member: PhantomData,
-        }
-    }
-
-    #[inline]
-    pub fn iter_mut(&'a self) -> MutChunkStridedSliceIter<'a, T, N> {
-        let end_offset = self.length * self.stride;
-        let end = unsafe { self.base.add(end_offset) };
-        MutChunkStridedSliceIter {
-            start: self.base as *mut T,
-            end: end as *mut T,
-            offsets: &self.offsets,
+            end,
+            offsets: self.offsets,
             stride: self.stride,
             _member: PhantomData,
         }
@@ -201,25 +167,16 @@ impl<'a, T, const N: usize> ChunkStridedSlice<'a, T, N> {
             &*target
         }
     }
-
-    #[inline]
-    pub fn get_mut(&mut self, index: (usize, usize)) -> Option<&mut T> {
-        assert!(index.0 < self.length);
-        assert!(index.1 < N);
-        Some(unsafe { self.get_mut_unchecked(index) })
-    }
-
-    #[inline]
-    pub unsafe fn get_mut_unchecked(&mut self, index: (usize, usize)) -> &mut T {
-        unsafe {
-            let base = self.base as *mut T;
-            let slice_target = base.add(*self.offsets.get_unchecked(index.1));
-            let target = slice_target.add(self.stride * index.0);
-            &mut *target
-        }
-    }
 }
 
+impl<'a, T, const N: usize> IntoIterator for ChunkStridedSlice<'a, T, N> {
+    type Item = [&'a T; N];
+    type IntoIter = ChunkStridedSliceIter<'a, T, N>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
 pub struct AlongChunkIter<'a, T, const N: usize> {
     pointer: *const T,
     offsets: &'a [usize; N],
@@ -252,25 +209,21 @@ impl<'a, T, const N: usize> ExactSizeIterator for AlongChunkIter<'a, T, N> {}
 pub struct ChunkStridedSliceIter<'a, T, const N: usize> {
     start: *const T,
     end: *const T,
-    offsets: &'a [usize; N],
+    offsets: [usize; N],
     stride: usize,
     _member: PhantomData<&'a T>,
 }
 
 impl<'a, T, const N: usize> Iterator for ChunkStridedSliceIter<'a, T, N> {
-    type Item = AlongChunkIter<'a, T, N>;
+    type Item = [&'a T; N];
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         if self.start == self.end {
             None
         } else {
-            let items = AlongChunkIter {
-                pointer: self.start,
-                offsets: self.offsets,
-                ind: 0,
-                _member: PhantomData,
-            };
+            let items: Self::Item =
+                std::array::from_fn(|i| unsafe { &*self.start.add(self.offsets[i]) });
             self.start = unsafe { self.start.add(self.stride) };
             Some(items)
         }
@@ -289,12 +242,8 @@ impl<'a, T, const N: usize> DoubleEndedIterator for ChunkStridedSliceIter<'a, T,
             None
         } else {
             self.end = unsafe { self.end.sub(self.stride) };
-            let items = AlongChunkIter {
-                pointer: self.end,
-                offsets: self.offsets,
-                ind: 0,
-                _member: PhantomData,
-            };
+            let items: Self::Item =
+                std::array::from_fn(|i| unsafe { &*self.end.add(self.offsets[i]) });
             Some(items)
         }
     }
@@ -661,7 +610,91 @@ impl<'a, T, const N: usize> DoubleEndedIterator for LaneSliceChunkIter<'a, T, N>
         }
     }
 }
+
 //  Mutable strided slices and chunks of strided slices
+#[derive(Clone, Copy)]
+pub struct MutStridedSlice<'a, T> {
+    base: *mut T,
+    length: usize,
+    stride: usize,
+    _member: PhantomData<&'a T>,
+}
+
+impl<'a, T> MutStridedSlice<'a, T> {
+    #[inline]
+    pub fn get(&self, index: usize) -> Option<&'a T> {
+        if index >= self.length {
+            None
+        } else {
+            Some(unsafe { self.get_unchecked(index) })
+        }
+    }
+
+    #[inline]
+    pub fn get_mut(&self, index: usize) -> Option<&'a mut T> {
+        if index >= self.length {
+            None
+        } else {
+            Some(unsafe { self.get_mut_unchecked(index) })
+        }
+    }
+
+    #[inline]
+    pub unsafe fn get_unchecked(&self, index: usize) -> &'a T {
+        unsafe { &*self.base.add(index * self.stride) }
+    }
+
+    #[inline]
+    pub unsafe fn get_mut_unchecked(&self, index: usize) -> &'a mut T {
+        unsafe { &mut *self.base.add(index * self.stride) }
+    }
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.length
+    }
+
+    #[inline]
+    pub fn iter(&self) -> StridedIter<'a, T> {
+        let end = unsafe { self.base.add(self.stride * self.length) };
+        StridedIter {
+            start: self.base,
+            end: end,
+            stride: self.stride,
+            _member: PhantomData,
+        }
+    }
+
+    #[inline]
+    pub fn iter_mut(&self) -> MutStridedIter<'a, T> {
+        let end = unsafe { self.base.add(self.stride * self.length) };
+        MutStridedIter {
+            start: self.base,
+            end: end,
+            stride: self.stride,
+            _member: PhantomData,
+        }
+    }
+}
+impl<'a, T> IntoIterator for MutStridedSlice<'a, T> {
+    type Item = &'a mut T;
+    type IntoIter = MutStridedIter<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter_mut()
+    }
+}
+
+impl<'a, T> From<MutStridedSlice<'a, T>> for StridedSlice<'a, T> {
+    fn from(other: MutStridedSlice<'a, T>) -> Self {
+        Self {
+            base: other.base,
+            length: other.length,
+            stride: other.stride,
+            _member: PhantomData,
+        }
+    }
+}
 
 pub struct MutStridedIter<'a, T> {
     start: *mut T,
@@ -707,6 +740,80 @@ impl<'a, T> DoubleEndedIterator for MutStridedIter<'a, T> {
     }
 }
 
+#[derive(Clone, Copy)]
+pub struct MutChunkStridedSlice<'a, T, const N: usize> {
+    base: *mut T,
+    offsets: [usize; N],
+    length: usize,
+    stride: usize,
+    _member: PhantomData<&'a T>,
+}
+impl<'a, T, const N: usize> MutChunkStridedSlice<'a, T, N> {
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.length
+    }
+
+    #[inline]
+    pub fn iter(&self) -> ChunkStridedSliceIter<'a, T, N> {
+        let end_offset = self.length * self.stride;
+        let end = unsafe { self.base.add(end_offset) };
+        ChunkStridedSliceIter {
+            start: self.base,
+            end,
+            offsets: self.offsets,
+            stride: self.stride,
+            _member: PhantomData,
+        }
+    }
+
+    #[inline]
+    pub fn iter_mut(&'a self) -> MutChunkStridedSliceIter<'a, T, N> {
+        let end_offset = self.length * self.stride;
+        let end = unsafe { self.base.add(end_offset) };
+        MutChunkStridedSliceIter {
+            start: self.base,
+            end,
+            offsets: self.offsets,
+            stride: self.stride,
+            _member: PhantomData,
+        }
+    }
+
+    #[inline]
+    pub fn get(&self, index: (usize, usize)) -> Option<&T> {
+        assert!(index.0 < self.length);
+        assert!(index.1 < N);
+        Some(unsafe { self.get_unchecked(index) })
+    }
+
+    #[inline]
+    pub unsafe fn get_unchecked(&self, index: (usize, usize)) -> &T {
+        unsafe {
+            let slice_target = self.base.add(*self.offsets.get_unchecked(index.1));
+            let target = slice_target.add(self.stride * index.0);
+            &*target
+        }
+    }
+
+    #[inline]
+    pub fn get_mut(&self, index: (usize, usize)) -> Option<&mut T> {
+        assert!(index.0 < self.length);
+        assert!(index.1 < N);
+        Some(unsafe { self.get_mut_unchecked(index) })
+    }
+
+    #[inline]
+    pub unsafe fn get_mut_unchecked(&self, index: (usize, usize)) -> &mut T {
+        unsafe {
+            let base = self.base as *mut T;
+            let slice_target = base.add(*self.offsets.get_unchecked(index.1));
+            let target = slice_target.add(self.stride * index.0);
+            &mut *target
+        }
+    }
+}
+
 pub struct MutAlongChunkIter<'a, T, const N: usize> {
     pointer: *mut T,
     offsets: &'a [usize; N],
@@ -738,26 +845,30 @@ impl<'a, T, const N: usize> ExactSizeIterator for MutAlongChunkIter<'a, T, N> {}
 pub struct MutChunkStridedSliceIter<'a, T, const N: usize> {
     start: *mut T,
     end: *mut T,
-    offsets: &'a [usize; N],
+    offsets: [usize; N],
     stride: usize,
     _member: PhantomData<&'a T>,
 }
 
 impl<'a, T, const N: usize> Iterator for MutChunkStridedSliceIter<'a, T, N> {
-    type Item = MutAlongChunkIter<'a, T, N>;
+    type Item = [&'a mut T; N]; //MutAlongChunkIter<'a, T, N>;
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         if self.start == self.end {
             None
         } else {
-            let items = MutAlongChunkIter {
-                pointer: self.start,
-                offsets: self.offsets,
-                ind: 0,
-                _member: PhantomData,
-            };
+            let items: Self::Item =
+                std::array::from_fn(|i| unsafe { &mut *self.start.add(self.offsets[i]) });
             self.start = unsafe { self.start.add(self.stride) };
+
+            // let items = MutAlongChunkIter {
+            //     pointer: self.start,
+            //     offsets: self.offsets,
+            //     ind: 0,
+            //     _member: PhantomData,
+            // };
+            //self.start = unsafe { self.start.add(self.stride) };
             Some(items)
         }
     }
@@ -775,12 +886,14 @@ impl<'a, T, const N: usize> DoubleEndedIterator for MutChunkStridedSliceIter<'a,
             None
         } else {
             self.end = unsafe { self.end.sub(self.stride) };
-            let items = MutAlongChunkIter {
-                pointer: self.end,
-                offsets: self.offsets,
-                ind: 0,
-                _member: PhantomData,
-            };
+            let items: Self::Item =
+                std::array::from_fn(|i| unsafe { &mut *self.end.add(self.offsets[i]) });
+            // let items = MutAlongChunkIter {
+            //     pointer: self.end,
+            //     offsets: self.offsets,
+            //     ind: 0,
+            //     _member: PhantomData,
+            // };
             Some(items)
         }
     }
@@ -852,7 +965,7 @@ impl<'a, T> MutLaneSliceIter<'a, T> {
 }
 
 impl<'a, T> Iterator for MutLaneSliceIter<'a, T> {
-    type Item = StridedSlice<'a, T>;
+    type Item = MutStridedSlice<'a, T>;
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
@@ -867,7 +980,7 @@ impl<'a, T> Iterator for MutLaneSliceIter<'a, T> {
                 lane_stride,
             } = &self.arr_info;
 
-            let slice = StridedSlice {
+            let slice = MutStridedSlice {
                 base: unsafe { self.base.add(self.front_offset) },
                 length: *lane_length,
                 stride: *lane_stride,
@@ -912,7 +1025,7 @@ impl<'a, T> DoubleEndedIterator for MutLaneSliceIter<'a, T> {
                 lane_stride,
             } = &self.arr_info;
 
-            let slice = StridedSlice {
+            let slice = MutStridedSlice {
                 base: unsafe { self.base.add(self.rear_offset) },
                 length: *lane_length,
                 stride: *lane_stride,
@@ -1044,7 +1157,7 @@ impl<'a, T, const N: usize> MutLaneSliceChunkIter<'a, T, N> {
     }
 }
 impl<'a, T, const N: usize> Iterator for MutLaneSliceChunkIter<'a, T, N> {
-    type Item = ChunkStridedSlice<'a, T, N>;
+    type Item = MutChunkStridedSlice<'a, T, N>;
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         if self.remaining == 0 {
@@ -1142,7 +1255,7 @@ impl<'a, T, const N: usize> DoubleEndedIterator for MutLaneSliceChunkIter<'a, T,
 
 pub trait LanesIterator<T> {
     fn iter_lanes<'a>(&'a self, shape: &[usize], axis: usize) -> LaneSliceIter<'a, T>;
-    fn iter_lanes_mut<'a>(&'a mut self, shape: &[usize], aixs: usize) -> MutLaneSliceIter<'a, T>;
+    fn iter_lanes_mut<'a>(&'a mut self, shape: &[usize], axis: usize) -> MutLaneSliceIter<'a, T>;
     fn iter_lane_chunks<'a, const N: usize>(
         &'a self,
         shape: &[usize],
@@ -1151,7 +1264,7 @@ pub trait LanesIterator<T> {
     fn iter_lane_chunks_mut<'a, const N: usize>(
         &'a mut self,
         shape: &[usize],
-        aixs: usize,
+        axis: usize,
     ) -> (MutLaneSliceChunkIter<'a, T, N>, MutLaneSliceIter<'a, T>);
 
     fn iter_lanes_strided<'a>(
@@ -1164,7 +1277,7 @@ pub trait LanesIterator<T> {
         &'a mut self,
         shape: &[usize],
         stride: &[usize],
-        aixs: usize,
+        axis: usize,
     ) -> MutLaneSliceIter<'a, T>;
     fn iter_lane_chunks_strided<'a, const N: usize>(
         &'a self,
@@ -1176,7 +1289,7 @@ pub trait LanesIterator<T> {
         &'a mut self,
         shape: &[usize],
         stride: &[usize],
-        aixs: usize,
+        axis: usize,
     ) -> (MutLaneSliceChunkIter<'a, T, N>, MutLaneSliceIter<'a, T>);
 }
 impl<T> LanesIterator<T> for [T] {
@@ -1524,6 +1637,7 @@ pub mod parallel {
 
     // Mutable versions
 
+    unsafe impl<'a, T> Send for MutStridedSlice<'a, T> {}
     pub struct MutLaneSliceParIter<'a, T> {
         base: *mut T,
         arr_info: ArrayInfo,
@@ -1577,7 +1691,7 @@ pub mod parallel {
     }
 
     impl<'a, T> ParallelIterator for MutLaneSliceParIter<'a, T> {
-        type Item = StridedSlice<'a, T>;
+        type Item = MutStridedSlice<'a, T>;
         fn drive_unindexed<C>(self, consumer: C) -> C::Result
         where
             C: UnindexedConsumer<Self::Item>,
@@ -1604,7 +1718,7 @@ pub mod parallel {
     }
 
     impl<'a, T> Producer for MutLaneSliceParIter<'a, T> {
-        type Item = StridedSlice<'a, T>;
+        type Item = MutStridedSlice<'a, T>;
         type IntoIter = MutLaneSliceIter<'a, T>;
 
         fn into_iter(self) -> Self::IntoIter {
@@ -1651,6 +1765,8 @@ pub mod parallel {
             )
         }
     }
+
+    unsafe impl<'a, T, const N: usize> Send for MutChunkStridedSlice<'a, T, N> {}
 
     pub struct MutLaneSliceChunkParIter<'a, T, const N: usize> {
         base: *mut T,
@@ -1721,7 +1837,7 @@ pub mod parallel {
     }
 
     impl<'a, T, const N: usize> ParallelIterator for MutLaneSliceChunkParIter<'a, T, N> {
-        type Item = ChunkStridedSlice<'a, T, N>;
+        type Item = MutChunkStridedSlice<'a, T, N>;
         fn drive_unindexed<C>(self, consumer: C) -> C::Result
         where
             C: UnindexedConsumer<Self::Item>,
@@ -1748,7 +1864,7 @@ pub mod parallel {
     }
 
     impl<'a, T, const N: usize> Producer for MutLaneSliceChunkParIter<'a, T, N> {
-        type Item = ChunkStridedSlice<'a, T, N>;
+        type Item = MutChunkStridedSlice<'a, T, N>;
         type IntoIter = MutLaneSliceChunkIter<'a, T, N>;
 
         fn into_iter(self) -> Self::IntoIter {
@@ -2001,7 +2117,7 @@ mod tests {
 
         for axis in 0..2 {
             let mut index = 0;
-            arr.iter_lanes_mut(&shape, axis).for_each(|mut lane| {
+            arr.iter_lanes_mut(&shape, axis).for_each(|lane| {
                 assert_eq!(lane.len(), shape[axis]);
                 lane.iter_mut().for_each(|v| {
                     *v = index;
@@ -2027,7 +2143,7 @@ mod tests {
 
         for axis in 0..shape.len() {
             let mut index = 0;
-            arr.iter_lanes_mut(&shape, axis).for_each(|mut lane| {
+            arr.iter_lanes_mut(&shape, axis).for_each(|lane| {
                 assert_eq!(lane.len(), shape[axis]);
                 lane.iter_mut().for_each(|v| {
                     *v = index;
@@ -2053,7 +2169,7 @@ mod tests {
 
         for axis in 0..shape.len() {
             let mut index = 0;
-            arr.iter_lanes_mut(&shape, axis).for_each(|mut lane| {
+            arr.iter_lanes_mut(&shape, axis).for_each(|lane| {
                 assert_eq!(lane.len(), shape[axis]);
                 lane.iter_mut().for_each(|v| {
                     *v = index;
@@ -2075,7 +2191,7 @@ mod tests {
     fn test_strided_mut() {
         let mut arr = [0; 6];
         let stride = 2;
-        let mut strided = StridedSlice {
+        let strided = MutStridedSlice {
             base: arr.as_mut_ptr(),
             stride: stride,
             length: arr.len() / stride,
@@ -2085,7 +2201,7 @@ mod tests {
         strided.iter_mut().for_each(|v| *v = 1);
         assert_eq!(arr, [1, 0, 1, 0, 1, 0]);
 
-        let mut strided = StridedSlice {
+        let strided = MutStridedSlice {
             base: arr[1..].as_mut_ptr(),
             stride: stride,
             length: arr.len() / stride,
@@ -2112,7 +2228,7 @@ mod tests {
             assert_eq!(chunk.len(), shape[0]);
             for (i_row, row) in chunk.iter().enumerate() {
                 assert_eq!(row.len(), N);
-                let vals: [_; N] = row.map(|v| *v).collect::<Vec<_>>().try_into().unwrap();
+                let vals: [_; N] = row.map(|v| *v);
                 let goal = std::array::from_fn(|i_col| {
                     let col_ind = i_chunk * N + i_col;
                     col_ind + i_row * shape[1]
@@ -2142,7 +2258,7 @@ mod tests {
             assert_eq!(chunk.len(), shape[1]);
             for (i_col, cols) in chunk.iter().enumerate() {
                 assert_eq!(cols.len(), 4);
-                let vals: [_; N] = cols.map(|v| *v).collect::<Vec<_>>().try_into().unwrap();
+                let vals: [_; N] = cols.map(|v| *v);
                 let goal = std::array::from_fn(|i_row| {
                     let i_row = i_chunk * N + i_row;
                     i_col + i_row * shape[1]
@@ -2199,22 +2315,20 @@ mod tests {
                 assert_eq!(chunk.len(), n_along);
                 for (i_along, items) in chunk.iter().enumerate() {
                     assert_eq!(items.len(), N);
-                    let vals = items.map(|v| *v).collect::<Vec<_>>();
-                    let goal = (0..N)
-                        .map(|i_l| {
-                            let i_lane = i_chunk * N + i_l;
-                            let inds_sub = unravel(i_lane, &shape_sub);
-                            let offset: usize = strides
-                                .iter()
-                                .enumerate()
-                                .filter(|(i, _)| *i != ax)
-                                .zip(inds_sub)
-                                .map(|((_, off), i_ax)| i_ax * off)
-                                .sum();
+                    let vals = items.map(|v| *v);
+                    let goal = std::array::from_fn(|i_l| {
+                        let i_lane = i_chunk * N + i_l;
+                        let inds_sub = unravel(i_lane, &shape_sub);
+                        let offset: usize = strides
+                            .iter()
+                            .enumerate()
+                            .filter(|(i, _)| *i != ax)
+                            .zip(inds_sub)
+                            .map(|((_, off), i_ax)| i_ax * off)
+                            .sum();
 
-                            strides[ax] * i_along + offset
-                        })
-                        .collect::<Vec<_>>();
+                        strides[ax] * i_along + offset
+                    });
 
                     assert_eq!(vals, goal);
                 }
@@ -2279,7 +2393,7 @@ mod tests {
                 assert_eq!(chunk.len(), n_along);
                 for (i_along, items) in chunk.iter_mut().enumerate() {
                     assert_eq!(items.len(), N);
-                    items.enumerate().for_each(|(i_l, v)| {
+                    items.into_iter().enumerate().for_each(|(i_l, v)| {
                         let i_lane = i_chunk * N + i_l;
                         let inds_sub = unravel(i_lane, &shape_sub);
 
@@ -2296,7 +2410,7 @@ mod tests {
                 }
             }
 
-            for (i_rem, mut lane) in iter_rem.enumerate() {
+            for (i_rem, lane) in iter_rem.enumerate() {
                 let i_lane = i_rem + n_chunks * N;
                 assert_eq!(lane.len(), n_along);
 
@@ -2369,15 +2483,15 @@ mod tests {
             let mut arr = vec![0; n_t];
 
             for axis in 0..shape.len() {
-                arr.par_iter_lanes_mut(&shape, axis).enumerate().for_each(
-                    |(lane_ind, mut lane)| {
+                arr.par_iter_lanes_mut(&shape, axis)
+                    .enumerate()
+                    .for_each(|(lane_ind, lane)| {
                         assert_eq!(lane.len(), shape[axis]);
                         let index = lane_ind * shape[axis];
                         lane.iter_mut().enumerate().for_each(|(ii, v)| {
                             *v = index + ii;
                         });
-                    },
-                );
+                    });
 
                 let collected = arr
                     .iter_lanes(&shape, axis)
@@ -2428,22 +2542,20 @@ mod tests {
                     assert_eq!(chunk.len(), lane_length);
                     for (i_along, items) in chunk.iter().enumerate() {
                         assert_eq!(items.len(), N);
-                        let vals = items.map(|v| *v).collect::<Vec<_>>();
-                        let goal = (0..N)
-                            .map(|i_l| {
-                                let i_lane = i_chunk * N + i_l;
-                                let inds_sub = unravel(i_lane, &shape_sub);
-                                let offset: usize = strides
-                                    .iter()
-                                    .enumerate()
-                                    .filter(|(i, _)| *i != ax)
-                                    .zip(inds_sub)
-                                    .map(|((_, off), i_ax)| i_ax * off)
-                                    .sum();
+                        let vals = items.map(|v| *v);
+                        let goal = std::array::from_fn(|i_l| {
+                            let i_lane = i_chunk * N + i_l;
+                            let inds_sub = unravel(i_lane, &shape_sub);
+                            let offset: usize = strides
+                                .iter()
+                                .enumerate()
+                                .filter(|(i, _)| *i != ax)
+                                .zip(inds_sub)
+                                .map(|((_, off), i_ax)| i_ax * off)
+                                .sum();
 
-                                strides[ax] * i_along + offset
-                            })
-                            .collect::<Vec<_>>();
+                            strides[ax] * i_along + offset
+                        });
 
                         assert_eq!(vals, goal);
                     }
@@ -2508,7 +2620,7 @@ mod tests {
                     assert_eq!(chunk.len(), n_along);
                     for (i_along, items) in chunk.iter_mut().enumerate() {
                         assert_eq!(items.len(), N);
-                        items.enumerate().for_each(|(i_l, v)| {
+                        items.into_iter().enumerate().for_each(|(i_l, v)| {
                             let i_lane = i_chunk * N + i_l;
                             let inds_sub = unravel(i_lane, &shape_sub);
 
@@ -2525,7 +2637,7 @@ mod tests {
                     }
                 });
 
-                iter_rem.enumerate().for_each(|(i_rem, mut lane)| {
+                iter_rem.enumerate().for_each(|(i_rem, lane)| {
                     let i_lane = i_rem + n_chunks * N;
                     assert_eq!(lane.len(), n_along);
 
