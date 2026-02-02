@@ -11,7 +11,6 @@ use crate::utils::{
 };
 use crate::utils::{
     interleave, interleave_strided, interleave_strided_chunk, split_strided, split_strided_chunk,
-    stride_from_shape,
 };
 
 const N: usize = 4;

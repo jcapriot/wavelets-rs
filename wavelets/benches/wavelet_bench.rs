@@ -156,7 +156,7 @@ fn deinterleave_benchmark(c: &mut Criterion) {
     const D: usize = 2;
     let n = 100;
 
-    let mut group = c.benchmark_group("interleave_strided");
+    let mut group = c.benchmark_group("deinterleave-strided");
 
     let shape = vec![n; 2];
     let n_total = shape.iter().product();
