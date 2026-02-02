@@ -452,10 +452,7 @@ fn generate_forward_op(steps: &[LiftingStep<LitFloat>]) -> proc_macro2::TokenStr
     quote! {
         fn forward<T, BC>(s: &mut [T], d: &mut [T], bc: &BC)
         where
-            T: ::num_traits::NumOps
-                + ::num_traits::NumAssignOps
-                + ::std::ops::Neg<Output = T>
-                + Clone
+            T: crate::Transformable
                 + From<f64>,
             BC: crate::boundarys::BoundaryExtension
         {
@@ -477,10 +474,7 @@ fn generate_inverse_op(steps: &[LiftingStep<LitFloat>]) -> proc_macro2::TokenStr
     quote! {
         fn inverse<T, BC>(s: &mut [T], d: &mut [T], bc: &BC)
         where
-            T: ::num_traits::NumOps
-                + ::num_traits::NumAssignOps
-                + ::std::ops::Neg<Output = T>
-                + Clone
+            T: crate::Transformable
                 + From<f64>,
             BC: crate::lwt::BoundaryExtension
         {
@@ -502,10 +496,7 @@ fn generate_adjoint_inverse_op(steps: &[LiftingStep<LitFloat>]) -> proc_macro2::
     quote! {
         fn adjoint_inverse<T, BC>(s: &mut [T], d: &mut [T], bc: &BC)
         where
-            T: ::num_traits::NumOps
-                + ::num_traits::NumAssignOps
-                + ::std::ops::Neg<Output = T>
-                + Clone
+            T: crate::Transformable
                 + From<f64>,
             BC: crate::lwt::LiftedAdjointBoundary
         {
@@ -527,10 +518,7 @@ fn generate_adjoint_forward_op(steps: &[LiftingStep<LitFloat>]) -> proc_macro2::
     let temp = quote! {
         fn adjoint_forward<T, BC>(s: &mut [T], d: &mut [T], bc: &BC)
         where
-            T: ::num_traits::NumOps
-                + ::num_traits::NumAssignOps
-                + ::std::ops::Neg<Output = T>
-                + Clone
+            T: crate::Transformable
                 + From<f64>,
             BC: crate::lwt::LiftedAdjointBoundary
         {

@@ -1,7 +1,6 @@
 use itertools::Itertools;
-use num_traits::{NumOps, Zero};
-use std::ops::Neg;
 
+use crate::Transformable;
 use crate::boundarys::{BoundaryExtension, PeriodicBoundary};
 
 pub mod bior;
@@ -14,7 +13,7 @@ pub trait DiscreteTransform<U: Clone, const N: usize> {
     const HI: [U; N];
 
     #[inline]
-    fn forward<T: NumOps + Zero + Clone + From<U> + Neg<Output = T>, BC: BoundaryExtension>(
+    fn forward<T: Transformable + From<U>, BC: BoundaryExtension>(
         x: &[T],
         s: &mut [T],
         d: &mut [T],
@@ -24,49 +23,29 @@ pub trait DiscreteTransform<U: Clone, const N: usize> {
     }
 
     #[inline]
-    fn inverse<T: NumOps + Zero + Clone + From<U> + Neg<Output = T>>(
-        s: &[T],
-        d: &[T],
-        x: &mut [T],
-    ) {
+    fn inverse<T: Transformable + From<U>>(s: &[T], d: &[T], x: &mut [T]) {
         dwt_inverse(&Self::GI, &Self::HI, s, d, x);
     }
 
     #[inline]
-    fn forward_per<T: NumOps + Zero + Clone + From<U> + Neg<Output = T>>(
-        x: &[T],
-        s: &mut [T],
-        d: &mut [T],
-    ) {
+    fn forward_per<T: Transformable + From<U>>(x: &[T], s: &mut [T], d: &mut [T]) {
         dwt_per_forward(&Self::G, &Self::H, x, s, d);
     }
 
     #[inline]
-    fn adjoint_forward_per<T: NumOps + Zero + Clone + From<U> + Neg<Output = T>>(
-        s: &[T],
-        d: &[T],
-        x: &mut [T],
-    ) {
+    fn adjoint_forward_per<T: Transformable + From<U>>(s: &[T], d: &[T], x: &mut [T]) {
         let ga: [_; N] = Self::G.clone().into_iter().rev().collect_array().unwrap();
         let ha: [_; N] = Self::H.clone().into_iter().rev().collect_array().unwrap();
         dwt_per_inverse(&ga, &ha, s, d, x);
     }
 
     #[inline]
-    fn inverse_per<T: NumOps + Zero + Clone + From<U> + Neg<Output = T>>(
-        s: &[T],
-        d: &[T],
-        x: &mut [T],
-    ) {
+    fn inverse_per<T: Transformable + From<U>>(s: &[T], d: &[T], x: &mut [T]) {
         dwt_per_inverse(&Self::GI, &Self::HI, s, d, x);
     }
 
     #[inline]
-    fn adjoint_inverse_per<T: NumOps + Zero + Clone + From<U> + Neg<Output = T>>(
-        x: &[T],
-        s: &mut [T],
-        d: &mut [T],
-    ) {
+    fn adjoint_inverse_per<T: Transformable + From<U>>(x: &[T], s: &mut [T], d: &mut [T]) {
         let gia: [_; N] = Self::GI.clone().into_iter().rev().collect_array().unwrap();
         let hia: [_; N] = Self::HI.clone().into_iter().rev().collect_array().unwrap();
         dwt_per_forward(&gia, &hia, x, s, d);
@@ -89,12 +68,7 @@ pub fn get_outlen<const N: usize>(n: usize) -> usize {
     }
 }
 
-pub fn dwt_forward<
-    T: NumOps + Zero + Clone + From<U> + Neg<Output = T>,
-    U: Clone,
-    const N: usize,
-    BC: BoundaryExtension,
->(
+pub fn dwt_forward<T: Transformable + From<U>, U: Clone, const N: usize, BC: BoundaryExtension>(
     g: &[U; N],
     h: &[U; N],
     x: &[T],
@@ -155,13 +129,13 @@ pub fn dwt_forward<
         .by_ref()
         .zip(x[first_x..].windows(N).step_by(2))
         .for_each(|((_i, (s, d)), x)| {
-            (*s, *d) = gh_iter
+            let v = gh_iter
                 .clone()
                 .zip(x)
                 .map(|((g, h), xi)| (g.clone() * xi.clone(), h.clone() * xi.clone()))
-                .fold((T::zero(), T::zero()), |(s_s, d_s), (s, d)| {
-                    (s + s_s, d + d_s)
-                });
+                .reduce(|(s_s, d_s), (s, d)| (s + s_s, d + d_s));
+            // only undefined if N==0, but windows(N) would've already paniced if that was the case.
+            (*s, *d) = unsafe { v.unwrap_unchecked() };
         });
 
     sd_iter.for_each(|(i, (s, d))| {
@@ -179,11 +153,7 @@ pub fn dwt_forward<
     });
 }
 
-pub fn dwt_inverse<
-    T: NumOps + Zero + Clone + From<U> + Neg<Output = T>,
-    U: Clone,
-    const N: usize,
->(
+pub fn dwt_inverse<T: Transformable + From<U>, U: Clone, const N: usize>(
     gi: &[U; N],
     hi: &[U; N],
     s: &[T],
@@ -227,7 +197,8 @@ pub fn dwt_inverse<
             .clone()
             .zip(s.iter().zip(d.iter()))
             .map(|((g, h), (s, d))| g[0].clone() * s.clone() + h[0].clone() * d.clone())
-            .fold(T::zero(), |acc, v| acc + v);
+            .reduce(|acc, v| acc + v)
+            .unwrap();
     }
 
     sd_iter
@@ -246,9 +217,8 @@ pub fn dwt_inverse<
                         g[0].clone() * s.clone() + h[0].clone() * d.clone(),
                     )
                 })
-                .fold((T::zero(), T::zero()), |(x0_acc, x1_acc), (x0, x1)| {
-                    (x0_acc + x0, x1_acc + x1)
-                });
+                .reduce(|(x0_acc, x1_acc), (x0, x1)| (x0_acc + x0, x1_acc + x1))
+                .unwrap();
         });
 
     if let Some(x) = x.last_mut() {
@@ -257,16 +227,13 @@ pub fn dwt_inverse<
                 .clone()
                 .zip(s.iter().zip(d.iter()))
                 .map(|((g, h), (s, d))| g[1].clone() * s.clone() + h[1].clone() * d.clone())
-                .fold(T::zero(), |acc, v| acc + v);
+                .reduce(|acc, v| acc + v)
+                .unwrap();
         });
     }
 }
 
-pub fn dwt_per_forward<
-    T: NumOps + Zero + Clone + From<U> + Neg<Output = T>,
-    U: Clone,
-    const N: usize,
->(
+pub fn dwt_per_forward<T: Transformable + From<U>, U: Clone, const N: usize>(
     g: &[U; N],
     h: &[U; N],
     x: &[T],
@@ -340,13 +307,13 @@ pub fn dwt_per_forward<
         .by_ref()
         .zip(x[first_x..].windows(N).step_by(2))
         .for_each(|((_i, (s, d)), x)| {
-            (*s, *d) = gh_iter
+            let v = gh_iter
                 .clone()
                 .zip(x)
                 .map(|((g, h), xi)| (g.clone() * xi.clone(), h.clone() * xi.clone()))
-                .fold((T::zero(), T::zero()), |(s_s, d_s), (s, d)| {
-                    (s + s_s, d + d_s)
-                });
+                .reduce(|(s_s, d_s), (s, d)| (s + s_s, d + d_s));
+            // only undefined if N == 0, but would've paniced at windows() before this.
+            (*s, *d) = unsafe { v.unwrap_unchecked() };
         });
 
     sd_iter.for_each(|(i, (s, d))| {
@@ -364,11 +331,7 @@ pub fn dwt_per_forward<
     });
 }
 
-pub fn dwt_per_inverse<
-    T: NumOps + Zero + Clone + From<U> + Neg<Output = T>,
-    U: Clone,
-    const N: usize,
->(
+pub fn dwt_per_inverse<T: Transformable + From<U>, U: Clone, const N: usize>(
     gi: &[U; N],
     hi: &[U; N],
     s: &[T],
@@ -500,9 +463,8 @@ pub fn dwt_per_inverse<
                         g[0].clone() * s.clone() + h[0].clone() * d.clone(),
                     )
                 })
-                .fold((T::zero(), T::zero()), |(x0_acc, x1_acc), (x0, x1)| {
-                    (x0_acc + x0, x1_acc + x1)
-                });
+                .reduce(|(x0_acc, x1_acc), (x0, x1)| (x0_acc + x0, x1_acc + x1))
+                .unwrap();
         });
 
     // back bc loop until the x chunks run out
@@ -594,10 +556,5 @@ mod test {
 
         let mut x = vec![0.0; nx];
         dwt_inverse(&g, &h, &s, &d, &mut x);
-
-        // dbg!(&x);
-        // dbg!(&s);
-        // dbg!(&d);
-        // panic!();
     }
 }

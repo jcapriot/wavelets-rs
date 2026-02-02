@@ -1,52 +1,34 @@
 pub mod bior;
 pub mod daubechies;
 
-use num_traits::{NumAssignOps, NumOps};
-use std::ops::Neg;
-
+use crate::Transformable;
 use crate::boundarys::BoundaryExtension;
 use crate::boundarys::LiftedAdjointBoundary;
 
 pub trait LiftingTransform {
-    fn forward<
-        T: NumAssignOps + NumOps + From<f64> + Neg<Output = T> + Clone,
-        BC: BoundaryExtension,
-    >(
+    fn forward<T: Transformable + From<f64>, BC: BoundaryExtension>(
         s: &mut [T],
         d: &mut [T],
         bc: &BC,
     );
-    fn inverse<
-        T: NumAssignOps + NumOps + From<f64> + Neg<Output = T> + Clone,
-        BC: BoundaryExtension,
-    >(
+    fn inverse<T: Transformable + From<f64>, BC: BoundaryExtension>(
         s: &mut [T],
         d: &mut [T],
         bc: &BC,
     );
-    fn adjoint_forward<
-        T: NumAssignOps + NumOps + From<f64> + Neg<Output = T> + Clone,
-        BC: LiftedAdjointBoundary,
-    >(
+    fn adjoint_forward<T: Transformable + From<f64>, BC: LiftedAdjointBoundary>(
         s: &mut [T],
         d: &mut [T],
         bc: &BC,
     );
-    fn adjoint_inverse<
-        T: NumAssignOps + NumOps + From<f64> + Neg<Output = T> + Clone,
-        BC: LiftedAdjointBoundary,
-    >(
+    fn adjoint_inverse<T: Transformable + From<f64>, BC: LiftedAdjointBoundary>(
         s: &mut [T],
         d: &mut [T],
         bc: &BC,
     );
 }
 
-pub fn broadcasted_db2<'a, T: NumAssignOps + NumOps + From<f64> + Clone>(
-    s: &'a mut [T],
-    d: &'a mut [T],
-    n: usize,
-) {
+pub fn broadcasted_db2<'a, T: Transformable + From<f64>>(s: &'a mut [T], d: &'a mut [T], n: usize) {
     assert_eq!(s.len() % n, 0);
     let ns = s.len() / n;
 
@@ -105,6 +87,7 @@ pub fn broadcasted_db2<'a, T: NumAssignOps + NumOps + From<f64> + Clone>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
     use crate::tests::test_approx_equal;
     use itertools::Itertools;
@@ -123,149 +106,147 @@ mod tests {
         Scale(0.5)
     );
 
-    #[test]
-    fn test_multisteps_forward_inverse() {
-        let bcs = [
+    #[rstest]
+    fn test_multisteps_forward_inverse(
+        #[values(
             BoundaryCondition::Zero,
             BoundaryCondition::Periodic,
             BoundaryCondition::Constant,
             BoundaryCondition::Reflect,
             BoundaryCondition::Symmetric,
-        ];
-        for n in [32, 31] {
-            let ns = (n + 1) / 2;
-            let input = (0..n).map(|i| (i + 1) as f64).collect_vec();
-
-            for bc in bcs.iter() {
-                let mut s = input[..ns].to_vec();
-                let mut d = input[ns..].to_vec();
-
-                TestWavelet::forward(&mut s, &mut d, bc);
-
-                TestWavelet::inverse(&mut s, &mut d, bc);
-
-                let output = s.iter().chain(d.iter()).cloned().collect_vec();
-
-                test_approx_equal(&output, &input, RTOL, ATOL);
-            }
-        }
-    }
-
-    #[test]
-    fn test_multisteps_adjoint_forward_inverse() {
-        let bcs = [
-            BoundaryCondition::Zero,
-            BoundaryCondition::Periodic,
-            BoundaryCondition::Constant,
-            BoundaryCondition::Reflect,
-            BoundaryCondition::Symmetric,
-        ];
-        for n in [32, 31] {
-            let ns = (n + 1) / 2;
-            let input = (0..n).map(|i| (i + 1) as f64).collect_vec();
-
-            for bc in bcs.iter() {
-                let mut s = input[..ns].to_vec();
-                let mut d = input[ns..].to_vec();
-
-                TestWavelet::adjoint_forward(&mut s, &mut d, bc);
-
-                TestWavelet::adjoint_inverse(&mut s, &mut d, bc);
-
-                let output = s.iter().chain(d.iter()).cloned().collect_vec();
-
-                test_approx_equal(&output, &input, RTOL, ATOL);
-            }
-        }
-    }
-
-    #[test]
-    fn test_multisteps_forward_adjoint() {
-        let bcs = [
-            BoundaryCondition::Zero,
-            BoundaryCondition::Periodic,
-            BoundaryCondition::Constant,
-            BoundaryCondition::Reflect,
-            BoundaryCondition::Symmetric,
-        ];
-
-        let n = 32;
+            BoundaryCondition::Antisymmetric
+        )]
+        bc: BoundaryCondition,
+        #[values(32, 31)] n: usize,
+    ) {
         let ns = (n + 1) / 2;
+        let input = (0..n).map(|i| (i + 1) as f64).collect_vec();
 
-        for bc in bcs.iter() {
-            let u = (0..n).map(|v| v as f64).collect::<Vec<_>>();
-            let v = (0..n).map(|v| -((v + 500) as f64)).collect::<Vec<_>>();
+        let mut s = input[..ns].to_vec();
+        let mut d = input[ns..].to_vec();
 
-            let mut s_u = u[..ns].iter().cloned().collect::<Vec<_>>();
-            let mut d_u = u[ns..n].iter().cloned().collect::<Vec<_>>();
+        TestWavelet::forward(&mut s, &mut d, &bc);
 
-            TestWavelet::forward(&mut s_u, &mut d_u, bc);
+        TestWavelet::inverse(&mut s, &mut d, &bc);
 
-            let left: f64 = s_u
-                .iter()
-                .chain(d_u.iter())
-                .zip(v.iter())
-                .map(|(v1, v2)| v1 * v2)
-                .sum();
+        let output = s.iter().chain(d.iter()).cloned().collect_vec();
 
-            let mut s_v = v[..ns].iter().cloned().collect::<Vec<_>>();
-            let mut d_v = v[ns..n].iter().cloned().collect::<Vec<_>>();
-
-            TestWavelet::adjoint_forward(&mut s_v, &mut d_v, bc);
-
-            let right: f64 = s_v
-                .iter()
-                .chain(d_v.iter())
-                .zip(u.iter())
-                .map(|(v1, v2)| v1 * v2)
-                .sum();
-
-            assert_eq!(left, right)
-        }
+        test_approx_equal(&output, &input, RTOL, ATOL);
     }
 
-    #[test]
-    fn test_multisteps_inverse_adjoint() {
-        let bcs = [
+    #[rstest]
+    fn test_multisteps_adjoint_forward_inverse(
+        #[values(
             BoundaryCondition::Zero,
             BoundaryCondition::Periodic,
             BoundaryCondition::Constant,
             BoundaryCondition::Reflect,
             BoundaryCondition::Symmetric,
-        ];
-
-        let n = 32;
+            BoundaryCondition::Antisymmetric
+        )]
+        bc: BoundaryCondition,
+        #[values(32, 31)] n: usize,
+    ) {
         let ns = (n + 1) / 2;
+        let input = (0..n).map(|i| (i + 1) as f64).collect_vec();
 
-        for bc in bcs.iter() {
-            let u = (0..n).map(|v| v as f64).collect::<Vec<_>>();
-            let v = (0..n).map(|v| -((v + 500) as f64)).collect::<Vec<_>>();
+        let mut s = input[..ns].to_vec();
+        let mut d = input[ns..].to_vec();
 
-            let mut s_u = u[..ns].iter().cloned().collect::<Vec<_>>();
-            let mut d_u = u[ns..n].iter().cloned().collect::<Vec<_>>();
+        TestWavelet::adjoint_forward(&mut s, &mut d, &bc);
 
-            TestWavelet::inverse(&mut s_u, &mut d_u, bc);
+        TestWavelet::adjoint_inverse(&mut s, &mut d, &bc);
 
-            let left: f64 = s_u
-                .iter()
-                .chain(d_u.iter())
-                .zip(v.iter())
-                .map(|(v1, v2)| v1 * v2)
-                .sum();
+        let output = s.iter().chain(d.iter()).cloned().collect_vec();
 
-            let mut s_v = v[..ns].iter().cloned().collect::<Vec<_>>();
-            let mut d_v = v[ns..n].iter().cloned().collect::<Vec<_>>();
+        test_approx_equal(&output, &input, RTOL, ATOL);
+    }
 
-            TestWavelet::adjoint_inverse(&mut s_v, &mut d_v, bc);
+    #[rstest]
+    fn test_multisteps_forward_adjoint(
+        #[values(
+            BoundaryCondition::Zero,
+            BoundaryCondition::Periodic,
+            BoundaryCondition::Constant,
+            BoundaryCondition::Reflect,
+            BoundaryCondition::Symmetric,
+            BoundaryCondition::Antisymmetric
+        )]
+        bc: BoundaryCondition,
+        #[values(32, 31)] n: usize,
+    ) {
+        let ns = (n + 1) / 2;
+        let u = (0..n).map(|v| v as f64).collect::<Vec<_>>();
+        let v = (0..n).map(|v| -((v + 500) as f64)).collect::<Vec<_>>();
 
-            let right: f64 = s_v
-                .iter()
-                .chain(d_v.iter())
-                .zip(u.iter())
-                .map(|(v1, v2)| v1 * v2)
-                .sum();
+        let mut s_u = u[..ns].iter().cloned().collect::<Vec<_>>();
+        let mut d_u = u[ns..n].iter().cloned().collect::<Vec<_>>();
 
-            assert_eq!(left, right)
-        }
+        TestWavelet::forward(&mut s_u, &mut d_u, &bc);
+
+        let left: f64 = s_u
+            .iter()
+            .chain(d_u.iter())
+            .zip(v.iter())
+            .map(|(v1, v2)| v1 * v2)
+            .sum();
+
+        let mut s_v = v[..ns].iter().cloned().collect::<Vec<_>>();
+        let mut d_v = v[ns..n].iter().cloned().collect::<Vec<_>>();
+
+        TestWavelet::adjoint_forward(&mut s_v, &mut d_v, &bc);
+
+        let right: f64 = s_v
+            .iter()
+            .chain(d_v.iter())
+            .zip(u.iter())
+            .map(|(v1, v2)| v1 * v2)
+            .sum();
+
+        assert_eq!(left, right)
+    }
+
+    #[rstest]
+    fn test_multisteps_inverse_adjoint(
+        #[values(
+            BoundaryCondition::Zero,
+            BoundaryCondition::Periodic,
+            BoundaryCondition::Constant,
+            BoundaryCondition::Reflect,
+            BoundaryCondition::Symmetric,
+            BoundaryCondition::Antisymmetric
+        )]
+        bc: BoundaryCondition,
+        #[values(32, 31)] n: usize,
+    ) {
+        let ns = (n + 1) / 2;
+        let u = (0..n).map(|v| v as f64).collect::<Vec<_>>();
+        let v = (0..n).map(|v| -((v + 500) as f64)).collect::<Vec<_>>();
+
+        let mut s_u = u[..ns].iter().cloned().collect::<Vec<_>>();
+        let mut d_u = u[ns..n].iter().cloned().collect::<Vec<_>>();
+
+        TestWavelet::inverse(&mut s_u, &mut d_u, &bc);
+
+        let left: f64 = s_u
+            .iter()
+            .chain(d_u.iter())
+            .zip(v.iter())
+            .map(|(v1, v2)| v1 * v2)
+            .sum();
+
+        let mut s_v = v[..ns].iter().cloned().collect::<Vec<_>>();
+        let mut d_v = v[ns..n].iter().cloned().collect::<Vec<_>>();
+
+        TestWavelet::adjoint_inverse(&mut s_v, &mut d_v, &bc);
+
+        let right: f64 = s_v
+            .iter()
+            .chain(d_v.iter())
+            .zip(u.iter())
+            .map(|(v1, v2)| v1 * v2)
+            .sum();
+
+        assert_eq!(left, right)
     }
 }

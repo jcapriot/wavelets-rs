@@ -7,6 +7,9 @@ pub mod driver;
 pub mod iter;
 pub mod utils;
 
+use num_traits::{NumAssignOps, NumOps};
+use std::ops::Neg;
+
 #[derive(Clone, Copy, Debug)]
 pub enum Wavelets {
     Daubechies1,
@@ -29,6 +32,10 @@ pub enum Operation {
     Normal,
     Adjoint,
 }
+
+pub trait Transformable: NumOps + Clone + Neg<Output = Self> + NumAssignOps {}
+
+impl<T: NumOps + Clone + Neg<Output = T> + NumAssignOps> Transformable for T {}
 
 pub mod tests {
     pub fn test_approx_equal<T>(actual: &[T], desired: &[T], rtol: T, atol: T)
