@@ -15,13 +15,18 @@ const WVLTS: [&'static str; 7] = [
     "Daubechies6",
     "Bior3_1",
 ];
-#[proc_macro]
-pub fn generate_wavelet_enum(_input: TokenStream) -> TokenStream {
-    let wvlts = WVLTS
+
+fn wavelet_idents() -> Vec<Ident> {
+    WVLTS
         .iter()
         .cloned()
         .map(|v| Ident::new(v, v.span()))
-        .collect::<Vec<_>>();
+        .collect::<Vec<_>>()
+}
+
+#[proc_macro]
+pub fn generate_wavelet_enum(_input: TokenStream) -> TokenStream {
+    let wvlts = wavelet_idents();
     quote! {
         #[derive(Clone, Copy, Debug)]
         pub enum Wavelets{
