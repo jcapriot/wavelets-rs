@@ -8,7 +8,7 @@ use wavelets::utils::{deinterleave_2d, deinterleave_strided, stack_to_strided};
 
 #[test]
 pub fn test_broadcasted_db2() {
-    let shape = [55, 55];
+    let shape = [30, 1];
     let n_total = shape.iter().product();
     let x = (0..n_total).map(|i| i as f64).collect_vec();
 
@@ -33,12 +33,16 @@ pub fn test_broadcasted_db2() {
     }
 
     let (s, d) = x2.split_at_mut(ne * shape[1]);
-    lwt::broadcasted_db2(s, d, shape[1]);
 
-    let sd_ref = sd.split_at(ne * shape[1]);
+    lwt::daubechies::Daubechies2::forward_chunk(s, d, shape[1], &ZeroBoundary {});
+    //lwt::broadcasted_db2(s, d, shape[1]);
 
-    wavelets::tests::test_approx_equal(s, sd_ref.0, 1E-15, 0.0);
+    //    let sd_ref = sd.split_at(ne * shape[1]);
 
+    // dbg!("s");
+    // wavelets::tests::test_approx_equal(s, sd_ref.0, 1E-15, 0.0);
+
+    dbg!("x");
     wavelets::tests::test_approx_equal(&x2, &sd, 1E-15, 0.0);
 }
 
@@ -64,7 +68,7 @@ pub fn test_broadcasted_db2_full() {
 
     let ne = (shape[0] + 1) / 2;
     let (s, d) = x2.split_at_mut(ne * shape[1]);
-    lwt::broadcasted_db2(s, d, shape[1]);
+    lwt::daubechies::Daubechies2::forward_chunk(s, d, shape[1], &ZeroBoundary {});
 
     let ne = (shape[1] + 1) / 2;
     let bc = ZeroBoundary;

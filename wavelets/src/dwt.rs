@@ -13,39 +13,52 @@ pub trait DiscreteTransform<U: Clone, const N: usize> {
     const HI: [U; N];
 
     #[inline]
-    fn forward<T: Transformable + From<U>, BC: BoundaryExtension>(
-        x: &[T],
-        s: &mut [T],
-        d: &mut [T],
-        bc: &BC,
-    ) {
+    fn forward<T: Transformable, BC: BoundaryExtension>(x: &[T], s: &mut [T], d: &mut [T], bc: &BC)
+    where
+        T::ScalarType: From<U>,
+    {
         dwt_forward(&Self::G, &Self::H, x, s, d, bc);
     }
 
     #[inline]
-    fn inverse<T: Transformable + From<U>>(s: &[T], d: &[T], x: &mut [T]) {
+    fn inverse<T: Transformable>(s: &[T], d: &[T], x: &mut [T])
+    where
+        T::ScalarType: From<U>,
+    {
         dwt_inverse(&Self::GI, &Self::HI, s, d, x);
     }
 
     #[inline]
-    fn forward_per<T: Transformable + From<U>>(x: &[T], s: &mut [T], d: &mut [T]) {
+    fn forward_per<T: Transformable>(x: &[T], s: &mut [T], d: &mut [T])
+    where
+        T::ScalarType: From<U>,
+    {
         dwt_per_forward(&Self::G, &Self::H, x, s, d);
     }
 
     #[inline]
-    fn adjoint_forward_per<T: Transformable + From<U>>(s: &[T], d: &[T], x: &mut [T]) {
+    fn adjoint_forward_per<T: Transformable>(s: &[T], d: &[T], x: &mut [T])
+    where
+        T::ScalarType: From<U>,
+    {
         let ga: [_; N] = Self::G.clone().into_iter().rev().collect_array().unwrap();
         let ha: [_; N] = Self::H.clone().into_iter().rev().collect_array().unwrap();
         dwt_per_inverse(&ga, &ha, s, d, x);
     }
 
     #[inline]
-    fn inverse_per<T: Transformable + From<U>>(s: &[T], d: &[T], x: &mut [T]) {
+    fn inverse_per<T: Transformable>(s: &[T], d: &[T], x: &mut [T])
+    where
+        T::ScalarType: From<U>,
+    {
         dwt_per_inverse(&Self::GI, &Self::HI, s, d, x);
     }
 
     #[inline]
-    fn adjoint_inverse_per<T: Transformable + From<U>>(x: &[T], s: &mut [T], d: &mut [T]) {
+    fn adjoint_inverse_per<T: Transformable>(x: &[T], s: &mut [T], d: &mut [T])
+    where
+        T::ScalarType: From<U>,
+    {
         let gia: [_; N] = Self::GI.clone().into_iter().rev().collect_array().unwrap();
         let hia: [_; N] = Self::HI.clone().into_iter().rev().collect_array().unwrap();
         dwt_per_forward(&gia, &hia, x, s, d);
@@ -68,14 +81,16 @@ pub fn get_outlen<const N: usize>(n: usize) -> usize {
     }
 }
 
-pub fn dwt_forward<T: Transformable + From<U>, U: Clone, const N: usize, BC: BoundaryExtension>(
+pub fn dwt_forward<T: Transformable, U: Clone, const N: usize, BC: BoundaryExtension>(
     g: &[U; N],
     h: &[U; N],
     x: &[T],
     s: &mut [T],
     d: &mut [T],
     bc: &BC,
-) {
+) where
+    T::ScalarType: From<U>,
+{
     let (nx, ns, nd) = (x.len(), s.len(), d.len());
 
     assert_eq!(ns, nd, "'d.len()' must be equal to 's.len()'");
@@ -87,13 +102,13 @@ pub fn dwt_forward<T: Transformable + From<U>, U: Clone, const N: usize, BC: Bou
     );
 
     let offset = (N as isize - 2) / 2;
-    let g: [T; N] = g
+    let g: [T::ScalarType; N] = g
         .iter()
         .rev()
         .map(|v| v.clone().into())
         .collect_array()
         .expect("N=N");
-    let h: [T; N] = h
+    let h: [T::ScalarType; N] = h
         .iter()
         .rev()
         .map(|v| v.clone().into())
@@ -115,7 +130,7 @@ pub fn dwt_forward<T: Transformable + From<U>, U: Clone, const N: usize, BC: Bou
                 .zip(gh_iter.clone())
                 .filter_map(|(j, (g, h))| {
                     let xo = bc.get_bc(x, ix + j)?;
-                    Some((g.clone() * xo.clone(), h.clone() * xo))
+                    Some((xo.clone() * g.clone(), xo * h.clone()))
                 })
                 .reduce(|(s_s, d_s), (s, d)| (s + s_s, d + d_s))
             {
@@ -132,7 +147,7 @@ pub fn dwt_forward<T: Transformable + From<U>, U: Clone, const N: usize, BC: Bou
             let v = gh_iter
                 .clone()
                 .zip(x)
-                .map(|((g, h), xi)| (g.clone() * xi.clone(), h.clone() * xi.clone()))
+                .map(|((g, h), xi)| (xi.clone() * g.clone(), xi.clone() * h.clone()))
                 .reduce(|(s_s, d_s), (s, d)| (s + s_s, d + d_s));
             // only undefined if N==0, but windows(N) would've already paniced if that was the case.
             (*s, *d) = unsafe { v.unwrap_unchecked() };
@@ -144,7 +159,7 @@ pub fn dwt_forward<T: Transformable + From<U>, U: Clone, const N: usize, BC: Bou
             .zip(gh_iter.clone())
             .filter_map(|(j, (g, h))| {
                 let xo = bc.get_bc(x, ix + j)?;
-                Some((g.clone() * xo.clone(), h.clone() * xo))
+                Some((xo.clone() * g.clone(), xo * h.clone()))
             })
             .reduce(|(s_s, d_s), (s, d)| (s + s_s, d + d_s))
         {
@@ -153,13 +168,15 @@ pub fn dwt_forward<T: Transformable + From<U>, U: Clone, const N: usize, BC: Bou
     });
 }
 
-pub fn dwt_inverse<T: Transformable + From<U>, U: Clone, const N: usize>(
+pub fn dwt_inverse<T: Transformable, U: Clone, const N: usize>(
     gi: &[U; N],
     hi: &[U; N],
     s: &[T],
     d: &[T],
     x: &mut [T],
-) {
+) where
+    T::ScalarType: From<U>,
+{
     let (nx, ns, nd) = (x.len(), s.len(), d.len());
 
     assert_eq!(ns, nd, "'d.len()' must be equal to 's.len()'");
@@ -174,13 +191,13 @@ pub fn dwt_inverse<T: Transformable + From<U>, U: Clone, const N: usize>(
     let n_bcs = N as isize / 4;
     // TODO: Remove enumeratiion part of the sd_iter after more testing.
     let mut sd_iter = (-n_bcs..(ns as isize - n_bcs)).zip(s.windows(N / 2).zip(d.windows(N / 2)));
-    let g: [T; N] = gi
+    let g: [T::ScalarType; N] = gi
         .iter()
         .rev()
         .map(|v| v.clone().into())
         .collect_array()
         .expect("N=N");
-    let h: [T; N] = hi
+    let h: [T::ScalarType; N] = hi
         .iter()
         .rev()
         .map(|v| v.clone().into())
@@ -196,7 +213,7 @@ pub fn dwt_inverse<T: Transformable + From<U>, U: Clone, const N: usize>(
         *x = gh_iter
             .clone()
             .zip(s.iter().zip(d.iter()))
-            .map(|((g, h), (s, d))| g[0].clone() * s.clone() + h[0].clone() * d.clone())
+            .map(|((g, h), (s, d))| s.clone() * g[0].clone() + d.clone() * h[0].clone())
             .reduce(|acc, v| acc + v)
             .unwrap();
     }
@@ -213,8 +230,8 @@ pub fn dwt_inverse<T: Transformable + From<U>, U: Clone, const N: usize>(
                 .zip(s.iter().zip(d.iter()))
                 .map(|((g, h), (s, d))| {
                     (
-                        g[1].clone() * s.clone() + h[1].clone() * d.clone(),
-                        g[0].clone() * s.clone() + h[0].clone() * d.clone(),
+                        s.clone() * g[1].clone() + d.clone() * h[1].clone(),
+                        s.clone() * g[0].clone() + d.clone() * h[0].clone(),
                     )
                 })
                 .reduce(|(x0_acc, x1_acc), (x0, x1)| (x0_acc + x0, x1_acc + x1))
@@ -226,20 +243,22 @@ pub fn dwt_inverse<T: Transformable + From<U>, U: Clone, const N: usize>(
             *x = gh_iter
                 .clone()
                 .zip(s.iter().zip(d.iter()))
-                .map(|((g, h), (s, d))| g[1].clone() * s.clone() + h[1].clone() * d.clone())
+                .map(|((g, h), (s, d))| s.clone() * g[1].clone() + d.clone() * h[1].clone())
                 .reduce(|acc, v| acc + v)
                 .unwrap();
         });
     }
 }
 
-pub fn dwt_per_forward<T: Transformable + From<U>, U: Clone, const N: usize>(
+pub fn dwt_per_forward<T: Transformable, U: Clone, const N: usize>(
     g: &[U; N],
     h: &[U; N],
     x: &[T],
     s: &mut [T],
     d: &mut [T],
-) {
+) where
+    T::ScalarType: From<U>,
+{
     let (nx, ns, nd) = (x.len(), s.len(), d.len());
 
     assert!(
@@ -266,13 +285,13 @@ pub fn dwt_per_forward<T: Transformable + From<U>, U: Clone, const N: usize>(
     };
 
     let offset = (N as isize - 2) / 2;
-    let g: [T; N] = g
+    let g: [T::ScalarType; N] = g
         .iter()
         .rev()
         .map(|v| v.clone().into())
         .collect_array()
         .expect("N=N");
-    let h: [T; N] = h
+    let h: [T::ScalarType; N] = h
         .iter()
         .rev()
         .map(|v| v.clone().into())
@@ -293,7 +312,7 @@ pub fn dwt_per_forward<T: Transformable + From<U>, U: Clone, const N: usize>(
             .zip(gh_iter.clone())
             .filter_map(|(j, (g, h))| {
                 let xo = per_bc.get_bc(x, ix + j)?;
-                Some((g.clone() * xo.clone(), h.clone() * xo))
+                Some((xo.clone() * g.clone(), xo * h.clone()))
             })
             .reduce(|(s_s, d_s), (s, d)| (s + s_s, d + d_s))
         {
@@ -310,7 +329,7 @@ pub fn dwt_per_forward<T: Transformable + From<U>, U: Clone, const N: usize>(
             let v = gh_iter
                 .clone()
                 .zip(x)
-                .map(|((g, h), xi)| (g.clone() * xi.clone(), h.clone() * xi.clone()))
+                .map(|((g, h), xi)| (xi.clone() * g.clone(), xi.clone() * h.clone()))
                 .reduce(|(s_s, d_s), (s, d)| (s + s_s, d + d_s));
             // only undefined if N == 0, but would've paniced at windows() before this.
             (*s, *d) = unsafe { v.unwrap_unchecked() };
@@ -322,7 +341,7 @@ pub fn dwt_per_forward<T: Transformable + From<U>, U: Clone, const N: usize>(
             .zip(gh_iter.clone())
             .filter_map(|(j, (g, h))| {
                 let xo = per_bc.get_bc(x, ix + j)?;
-                Some((g.clone() * xo.clone(), h.clone() * xo))
+                Some((xo.clone() * g.clone(), xo * h.clone()))
             })
             .reduce(|(s_s, d_s), (s, d)| (s + s_s, d + d_s))
         {
@@ -331,13 +350,15 @@ pub fn dwt_per_forward<T: Transformable + From<U>, U: Clone, const N: usize>(
     });
 }
 
-pub fn dwt_per_inverse<T: Transformable + From<U>, U: Clone, const N: usize>(
+pub fn dwt_per_inverse<T: Transformable, U: Clone, const N: usize>(
     gi: &[U; N],
     hi: &[U; N],
     s: &[T],
     d: &[T],
     x: &mut [T],
-) {
+) where
+    T::ScalarType: From<U>,
+{
     let (nx, ns, nd) = (x.len(), s.len(), d.len());
 
     assert!(
@@ -366,13 +387,13 @@ pub fn dwt_per_inverse<T: Transformable + From<U>, U: Clone, const N: usize>(
     let offset = (N as isize - 2) / 2;
     let n_bcs = N as isize / 4;
     // TODO: Remove enumeratiion part of the sd_iter after more testing.
-    let g: [T; N] = gi
+    let g: [T::ScalarType; N] = gi
         .iter()
         .rev()
         .map(|v| v.clone().into())
         .collect_array()
         .expect("N=N");
-    let h: [T; N] = hi
+    let h: [T::ScalarType; N] = hi
         .iter()
         .rev()
         .map(|v| v.clone().into())
@@ -429,10 +450,10 @@ pub fn dwt_per_inverse<T: Transformable + From<U>, U: Clone, const N: usize>(
                 .filter_map(|(j, (g, h))| {
                     let sg = per_bc
                         .get_bc(s, i_sd + j)
-                        .and_then(|s| Some((g[1].clone() * s.clone(), g[0].clone() * s)));
+                        .and_then(|s| Some((s.clone() * g[1].clone(), s * g[0].clone())));
                     let dh = per_bc
                         .get_bc(d, i_sd + j)
-                        .and_then(|d| Some((h[1].clone() * d.clone(), h[0].clone() * d)));
+                        .and_then(|d| Some((d.clone() * h[1].clone(), d * h[0].clone())));
                     if let Some(sg) = sg {
                         if let Some(dh) = dh {
                             Some((sg.0 + dh.0, sg.1 + dh.1))
@@ -459,8 +480,8 @@ pub fn dwt_per_inverse<T: Transformable + From<U>, U: Clone, const N: usize>(
                 .zip(s.iter().zip(d.iter()))
                 .map(|((g, h), (s, d))| {
                     (
-                        g[1].clone() * s.clone() + h[1].clone() * d.clone(),
-                        g[0].clone() * s.clone() + h[0].clone() * d.clone(),
+                        s.clone() * g[1].clone() + d.clone() * h[1].clone(),
+                        s.clone() * g[0].clone() + d.clone() * h[0].clone(),
                     )
                 })
                 .reduce(|(x0_acc, x1_acc), (x0, x1)| (x0_acc + x0, x1_acc + x1))
@@ -477,10 +498,10 @@ pub fn dwt_per_inverse<T: Transformable + From<U>, U: Clone, const N: usize>(
                 .filter_map(|(j, (g, h))| {
                     let sg = per_bc
                         .get_bc(s, i_sd + j)
-                        .and_then(|s| Some((g[1].clone() * s.clone(), g[0].clone() * s)));
+                        .and_then(|s| Some((s.clone() * g[1].clone(), s * g[0].clone())));
                     let dh = per_bc
                         .get_bc(d, i_sd + j)
-                        .and_then(|d| Some((h[1].clone() * d.clone(), h[0].clone() * d)));
+                        .and_then(|d| Some((d.clone() * h[1].clone(), d * h[0].clone())));
                     if let Some(sg) = sg {
                         if let Some(dh) = dh {
                             Some((sg.0 + dh.0, sg.1 + dh.1))

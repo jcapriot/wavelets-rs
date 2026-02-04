@@ -1,5 +1,5 @@
+pub use crate::daubechies::*;
 pub use crate::dwt::DiscreteTransform;
-pub use crate::wavelets::daubechies::*;
 use wavelets_macros::implement_dwt_orthogonal;
 
 implement_dwt_orthogonal! {

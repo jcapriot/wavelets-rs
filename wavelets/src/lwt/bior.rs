@@ -1,5 +1,5 @@
+pub use crate::bior::*;
 pub use crate::lwt::LiftingTransform;
-pub use crate::wavelets::bior::*;
 use wavelets_macros::implement_lifting_scheme;
 
 implement_lifting_scheme! {

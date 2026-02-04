@@ -110,11 +110,10 @@ fn expand_lifting_step(
             let n_coefs = coefs.len();
             let n_front = std::cmp::max(0, -offset) as usize;
             let max_offset = n_coefs as isize - 1 + offset;
-            let n_back = std::cmp::max(0, max_offset) as usize;
 
             let terms = coefs.iter().map(|c| {
                 quote! {
-                    T::from(#c)
+                    T::ScalarType::from(#c)
                 }
             });
 
@@ -155,7 +154,10 @@ fn expand_lifting_step(
                 quote! {#r}
             };
 
-            let is_back_loop = n_back > 0 || is_s;
+            let is_back_loop = match is_s {
+                true => max_offset > -1,
+                false => max_offset > 0,
+            };
             // ensure the iterator is consumed if there is no back loop
             let main_loop_l_iter = {
                 if is_back_loop {
@@ -165,36 +167,25 @@ fn expand_lifting_step(
                 }
             };
 
-            if n_coefs > 1 {
-                let accumulators = coefs.iter().enumerate().filter_map(|(j, v)| {
-                    if *v == 0.0 {
-                        None
-                    } else {
-                        let j = syn::Index::from(j);
-                        Some(quote! {
-                            #r_i[#j].clone() * c.#j.clone()
-                        })
-                    }
-                });
-
-                loop_body = quote! {
-                    #loop_body
-                    #main_loop_l_iter
-                        .zip(#r_iter.windows(#n_coefs))
-                        .for_each(|((_, #l_i), #r_i)|{
-                            *#l_i #update_op #(#accumulators)+*;
-                        });
+            let accumulators = coefs.iter().enumerate().filter_map(|(j, v)| {
+                if *v == 0.0 {
+                    None
+                } else {
+                    let j = syn::Index::from(j);
+                    Some(quote! {
+                        #r_i[#j].clone() * c.#j.clone()
+                    })
                 }
-            } else {
-                loop_body = quote! {
-                    #loop_body
-                    #main_loop_l_iter
-                        .zip(#r_iter.iter())
-                        .for_each(|((_, #l_i), #r_i)|{
-                            *#l_i #update_op #r_i.clone() * c.0.clone();
-                        });
-                };
-            }
+            });
+
+            loop_body = quote! {
+                #loop_body
+                #r_iter.windows(#n_coefs)
+                    .zip(#main_loop_l_iter)
+                    .for_each(|(#r_i, (_, #l_i))|{
+                        *#l_i #update_op #(#accumulators)+*;
+                    });
+            };
             if is_back_loop {
                 let accumulators =
                     coefs
@@ -222,7 +213,249 @@ fn expand_lifting_step(
             loop_body
         }
         LiftingStep::Scale { scale } => {
-            let scale_step = quote! {let scaling = T::from(#scale);};
+            let scale_step = quote! {let scaling = T::ScalarType::from(#scale);};
+
+            let (s_op, d_op) = match direction {
+                LiftingDirection::Forward => (quote! {*=}, quote! {/=}),
+                LiftingDirection::Inverse => (quote! {/=}, quote! {*=}),
+            };
+
+            quote! {
+                #scale_step
+                s.iter_mut().for_each(|s_i|{
+                    *s_i #s_op scaling.clone();
+                });
+                d.iter_mut().for_each(|d_i|{
+                    *d_i #d_op scaling.clone();
+                });
+            }
+        }
+    }
+}
+
+fn expand_lifting_step_chunk(
+    step: &LiftingStep<LitFloat>,
+    direction: LiftingDirection,
+) -> proc_macro2::TokenStream {
+    match step {
+        LiftingStep::UpdateD {
+            offset,
+            coefs: lit_coefs,
+        }
+        | LiftingStep::UpdateS {
+            offset,
+            coefs: lit_coefs,
+        } => {
+            let (l, r, is_s) = match step {
+                LiftingStep::UpdateS { .. } => (quote! {s}, quote! {d}, true),
+                LiftingStep::UpdateD { .. } => (quote! {d}, quote! {s}, false),
+                _ => unreachable!(),
+            };
+            let l_iter_concat = format!("{}_iter", l);
+            let l_iter = syn::Ident::new(&l_iter_concat, l.span());
+            let l_i_concat = format!("{}_i", l);
+            let l_i = syn::Ident::new(&l_i_concat, l.span());
+            let r_i_concat = format!("{}_i", r);
+            let r_i = syn::Ident::new(&r_i_concat, r.span());
+            let nr = format!("n{}", r);
+            let nr = syn::Ident::new(&nr, nr.span());
+
+            let update_op = match direction {
+                LiftingDirection::Forward => quote! {+=},
+                LiftingDirection::Inverse => quote! {-=},
+            };
+
+            let coefs = lit_coefs
+                .iter()
+                .map(|v| v.base10_parse().unwrap())
+                .collect::<Vec<f64>>();
+
+            let n_coefs = coefs.len();
+            let n_front = std::cmp::max(0, -offset) as usize;
+            let max_offset = n_coefs as isize - 1 + offset;
+
+            let terms = coefs.iter().map(|c| {
+                quote! {
+                    T::ScalarType::from(#c)
+                }
+            });
+
+            let mut loop_body = quote! {
+                let c = (#(#terms), * ,);
+                let mut #l_iter = (0..#l.len() as isize).zip(#l.chunks_exact_mut(chunk_size));
+            };
+
+            if *offset < 0 {
+                let bc_accumulators = coefs.iter().enumerate().filter_map(|(j, v)| {
+                    if *v == 0.0 {
+                        None
+                    } else {
+                        let i_off = offset + j as isize;
+                        let j = syn::Index::from(j);
+                        Some(quote! {
+                            let vs = bc.get_parts::<T>(#nr, i + #i_off);
+                            for (v, io) in vs{
+                                if let Some(v) = v{
+                                    let c = c.#j.clone() * v;
+                                    #l_i.iter_mut()
+                                        .zip(&#r[io * chunk_size..(io + 1) * chunk_size])
+                                        .for_each(|(#l_i, #r_i)|{
+                                            *#l_i #update_op #r_i.clone() * c.clone();
+                                        });
+                                }else{
+                                    #l_i.iter_mut()
+                                        .zip(&#r[io * chunk_size..(io + 1) * chunk_size])
+                                        .for_each(|(#l_i, #r_i)|{
+                                            *#l_i #update_op #r_i.clone() * c.#j.clone();
+                                        });
+                                }
+                            }
+                        })
+                    }
+                });
+
+                loop_body = quote! {
+                    #loop_body
+
+                    for (i, #l_i) in #l_iter.by_ref().take(#n_front){
+                        #(#bc_accumulators) *
+                    }
+                };
+            }
+
+            let is_back_loop = match is_s {
+                true => max_offset > -1,
+                false => max_offset > 0,
+            };
+            // ensure the iterator is consumed if there is no back loop
+            let main_loop_l_iter = {
+                if is_back_loop {
+                    quote! {#l_iter.by_ref()}
+                } else {
+                    quote! {#l_iter}
+                }
+            };
+
+            let r_slices = coefs
+                .iter()
+                .enumerate()
+                .filter_map(|(j, v)| {
+                    if *v == 0.0 {
+                        None
+                    } else {
+                        let slc_start = if *offset > 0 {
+                            syn::Index::from(j + *offset as usize)
+                        } else {
+                            syn::Index::from(j)
+                        };
+                        Some(quote! {
+                            #r[#slc_start * chunk_size..].chunks_exact(chunk_size)
+                        })
+                    }
+                })
+                .collect::<Vec<_>>();
+
+            let rs = coefs
+                .iter()
+                .enumerate()
+                .filter_map(|(j, v)| {
+                    if *v == 0.0 {
+                        None
+                    } else {
+                        let r_j = format!("{}_{}", r, j);
+                        Some(syn::Ident::new(&r_j, r_j.span()))
+                    }
+                })
+                .collect::<Vec<_>>();
+
+            let r_chunk_iter = quote! {
+                izip!(#(#r_slices), *)
+            };
+            let r_params = if rs.len() == 1 {
+                let r = &rs[0];
+                quote! { #r}
+            } else {
+                quote! {
+                    (#(#rs), *)
+                }
+            };
+            let r_zip = if rs.len() == 1 {
+                quote! { (#r_params)}
+            } else {
+                quote! {
+                    #r_params
+                }
+            };
+
+            let cs = coefs.iter().enumerate().filter_map(|(j, v)| {
+                if *v == 0.0 {
+                    None
+                } else {
+                    let j = syn::Index::from(j);
+                    Some(quote! {
+                        c.#j
+                    })
+                }
+            });
+
+            let accumulators = rs.iter().zip(cs).map(|(r, c)| {
+                quote! {
+                    #r.clone() * #c.clone()
+                }
+            });
+
+            loop_body = quote! {
+                #loop_body
+                #r_chunk_iter
+                    .zip(#main_loop_l_iter)
+                    .for_each(|(#r_params, (_, #l_i))|{
+                        #l_i.iter_mut()
+                            .zip(izip!#r_zip)
+                            .for_each(|(#l_i, #r_params)|{
+                                *#l_i #update_op #(#accumulators)+*;
+                            });
+                    });
+            };
+            if is_back_loop {
+                let bc_accumulators = coefs.iter().enumerate().filter_map(|(j, v)| {
+                    if *v == 0.0 {
+                        None
+                    } else {
+                        let i_off = offset + j as isize;
+                        let j = syn::Index::from(j);
+                        Some(quote! {
+                            let vs = bc.get_parts::<T>(#nr, i + #i_off);
+                            for (v, io) in vs{
+                                if let Some(v) = v{
+                                    let c = c.#j.clone() * v;
+                                    #l_i.iter_mut()
+                                        .zip(&#r[io * chunk_size..(io + 1) * chunk_size])
+                                        .for_each(|(#l_i, #r_i)|{
+                                            *#l_i #update_op #r_i.clone() * c.clone();
+                                        });
+                                }else{
+                                    #l_i.iter_mut()
+                                        .zip(&#r[io * chunk_size..(io + 1) * chunk_size])
+                                        .for_each(|(#l_i, #r_i)|{
+                                            *#l_i #update_op #r_i.clone() * c.#j.clone();
+                                        });
+                                }
+                            }
+                        })
+                    }
+                });
+
+                loop_body = quote! {
+                    #loop_body
+                    for (i, #l_i) in #l_iter{
+                        #(#bc_accumulators) *
+                    }
+                };
+            }
+            loop_body
+        }
+        LiftingStep::Scale { scale } => {
+            let scale_step = quote! {let scaling = T::ScalarType::from(#scale);};
 
             let (s_op, d_op) = match direction {
                 LiftingDirection::Forward => (quote! {*=}, quote! {/=}),
@@ -279,26 +512,12 @@ fn expand_adjoint_lifting_step(
 
             let terms = coefs.iter().rev().map(|c| {
                 quote! {
-                    T::from(#c)
+                    T::ScalarType::from(#c)
                 }
             });
 
             let mut loop_body = quote! {
                 let c = [#(#terms), *];
-            };
-            match direction {
-                LiftingDirection::Forward => {
-                    loop_body = quote! {
-                        #loop_body
-                        let op = crate::boundarys::ForwardUpdate{};
-                    }
-                }
-                LiftingDirection::Inverse => {
-                    loop_body = quote! {
-                        #loop_body
-                        let op = crate::boundarys::InverseUpdate{};
-                    }
-                }
             };
 
             if n_front > 0 {
@@ -307,7 +526,7 @@ fn expand_adjoint_lifting_step(
                     for i in 0..#n_front as isize{
                         let i_left = i + #offset;
                         let i_right = i_left + #offset_r;
-                        bc.adjoint_op(&op, #l, #r, #offset_r, &c, i_left);
+                        bc.adjoint_op(|v, x| *v #update_op x, #l, #r, #offset_r, &c, i_left);
                     }
                 };
             }
@@ -343,7 +562,10 @@ fn expand_adjoint_lifting_step(
                 quote! {#r}
             };
 
-            let is_back_loop = n_front > 0 || !is_s;
+            let is_back_loop = match is_s {
+                true => n_front > 0,
+                false => true,
+            };
             // ensure the iterator is consumed if there is no back loop
             let main_loop_l_iter = {
                 if is_back_loop {
@@ -352,37 +574,25 @@ fn expand_adjoint_lifting_step(
                     quote! {#l_iter}
                 }
             };
-
-            if n_coefs > 1 {
-                let accumulators = coefs.iter().enumerate().filter_map(|(j, v)| {
-                    if *v == 0.0 {
-                        None
-                    } else {
-                        let j = syn::Index::from(j);
-                        Some(quote! {
-                            #r_i[#j].clone() * c[#j].clone()
-                        })
-                    }
-                });
-
-                loop_body = quote! {
-                    #loop_body
-                    #main_loop_l_iter
-                        .zip(#r_iter.windows(#n_coefs))
-                        .for_each(|((_, #l_i), #r_i)|{
-                            *#l_i #update_op #(#accumulators)+*;
-                        });
+            let accumulators = coefs.iter().enumerate().filter_map(|(j, v)| {
+                if *v == 0.0 {
+                    None
+                } else {
+                    let j = syn::Index::from(j);
+                    Some(quote! {
+                        #r_i[#j].clone() * c[#j].clone()
+                    })
                 }
-            } else {
-                loop_body = quote! {
-                    #loop_body
-                    #main_loop_l_iter
-                        .zip(#r_iter.iter())
-                        .for_each(|((_, #l_i), #r_i)|{
-                            *#l_i #update_op #r_i.clone() * c[0].clone();
-                        });
-                };
-            }
+            });
+
+            loop_body = quote! {
+                #loop_body
+                #r_iter.windows(#n_coefs)
+                    .zip(#main_loop_l_iter)
+                    .for_each(|(#r_i, (_, #l_i))|{
+                        *#l_i #update_op #(#accumulators)+*;
+                    });
+            };
             if is_back_loop {
                 let accumulators = coefs
                     .iter()
@@ -412,7 +622,7 @@ fn expand_adjoint_lifting_step(
                     let n_l = #l.len() as isize;
                     let n_r = #r.len() as isize;
                     for i_left in n_l..(n_r + #n_back as isize){
-                        bc.adjoint_op(&op, #l, #r, #offset_r, &c, i_left);
+                        bc.adjoint_op(|v, x| *v #update_op x, #l, #r, #offset_r, &c, i_left);
                     }
                 }
             }
@@ -420,7 +630,7 @@ fn expand_adjoint_lifting_step(
             loop_body
         }
         LiftingStep::Scale { scale } => {
-            let scale_step = quote! {let scaling = T::from(#scale);};
+            let scale_step = quote! {let scaling = T::ScalarType::from(#scale);};
 
             let (s_op, d_op) = match direction {
                 LiftingDirection::Forward => (quote! {*=}, quote! {/=}),
@@ -452,14 +662,41 @@ fn generate_forward_op(steps: &[LiftingStep<LitFloat>]) -> proc_macro2::TokenStr
     quote! {
         fn forward<T, BC>(s: &mut [T], d: &mut [T], bc: &BC)
         where
-            T: crate::Transformable
-                + From<f64>,
+            T: crate::Transformable,
+            T::ScalarType: From<f64>,
             BC: crate::boundarys::BoundaryExtension
         {
             #func_body
         }
     }
     .into()
+}
+
+fn generate_forward_chunk_op(steps: &[LiftingStep<LitFloat>]) -> proc_macro2::TokenStream {
+    let mut func_body = quote! {
+        assert_eq!(s.len() % chunk_size, 0, "smooth coefficient slice length must be a multiple of chunk_size.");
+        assert_eq!(d.len() % chunk_size, 0, "detail coefficient slice length must be a multiple of chunk_size.");
+        let ns = s.len() / chunk_size;
+        let nd = d.len() / chunk_size;
+        assert!(ns == nd || nd + 1 == ns, "detail and smooth coefficient arrays must have compatible lengths, got {nd} d-chunks and {ns} s-chunks.");
+    };
+    for (_i, step) in steps.iter().enumerate() {
+        let step_ts = expand_lifting_step_chunk(step, LiftingDirection::Forward);
+        func_body.extend(step_ts);
+    }
+
+    let temp = quote! {
+        fn forward_chunk<T, BC>(s: &mut [T], d: &mut [T], chunk_size: usize, bc: &BC)
+        where
+            T: crate::Transformable,
+            T::ScalarType: From<f64>,
+            BC: crate::boundarys::BoundaryExtension
+        {
+            use ::itertools::izip;
+            #func_body
+        }
+    };
+    temp.into()
 }
 
 fn generate_inverse_op(steps: &[LiftingStep<LitFloat>]) -> proc_macro2::TokenStream {
@@ -474,8 +711,8 @@ fn generate_inverse_op(steps: &[LiftingStep<LitFloat>]) -> proc_macro2::TokenStr
     quote! {
         fn inverse<T, BC>(s: &mut [T], d: &mut [T], bc: &BC)
         where
-            T: crate::Transformable
-                + From<f64>,
+            T: crate::Transformable,
+            T::ScalarType: From<f64>,
             BC: crate::lwt::BoundaryExtension
         {
             #func_body
@@ -496,8 +733,8 @@ fn generate_adjoint_inverse_op(steps: &[LiftingStep<LitFloat>]) -> proc_macro2::
     quote! {
         fn adjoint_inverse<T, BC>(s: &mut [T], d: &mut [T], bc: &BC)
         where
-            T: crate::Transformable
-                + From<f64>,
+            T: crate::Transformable,
+            T::ScalarType: From<f64>,
             BC: crate::lwt::LiftedAdjointBoundary
         {
             #func_body
@@ -518,14 +755,13 @@ fn generate_adjoint_forward_op(steps: &[LiftingStep<LitFloat>]) -> proc_macro2::
     let temp = quote! {
         fn adjoint_forward<T, BC>(s: &mut [T], d: &mut [T], bc: &BC)
         where
-            T: crate::Transformable
-                + From<f64>,
+            T: crate::Transformable,
+            T::ScalarType: From<f64>,
             BC: crate::lwt::LiftedAdjointBoundary
         {
             #func_body
         }
     };
-    //println!("{temp}");
 
     temp.into()
 }
@@ -542,6 +778,8 @@ pub fn implement_lifting_scheme(input: TokenStream) -> TokenStream {
     let adj_fwd_func = generate_adjoint_forward_op(&steps);
     let adj_inv_func = generate_adjoint_inverse_op(&steps);
 
+    let forward_chunk_func = generate_forward_chunk_op(&steps);
+
     quote! {
 
     impl crate::lwt::LiftingTransform for #name {
@@ -549,6 +787,7 @@ pub fn implement_lifting_scheme(input: TokenStream) -> TokenStream {
             #inverse_func
             #adj_fwd_func
             #adj_inv_func
+            #forward_chunk_func
     }
     }
     .into()

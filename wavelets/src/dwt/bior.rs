@@ -1,5 +1,5 @@
+pub use crate::bior::*;
 pub use crate::dwt::DiscreteTransform;
-pub use crate::wavelets::bior::*;
 use wavelets_macros::implement_dwt_biorthogonal;
 
 implement_dwt_biorthogonal! {

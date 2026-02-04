@@ -6,82 +6,32 @@ use crate::boundarys::BoundaryExtension;
 use crate::boundarys::LiftedAdjointBoundary;
 
 pub trait LiftingTransform {
-    fn forward<T: Transformable + From<f64>, BC: BoundaryExtension>(
+    fn forward<T: Transformable, BC: BoundaryExtension>(s: &mut [T], d: &mut [T], bc: &BC)
+    where
+        T::ScalarType: From<f64>;
+
+    fn forward_chunk<T: Transformable, BC: BoundaryExtension>(
+        s: &mut [T],
+        d: &mut [T],
+        chunk_size: usize,
+        bc: &BC,
+    ) where
+        T::ScalarType: From<f64>;
+    fn inverse<T: Transformable, BC: BoundaryExtension>(s: &mut [T], d: &mut [T], bc: &BC)
+    where
+        T::ScalarType: From<f64>;
+    fn adjoint_forward<T: Transformable, BC: LiftedAdjointBoundary>(
         s: &mut [T],
         d: &mut [T],
         bc: &BC,
-    );
-    fn inverse<T: Transformable + From<f64>, BC: BoundaryExtension>(
+    ) where
+        T::ScalarType: From<f64>;
+    fn adjoint_inverse<T: Transformable, BC: LiftedAdjointBoundary>(
         s: &mut [T],
         d: &mut [T],
         bc: &BC,
-    );
-    fn adjoint_forward<T: Transformable + From<f64>, BC: LiftedAdjointBoundary>(
-        s: &mut [T],
-        d: &mut [T],
-        bc: &BC,
-    );
-    fn adjoint_inverse<T: Transformable + From<f64>, BC: LiftedAdjointBoundary>(
-        s: &mut [T],
-        d: &mut [T],
-        bc: &BC,
-    );
-}
-
-pub fn broadcasted_db2<'a, T: Transformable + From<f64>>(s: &'a mut [T], d: &'a mut [T], n: usize) {
-    assert_eq!(s.len() % n, 0);
-    let ns = s.len() / n;
-
-    assert_eq!(d.len() % n, 0);
-    let nd = d.len() / n;
-
-    assert!(ns == nd || ns == nd + 1);
-
-    let v = T::from(-1.73205080756887729352744634150587236694280525381038062805581_f64);
-    d.chunks_exact_mut(n)
-        .zip(s.chunks_exact(n))
-        .for_each(|(d, s)| {
-            d.iter_mut()
-                .zip(s.iter())
-                .for_each(|(d, s)| *d += v.clone() * s.clone());
-        });
-
-    let c = (
-        T::from(0.433012701892219323381861585376468091735701313452595157013952),
-        T::from(-0.0669872981077806766181384146235319082642986865474048429860483),
-    );
-
-    let mut s_chunks = s.chunks_exact_mut(n).enumerate();
-    s_chunks
-        .by_ref()
-        .zip(d.chunks_exact(n).zip(d[n..].chunks_exact(n)))
-        .for_each(|((_i, s), d)| {
-            s.iter_mut()
-                .zip(d.0.iter().zip(d.1.iter()))
-                .for_each(|(s, d)| {
-                    *s += c.0.clone() * d.0.clone() + c.1.clone() * d.1.clone();
-                })
-        });
-    for (i, s) in s_chunks {
-        if i < nd {
-            s.iter_mut()
-                .zip(d[i * n..(i + 1) * n].iter())
-                .for_each(|(s, d)| *s += c.0.clone() * d.clone());
-        }
-    }
-
-    let v = T::from(1.0);
-    d.chunks_exact_mut(n)
-        .zip(s.chunks_exact(n))
-        .for_each(|(d, s)| {
-            d.iter_mut()
-                .zip(s.iter())
-                .for_each(|(d, s)| *d += v.clone() * s.clone());
-        });
-
-    let scale = T::from(1.93185165257813657349948639945779473526780967801680910080469);
-    s.iter_mut().for_each(|v| *v *= scale.clone());
-    d.iter_mut().for_each(|v| *v /= scale.clone());
+    ) where
+        T::ScalarType: From<f64>;
 }
 
 #[cfg(test)]
@@ -248,5 +198,38 @@ mod tests {
             .sum();
 
         assert_eq!(left, right)
+    }
+
+    #[rstest]
+    fn test_multisteps_forward_chunk(
+        #[values(
+            BoundaryCondition::Zero,
+            BoundaryCondition::Periodic,
+            BoundaryCondition::Constant,
+            BoundaryCondition::Reflect,
+            BoundaryCondition::Symmetric,
+            BoundaryCondition::Antisymmetric
+        )]
+        bc: BoundaryCondition,
+        #[values(32, 31)] n: usize,
+    ) {
+        let ns = (n + 1) / 2;
+        let input = (0..n).map(|i| (i + 1) as f64).collect_vec();
+
+        let mut s = input[..ns].to_vec();
+        let mut d = input[ns..].to_vec();
+
+        TestWavelet::forward(&mut s, &mut d, &bc);
+
+        let output1 = s.iter().chain(d.iter()).cloned().collect_vec();
+
+        let mut sc = input[..ns].to_vec();
+        let mut dc = input[ns..].to_vec();
+
+        TestWavelet::forward_chunk(&mut sc, &mut dc, 1, &bc);
+
+        let output2 = sc.iter().chain(dc.iter()).cloned().collect_vec();
+
+        test_approx_equal(&output2, &output1, RTOL, ATOL);
     }
 }

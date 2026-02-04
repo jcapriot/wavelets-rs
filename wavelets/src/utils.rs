@@ -1,5 +1,10 @@
-use crate::iter::slice::{ChunkStridedSlice, MutChunkStridedSlice, MutStridedSlice, StridedSlice};
+use crate::{
+    iter::slice::{ChunkStridedSlice, MutChunkStridedSlice, MutStridedSlice, StridedSlice},
+    utils::simd::Simd,
+};
 use itertools::{Itertools, izip};
+
+pub mod simd;
 
 #[inline]
 pub fn stride_from_shape(shape: &[usize]) -> Vec<usize> {
@@ -132,18 +137,21 @@ fn deinterleave_nd_unchecked<T: Clone>(input: &[T], output: &mut [T], shape: &[u
 
 #[inline]
 pub fn deinterleave_strided<T: Clone>(x: StridedSlice<T>, evens: &mut [T], odds: &mut [T]) {
-    let nx = x.len();
-    let n_e = evens.len();
-    let n_o = odds.len();
+    if let Some(x) = x.as_slice() {
+        deinterleave(x, evens, odds);
+    } else {
+        let nx = x.len();
+        let n_e = evens.len();
+        let n_o = odds.len();
 
-    assert_eq!(nx / 2, n_o);
-    assert_eq!((nx + 1) / 2, n_e);
-
-    x.iter()
-        .zip(evens.iter_mut().interleave(odds.iter_mut()))
-        .for_each(|(v, ou)| {
-            *ou = v.clone();
-        });
+        assert_eq!(nx / 2, n_o);
+        assert_eq!((nx + 1) / 2, n_e);
+        x.iter()
+            .zip(evens.iter_mut().interleave(odds.iter_mut()))
+            .for_each(|(v, ou)| {
+                *ou = v.clone();
+            });
+    }
 }
 
 #[inline]
@@ -167,48 +175,101 @@ pub fn deinterleave_strided_chunk<T: Clone, const N: usize>(
     let mut do_even = true;
     let mut ind_io = 0;
 
-    x.iter().for_each(|x| {
-        match do_even {
-            true => x
-                .into_iter()
-                .cloned()
-                .zip(e_chunks.iter_mut())
-                .for_each(|(x, v)| {
-                    unsafe { *v.get_unchecked_mut(ind_io) = x };
-                }),
-            false => {
-                x.into_iter()
+    if let Some(x_iter) = x.as_chunks() {
+        x_iter.for_each(|x| {
+            match do_even {
+                true => x
+                    .iter()
                     .cloned()
-                    .zip(o_chunks.iter_mut())
+                    .zip(e_chunks.iter_mut())
                     .for_each(|(x, v)| {
                         unsafe { *v.get_unchecked_mut(ind_io) = x };
-                    });
-                ind_io += 1;
+                    }),
+                false => {
+                    x.iter()
+                        .cloned()
+                        .zip(o_chunks.iter_mut())
+                        .for_each(|(x, v)| {
+                            unsafe { *v.get_unchecked_mut(ind_io) = x };
+                        });
+                    ind_io += 1;
+                }
             }
-        }
-        do_even = !do_even;
-    });
+            do_even = !do_even;
+        })
+    } else {
+        x.iter().for_each(|x| {
+            match do_even {
+                true => x
+                    .into_iter()
+                    .cloned()
+                    .zip(e_chunks.iter_mut())
+                    .for_each(|(x, v)| {
+                        unsafe { *v.get_unchecked_mut(ind_io) = x };
+                    }),
+                false => {
+                    x.into_iter()
+                        .cloned()
+                        .zip(o_chunks.iter_mut())
+                        .for_each(|(x, v)| {
+                            unsafe { *v.get_unchecked_mut(ind_io) = x };
+                        });
+                    ind_io += 1;
+                }
+            }
+            do_even = !do_even;
+        });
+    }
+}
+
+#[inline]
+pub fn deinterleave_strided_simd<T: Clone, const N: usize>(
+    x: ChunkStridedSlice<T, N>,
+    evens: &mut [Simd<T, N>],
+    odds: &mut [Simd<T, N>],
+) {
+    assert_ne!(N, 0);
+
+    let nx = x.len();
+    let n_o = nx / 2;
+    let n_e = nx - n_o;
+
+    assert_eq!(evens.len(), n_e);
+    assert_eq!(odds.len(), n_o);
+
+    if let Some(x_iter) = x.as_chunks() {
+        x_iter
+            .zip(evens.iter_mut().interleave(odds))
+            .for_each(|(x, out)| {
+                out.load(x);
+            });
+    } else {
+        x.iter()
+            .zip(evens.iter_mut().interleave(odds))
+            .for_each(|(x, out)| {
+                out.gather(x);
+            });
+    }
 }
 
 #[inline]
 pub fn stack<T: Clone>(first: &[T], second: &[T], out: &mut [T]) {
     assert_eq!(first.len() + second.len(), out.len());
-    first
-        .iter()
-        .chain(second.iter())
-        .cloned()
-        .zip(out.iter_mut())
-        .for_each(|(v, o)| *o = v);
+    out.iter_mut()
+        .zip(first.iter().chain(second).cloned())
+        .for_each(|(a, b)| *a = b);
 }
 
 #[inline]
 pub fn stack_to_strided<T: Clone>(first: &[T], second: &[T], out: MutStridedSlice<T>) {
-    assert_eq!(first.len() + second.len(), out.len());
-    first
-        .iter()
-        .chain(second.iter())
-        .zip(out.iter_mut())
-        .for_each(|(v_in, v_out)| *v_out = v_in.clone());
+    if let Some(out) = out.as_slice() {
+        stack(first, second, out);
+    } else {
+        assert_eq!(first.len() + second.len(), out.len());
+        out.iter_mut()
+            .zip(first.iter().chain(second).cloned())
+            .for_each(|(a, b)| *a = b);
+    }
 }
 
 #[inline]
@@ -228,21 +289,67 @@ pub fn stack_to_strided_chunk<T: Clone, const N: usize>(
     let f_chunks: [_; N] = first.chunks_exact(n_first).collect_array().unwrap();
     let s_chunks: [_; N] = second.chunks_exact(n_second).collect_array().unwrap();
 
-    let mut out_iter = out.iter_mut();
-    out_iter
-        .by_ref()
-        .take(n_first)
-        .enumerate()
-        .for_each(|(i, out)| {
-            out.into_iter().zip(f_chunks.iter()).for_each(|(out, v)| {
+    if let Some(mut out_iter) = out.as_chunks_mut() {
+        out_iter
+            .by_ref()
+            .take(n_first)
+            .enumerate()
+            .for_each(|(i, out)| {
+                out.iter_mut().zip(f_chunks.iter()).for_each(|(out, v)| {
+                    *out = unsafe { v.get_unchecked(i) }.clone();
+                })
+            });
+        out_iter.enumerate().for_each(|(i, out)| {
+            out.iter_mut().zip(s_chunks.iter()).for_each(|(out, v)| {
                 *out = unsafe { v.get_unchecked(i) }.clone();
             })
         });
-    out_iter.enumerate().for_each(|(i, out)| {
-        out.into_iter().zip(s_chunks.iter()).for_each(|(out, v)| {
-            *out = unsafe { v.get_unchecked(i) }.clone();
-        })
-    });
+    } else {
+        let mut out_iter = out.iter_mut();
+        out_iter
+            .by_ref()
+            .take(n_first)
+            .enumerate()
+            .for_each(|(i, out)| {
+                out.into_iter().zip(f_chunks.iter()).for_each(|(out, v)| {
+                    *out = unsafe { v.get_unchecked(i) }.clone();
+                })
+            });
+        out_iter.enumerate().for_each(|(i, out)| {
+            out.into_iter().zip(s_chunks.iter()).for_each(|(out, v)| {
+                *out = unsafe { v.get_unchecked(i) }.clone();
+            })
+        });
+    }
+}
+
+#[inline]
+pub fn stack_to_strided_simd<T: Clone, const N: usize>(
+    first: &[Simd<T, N>],
+    second: &[Simd<T, N>],
+    out: MutChunkStridedSlice<T, N>,
+) {
+    assert_ne!(N, 0);
+
+    let nx = out.len();
+
+    let n_first = first.len();
+    let n_second = second.len();
+    assert_eq!(nx, n_first + n_second);
+
+    if let Some(out_iter) = out.as_chunks_mut() {
+        out_iter
+            .zip(first.iter().chain(second))
+            .for_each(|(out, v)| {
+                v.store(out);
+            })
+    } else {
+        out.iter_mut()
+            .zip(first.iter().chain(second))
+            .for_each(|(out, v)| {
+                v.scatter(out);
+            })
+    }
 }
 
 #[inline]
@@ -269,16 +376,20 @@ pub fn interleave<T: Clone>(evens: &[T], odds: &[T], x: &mut [T]) {
 
 #[inline]
 pub fn interleave_strided<T: Clone>(evens: &[T], odds: &[T], x: MutStridedSlice<T>) {
-    let nx = x.len();
-    let n_e = evens.len();
-    let n_o = odds.len();
+    if let Some(x) = x.as_slice() {
+        interleave(evens, odds, x);
+    } else {
+        let nx = x.len();
+        let n_e = evens.len();
+        let n_o = odds.len();
 
-    assert_eq!(nx / 2, n_o);
-    assert_eq!((nx + 1) / 2, n_e);
+        assert_eq!(nx / 2, n_o);
+        assert_eq!((nx + 1) / 2, n_e);
 
-    x.iter_mut()
-        .zip(evens.iter().interleave(odds.iter()).cloned())
-        .for_each(|(l, r)| *l = r);
+        x.iter_mut()
+            .zip(evens.iter().interleave(odds.iter()).cloned())
+            .for_each(|(l, r)| *l = r);
+    }
 }
 
 #[inline]
@@ -301,40 +412,85 @@ pub fn interleave_strided_chunk<T: Clone, const N: usize>(
 
     let mut do_even = true;
     let mut ind_io = 0;
-    x.iter_mut().for_each(|x| {
-        match do_even {
-            true => x.into_iter().zip(e_chunks.iter()).for_each(|(x, v)| {
-                *x = unsafe { v.get_unchecked(ind_io) }.clone();
-            }),
-            false => {
-                x.into_iter().zip(o_chunks.iter()).for_each(|(x, v)| {
+
+    if let Some(x_iter) = x.as_chunks_mut() {
+        x_iter.for_each(|x| {
+            match do_even {
+                true => x.into_iter().zip(e_chunks.iter()).for_each(|(x, v)| {
                     *x = unsafe { v.get_unchecked(ind_io) }.clone();
-                });
-                ind_io += 1;
+                }),
+                false => {
+                    x.into_iter().zip(o_chunks.iter()).for_each(|(x, v)| {
+                        *x = unsafe { v.get_unchecked(ind_io) }.clone();
+                    });
+                    ind_io += 1;
+                }
             }
-        }
-        do_even = !do_even;
-    });
+            do_even = !do_even;
+        });
+    } else {
+        x.iter_mut().for_each(|x| {
+            match do_even {
+                true => x.into_iter().zip(e_chunks.iter()).for_each(|(x, v)| {
+                    *x = unsafe { v.get_unchecked(ind_io) }.clone();
+                }),
+                false => {
+                    x.into_iter().zip(o_chunks.iter()).for_each(|(x, v)| {
+                        *x = unsafe { v.get_unchecked(ind_io) }.clone();
+                    });
+                    ind_io += 1;
+                }
+            }
+            do_even = !do_even;
+        });
+    }
 }
 
+#[inline]
+pub fn interleave_strided_simd<T: Clone, const N: usize>(
+    evens: &[Simd<T, N>],
+    odds: &[Simd<T, N>],
+    x: MutChunkStridedSlice<T, N>,
+) {
+    assert_ne!(N, 0);
+
+    let nx = x.len();
+    let n_o = nx / 2;
+    let n_e = nx - n_o;
+
+    assert_eq!(evens.len(), n_e);
+    assert_eq!(odds.len(), n_o);
+    if let Some(x_iter) = x.as_chunks_mut() {
+        x_iter
+            .zip(evens.iter().interleave(odds.iter()))
+            .for_each(|(x, v)| v.store(x));
+    } else {
+        x.iter_mut()
+            .zip(evens.iter().interleave(odds.iter()))
+            .for_each(|(x, v)| v.scatter(x));
+    }
+}
 #[inline]
 pub fn split<T: Clone>(x: &[T], first: &mut [T], second: &mut [T]) {
     assert_eq!(x.len(), first.len() + second.len());
 
     x.iter()
         .cloned()
-        .zip(first.iter_mut().chain(second.iter_mut()))
-        .for_each(|(x, v)| *v = x);
+        .zip(first.iter_mut().chain(second))
+        .for_each(|(b, a)| *a = b);
 }
 
 #[inline]
 pub fn split_strided<T: Clone>(x: StridedSlice<T>, first: &mut [T], second: &mut [T]) {
-    assert_eq!(x.len(), first.len() + second.len());
-
-    x.iter()
-        .cloned()
-        .zip(first.iter_mut().chain(second.iter_mut()))
-        .for_each(|(x, v)| *v = x);
+    if let Some(x) = x.as_slice() {
+        split(x, first, second);
+    } else {
+        assert_eq!(x.len(), first.len() + second.len());
+        x.iter()
+            .cloned()
+            .zip(first.iter_mut().chain(second))
+            .for_each(|(b, a)| *a = b);
+    }
 }
 
 #[inline]
@@ -354,28 +510,76 @@ pub fn split_strided_chunk<T: Clone, const N: usize>(
     let mut f_chunks: [_; N] = first.chunks_exact_mut(n_first).collect_array().unwrap();
     let mut s_chunks: [_; N] = second.chunks_exact_mut(n_second).collect_array().unwrap();
 
-    let mut x_iter = x.iter();
-
-    x_iter
-        .by_ref()
-        .take(n_first)
-        .enumerate()
-        .for_each(|(i, out)| {
+    if let Some(mut x_iter) = x.as_chunks() {
+        x_iter
+            .by_ref()
+            .take(n_first)
+            .enumerate()
+            .for_each(|(i, out)| {
+                out.into_iter()
+                    .cloned()
+                    .zip(f_chunks.iter_mut())
+                    .for_each(|(out, v)| {
+                        *unsafe { v.get_unchecked_mut(i) } = out;
+                    })
+            });
+        x_iter.enumerate().for_each(|(i, out)| {
             out.into_iter()
                 .cloned()
-                .zip(f_chunks.iter_mut())
+                .zip(s_chunks.iter_mut())
                 .for_each(|(out, v)| {
                     *unsafe { v.get_unchecked_mut(i) } = out;
                 })
         });
-    x_iter.enumerate().for_each(|(i, out)| {
-        out.into_iter()
-            .cloned()
-            .zip(s_chunks.iter_mut())
-            .for_each(|(out, v)| {
-                *unsafe { v.get_unchecked_mut(i) } = out;
-            })
-    });
+    } else {
+        let mut x_iter = x.iter();
+
+        x_iter
+            .by_ref()
+            .take(n_first)
+            .enumerate()
+            .for_each(|(i, out)| {
+                out.into_iter()
+                    .cloned()
+                    .zip(f_chunks.iter_mut())
+                    .for_each(|(out, v)| {
+                        *unsafe { v.get_unchecked_mut(i) } = out;
+                    })
+            });
+        x_iter.enumerate().for_each(|(i, out)| {
+            out.into_iter()
+                .cloned()
+                .zip(s_chunks.iter_mut())
+                .for_each(|(out, v)| {
+                    *unsafe { v.get_unchecked_mut(i) } = out;
+                })
+        });
+    }
+}
+
+#[inline]
+pub fn split_strided_simd<T: Clone, const N: usize>(
+    x: ChunkStridedSlice<T, N>,
+    first: &mut [Simd<T, N>],
+    second: &mut [Simd<T, N>],
+) {
+    assert_ne!(N, 0);
+
+    let nx = x.len();
+
+    let n_first = first.len();
+    let n_second = second.len();
+    assert_eq!(nx, n_first + n_second);
+
+    if let Some(x_iter) = x.as_chunks() {
+        x_iter
+            .zip(first.iter_mut().chain(second))
+            .for_each(|(x, o)| o.load(x));
+    } else {
+        x.iter()
+            .zip(first.iter_mut().chain(second))
+            .for_each(|(x, o)| o.gather(x));
+    }
 }
 
 #[inline]
