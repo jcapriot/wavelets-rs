@@ -6,6 +6,31 @@ use syn::parse::{Parse, ParseStream};
 use syn::spanned::Spanned;
 use syn::{Ident, LitFloat, Result, Token, parse_macro_input};
 
+const WVLTS: [&'static str; 7] = [
+    "Daubechies1",
+    "Daubechies2",
+    "Daubechies3",
+    "Daubechies4",
+    "Daubechies5",
+    "Daubechies6",
+    "Bior3_1",
+];
+#[proc_macro]
+pub fn generate_wavelet_enum(input: TokenStream) -> TokenStream {
+    let wvlts = WVLTS
+        .iter()
+        .cloned()
+        .map(|v| Ident::new(v, v.span()))
+        .collect::<Vec<_>>();
+    quote! {
+        #[derive(Clone, Copy, Debug)]
+        pub enum Wavelets{
+            #(#wvlts), *
+        }
+    }
+    .into()
+}
+
 #[derive(Debug)]
 enum LiftingStep<T> {
     UpdateD { offset: isize, coefs: Vec<T> },

@@ -7,6 +7,7 @@ pub mod utils;
 
 use num_traits::{FromPrimitive, NumAssignOps, NumOps};
 use std::ops::Neg;
+use wavelets_macros::generate_wavelet_enum;
 
 macro_rules! gen_wavelet_struct {
     (
@@ -39,28 +40,17 @@ pub mod bior {
     gen_wavelet_struct!((Bior3_1, 4));
 }
 
-macro_rules! for_each_wavelet {
-    ($m:ident) => {
-        $m!(Daubechies1);
-        $m!(Daubechies2);
-        $m!(Daubechies3);
-        $m!(Daubechies4);
-        $m!(Daubechies5);
-        $m!(Daubechies6);
-        $m!(Bior3_1);
-    };
-}
-pub(crate) use for_each_wavelet;
-
-pub enum Wavelets {
-    Daubechies1,
-    Daubechies2,
-    Daubechies3,
-    Daubechies4,
-    Daubechies5,
-    Daubechies6,
-    Bior3_1,
-}
+// #[derive(Clone, Copy, Debug)]
+// pub enum Wavelets {
+//     Daubechies1,
+//     Daubechies2,
+//     Daubechies3,
+//     Daubechies4,
+//     Daubechies5,
+//     Daubechies6,
+//     Bior3_1,
+// }
+generate_wavelet_enum!();
 
 #[derive(Clone, Copy, Debug)]
 pub enum Direction {
