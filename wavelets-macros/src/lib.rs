@@ -16,7 +16,7 @@ const WVLTS: [&'static str; 7] = [
     "Bior3_1",
 ];
 #[proc_macro]
-pub fn generate_wavelet_enum(input: TokenStream) -> TokenStream {
+pub fn generate_wavelet_enum(_input: TokenStream) -> TokenStream {
     let wvlts = WVLTS
         .iter()
         .cloned()
