@@ -13,6 +13,8 @@ use crate::utils::{
 };
 use crate::{ChunkWidth, Transformable};
 
+use wavelets_macros::generate_wavelet_match_arms;
+
 pub struct Wavelet<T, BC, const N: usize>
 where
     T: Transformable + Zero + ChunkWidth<T, N>,
@@ -35,31 +37,25 @@ where
     pub fn new(wvlt: Wavelets, bc: BC) -> Self {
         use crate::lwt::bior::*;
         use crate::lwt::daubechies::*;
-        let lwt_forward: fn(&mut [T], &mut [T], &BC) = match wvlt {
-            Wavelets::Daubechies1 => Daubechies1::forward,
-            Wavelets::Daubechies2 => Daubechies2::forward,
-            Wavelets::Daubechies3 => Daubechies3::forward,
-            Wavelets::Daubechies4 => Daubechies4::forward,
-            Wavelets::Daubechies5 => Daubechies5::forward,
-            Wavelets::Daubechies6 => Daubechies6::forward,
-            _ => Daubechies2::forward,
+        let lwt_forward: fn(&mut [T], &mut [T], &BC) = generate_wavelet_match_arms! {
+            Wavelets,
+            wvlt,
+            {#wvlt::forward,}
         };
-        let lwt_inverse: fn(&mut [T], &mut [T], &BC) = match wvlt {
-            Wavelets::Daubechies1 => Daubechies1::inverse,
-            Wavelets::Daubechies2 => Daubechies2::inverse,
-            Wavelets::Daubechies3 => Daubechies3::inverse,
-            Wavelets::Daubechies4 => Daubechies4::inverse,
-            Wavelets::Daubechies5 => Daubechies5::inverse,
-            Wavelets::Daubechies6 => Daubechies6::inverse,
-            _ => Daubechies2::inverse,
+        let lwt_inverse: fn(&mut [T], &mut [T], &BC) = generate_wavelet_match_arms! {
+            Wavelets,
+            wvlt,
+            {#wvlt::inverse,}
         };
-        let lwt_adj_forward: fn(&mut [T], &mut [T], &BC) = match wvlt {
-            Wavelets::Daubechies1 => Daubechies1::adjoint_forward,
-            _ => Daubechies2::adjoint_forward,
+        let lwt_adj_forward: fn(&mut [T], &mut [T], &BC) = generate_wavelet_match_arms! {
+            Wavelets,
+            wvlt,
+            {#wvlt::adjoint_forward,}
         };
-        let lwt_adj_inverse: fn(&mut [T], &mut [T], &BC) = match wvlt {
-            Wavelets::Daubechies1 => Daubechies1::adjoint_inverse,
-            _ => Daubechies2::adjoint_inverse,
+        let lwt_adj_inverse: fn(&mut [T], &mut [T], &BC) = generate_wavelet_match_arms! {
+            Wavelets,
+            wvlt,
+            {#wvlt::adjoint_inverse,}
         };
         Self {
             lwt_forward,

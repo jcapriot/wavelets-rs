@@ -32,7 +32,6 @@ pub mod daubechies {
         (Daubechies4, 8),
         (Daubechies5, 10),
         (Daubechies6, 12),
-        (Bior3_1, 4)
     );
 }
 pub mod bior {
@@ -40,17 +39,7 @@ pub mod bior {
     gen_wavelet_struct!((Bior3_1, 4));
 }
 
-// #[derive(Clone, Copy, Debug)]
-// pub enum Wavelets {
-//     Daubechies1,
-//     Daubechies2,
-//     Daubechies3,
-//     Daubechies4,
-//     Daubechies5,
-//     Daubechies6,
-//     Bior3_1,
-// }
-generate_wavelet_enum!();
+generate_wavelet_enum!(Wavelets);
 
 #[derive(Clone, Copy, Debug)]
 pub enum Direction {

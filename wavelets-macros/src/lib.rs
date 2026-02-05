@@ -1,7 +1,8 @@
 extern crate proc_macro;
 
 use proc_macro::TokenStream;
-use quote::quote;
+use proc_macro2::TokenTree;
+use quote::{ToTokens, quote};
 use syn::parse::{Parse, ParseStream};
 use syn::spanned::Spanned;
 use syn::{Ident, LitFloat, Result, Token, parse_macro_input};
@@ -25,15 +26,88 @@ fn wavelet_idents() -> Vec<Ident> {
 }
 
 #[proc_macro]
-pub fn generate_wavelet_enum(_input: TokenStream) -> TokenStream {
+pub fn generate_wavelet_enum(input: TokenStream) -> TokenStream {
+    let name = parse_macro_input!(input as syn::Ident);
     let wvlts = wavelet_idents();
     quote! {
         #[derive(Clone, Copy, Debug)]
-        pub enum Wavelets{
+        pub enum #name{
             #(#wvlts), *
         }
     }
     .into()
+}
+
+struct WaveletMatchArms {
+    enum_name: Ident,
+    var_name: Ident,
+    template: proc_macro2::TokenStream,
+}
+
+impl Parse for WaveletMatchArms {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let enum_name: Ident = input.parse()?;
+        input.parse::<Token![,]>()?;
+        let var_name: Ident = input.parse()?;
+        input.parse::<Token![,]>()?;
+        let content;
+        syn::braced!(content in input);
+        let template: proc_macro2::TokenStream = content.parse()?;
+
+        Ok(Self {
+            enum_name,
+            var_name,
+            template,
+        })
+    }
+}
+
+fn substitute(template: &proc_macro2::TokenStream, ident: &Ident) -> proc_macro2::TokenStream {
+    let mut out = proc_macro2::TokenStream::new();
+
+    for tt in template.into_token_stream() {
+        match tt {
+            TokenTree::Punct(p) if p.as_char() == '#' => {
+                // expect #wvlt
+                // skip and replace
+            }
+            TokenTree::Ident(i) if i == "wvlt" => {
+                out.extend(quote!(#ident));
+            }
+            other => out.extend(std::iter::once(other)),
+        }
+    }
+
+    out
+}
+
+#[proc_macro]
+pub fn generate_wavelet_match_arms(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as WaveletMatchArms);
+    let WaveletMatchArms {
+        enum_name,
+        var_name,
+        template,
+    } = input;
+
+    let mut match_arms = proc_macro2::TokenStream::new();
+
+    for v in WVLTS {
+        let ident = Ident::new(v, v.span());
+        let replaced = substitute(&template, &ident);
+        match_arms = quote! {
+            #match_arms
+            #enum_name::#ident => #replaced
+        };
+    }
+
+    let out = quote! {
+        match #var_name {
+            #match_arms
+        }
+    };
+
+    out.into()
 }
 
 #[derive(Debug)]
