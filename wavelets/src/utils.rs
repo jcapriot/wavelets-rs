@@ -9,8 +9,8 @@ pub mod simd;
 #[inline]
 pub fn stride_from_shape(shape: &[usize]) -> Vec<usize> {
     let mut stride = vec![1; shape.len()];
-    for i in (0..shape.len() - 1).rev() {
-        stride[i] = stride[i + 1] * shape[i + 1];
+    for i in (1..shape.len()).rev() {
+        stride[i - 1] = stride[i] * shape[i];
     }
     stride
 }

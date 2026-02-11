@@ -7,14 +7,40 @@ use syn::parse::{Parse, ParseStream};
 use syn::spanned::Spanned;
 use syn::{Ident, LitFloat, Result, Token, parse_macro_input};
 
-const WVLTS: [&'static str; 7] = [
+const WVLTS: [&'static str; 33] = [
     "Daubechies1",
     "Daubechies2",
     "Daubechies3",
     "Daubechies4",
     "Daubechies5",
     "Daubechies6",
+    "Daubechies7",
+    "Daubechies8",
+    "Daubechies9",
+    "Daubechies10",
+    "Symlet4",
+    "Symlet5",
+    "Symlet6",
+    "Coiflet2",
+    "Coiflet3",
+    "Bior1_3",
+    "Bior1_5",
+    "Bior2_2",
+    "Bior2_4",
+    "Bior2_6",
+    "Bior2_8",
     "Bior3_1",
+    "Bior3_3",
+    "Bior3_5",
+    "Bior3_7",
+    "Bior3_9",
+    "Bior4_2",
+    "Bior4_4",
+    "Bior4_6",
+    "Bior5_5",
+    "Bior6_8",
+    "CDF5_3",
+    "CDF9_7",
 ];
 
 fn wavelet_idents() -> Vec<Ident> {
@@ -30,7 +56,7 @@ pub fn generate_wavelet_enum(input: TokenStream) -> TokenStream {
     let name = parse_macro_input!(input as syn::Ident);
     let wvlts = wavelet_idents();
     quote! {
-        #[derive(Clone, Copy, Debug)]
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
         pub enum #name{
             #(#wvlts), *
         }

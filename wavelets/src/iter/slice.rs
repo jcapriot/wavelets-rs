@@ -1,6 +1,10 @@
 use crate::utils::stride_from_shape;
 use std::{marker::PhantomData, ops::ControlFlow};
 
+use itertools::Itertools;
+#[cfg(feature = "ndarray")]
+use ndarray::{ArrayRef, ArrayView, ArrayViewMut, Dimension};
+
 #[inline]
 pub fn unravel_array<const N: usize>(flat_index: usize, shape: &[usize; N]) -> [usize; N] {
     let mut inds = [0; N];
@@ -17,9 +21,27 @@ pub fn unravel_array<const N: usize>(flat_index: usize, shape: &[usize; N]) -> [
 }
 
 #[inline]
-pub fn unravel(flat_index: usize, shape: &[usize]) -> Vec<usize> {
-    let mut inds = vec![0; shape.len()];
+pub(crate) fn unravel(flat_index: usize, shape: &[usize]) -> Vec<usize> {
+    let n_max: usize = shape.iter().product();
+    assert!(
+        flat_index <= n_max,
+        "Flat index is beyond the end of the array."
+    );
 
+    // a special case for flat_index == n_max to return an unraveled index that points
+    // one past the last item.
+    // i.e. it looks like (n0-1, n1 -1, n2)
+    // so it would need to be pre retreated by one **before** it is valid.
+    if flat_index == n_max {
+        let mut inds = shape.iter().map(|n| n - 1).collect_vec();
+        if let Some(last) = inds.last_mut()
+            && let Some(n_last) = shape.last()
+        {
+            *last = *n_last;
+        }
+        return inds;
+    }
+    let mut inds = vec![0; shape.len()];
     let mut flat_index = flat_index;
     inds.iter_mut()
         .zip(shape.iter())
@@ -31,11 +53,43 @@ pub fn unravel(flat_index: usize, shape: &[usize]) -> Vec<usize> {
     inds
 }
 
+#[cfg(feature = "ndarray")]
+fn ndarray_subslice<'a, A, D: Dimension>(
+    arr: &'a ArrayRef<A, D>,
+    sub_shape: &[usize],
+) -> ArrayView<'a, A, D> {
+    assert_eq!(arr.ndim(), sub_shape.len());
+    arr.slice_each_axis(|axis| {
+        let len = sub_shape[axis.axis.index()];
+        ndarray::Slice {
+            start: 0,
+            end: Some(len as isize),
+            step: 1,
+        }
+    })
+}
+
+#[cfg(feature = "ndarray")]
+fn ndarray_subslice_mut<'a, A, D: Dimension>(
+    arr: &'a mut ArrayRef<A, D>,
+    sub_shape: &[usize],
+) -> ArrayViewMut<'a, A, D> {
+    assert_eq!(arr.ndim(), sub_shape.len());
+    arr.slice_each_axis_mut(|axis| {
+        let len = sub_shape[axis.axis.index()];
+        ndarray::Slice {
+            start: 0,
+            end: Some(len as isize),
+            step: 1,
+        }
+    })
+}
+
 #[derive(Clone, Copy)]
 pub struct StridedSlice<'a, T> {
     base: *const T,
     length: usize,
-    stride: usize,
+    stride: isize,
     _member: PhantomData<&'a T>,
 }
 
@@ -51,7 +105,7 @@ impl<'a, T> StridedSlice<'a, T> {
 
     #[inline]
     pub unsafe fn get_unchecked(&self, index: usize) -> &'a T {
-        unsafe { &*self.base.add(index * self.stride) }
+        unsafe { &*self.base.offset(index as isize * self.stride) }
     }
 
     #[inline]
@@ -61,7 +115,7 @@ impl<'a, T> StridedSlice<'a, T> {
 
     #[inline]
     pub fn iter(&self) -> StridedIter<'a, T> {
-        let end = unsafe { self.base.add(self.stride * self.length) };
+        let end = unsafe { self.base.offset(self.stride * self.length as isize) };
         StridedIter {
             start: self.base,
             end: end,
@@ -91,7 +145,7 @@ impl<'a, T> IntoIterator for StridedSlice<'a, T> {
 pub struct StridedIter<'a, T> {
     start: *const T,
     end: *const T,
-    stride: usize,
+    stride: isize,
     _member: PhantomData<&'a T>,
 }
 
@@ -105,7 +159,7 @@ impl<'a, T> Iterator for StridedIter<'a, T> {
         } else {
             let address = self.start;
             unsafe {
-                self.start = self.start.add(self.stride);
+                self.start = self.start.offset(self.stride);
                 Some(&*address)
             }
         }
@@ -113,7 +167,8 @@ impl<'a, T> Iterator for StridedIter<'a, T> {
 
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = unsafe { self.end.offset_from_unsigned(self.start) };
+        let offset = unsafe { self.end.offset_from(self.start) };
+        let len = (offset / self.stride) as usize;
         (len, Some(len))
     }
 }
@@ -126,7 +181,7 @@ impl<'a, T> DoubleEndedIterator for StridedIter<'a, T> {
             None
         } else {
             unsafe {
-                self.end = self.end.sub(self.stride);
+                self.end = self.end.offset(-self.stride);
                 Some(&*self.end)
             }
         }
@@ -136,9 +191,9 @@ impl<'a, T> DoubleEndedIterator for StridedIter<'a, T> {
 #[derive(Clone, Copy)]
 pub struct ChunkStridedSlice<'a, T, const N: usize> {
     base: *const T,
-    offsets: [usize; N],
+    offsets: [isize; N],
     length: usize,
-    stride: usize,
+    stride: isize,
     _member: PhantomData<&'a T>,
 }
 impl<'a, T, const N: usize> ChunkStridedSlice<'a, T, N> {
@@ -149,8 +204,8 @@ impl<'a, T, const N: usize> ChunkStridedSlice<'a, T, N> {
 
     #[inline]
     pub fn iter(&self) -> ChunkStridedSliceIter<'a, T, N> {
-        let end_offset = self.length * self.stride;
-        let end = unsafe { self.base.add(end_offset) };
+        let end_offset = self.length as isize * self.stride;
+        let end = unsafe { self.base.offset(end_offset) };
         ChunkStridedSliceIter {
             start: self.base,
             end,
@@ -164,9 +219,9 @@ impl<'a, T, const N: usize> ChunkStridedSlice<'a, T, N> {
     pub fn as_chunks(&self) -> Option<ContiguousChunkStridedSliceIter<'a, T, N>> {
         let contiguous_chunk = self.offsets[..].windows(2).all(|v| v[1] - v[0] == 1);
         if contiguous_chunk {
-            let start = unsafe { self.base.add(self.offsets[0]) };
-            let end_offset = self.length * self.stride;
-            let end = unsafe { start.add(end_offset) };
+            let start = unsafe { self.base.offset(self.offsets[0]) };
+            let end_offset = self.length as isize * self.stride;
+            let end = unsafe { start.offset(end_offset) };
             Some(ContiguousChunkStridedSliceIter {
                 start,
                 end,
@@ -188,8 +243,8 @@ impl<'a, T, const N: usize> ChunkStridedSlice<'a, T, N> {
     #[inline]
     pub unsafe fn get_unchecked(&self, index: (usize, usize)) -> &T {
         unsafe {
-            let slice_target = self.base.add(*self.offsets.get_unchecked(index.1));
-            let target = slice_target.add(self.stride * index.0);
+            let slice_target = self.base.offset(*self.offsets.get_unchecked(index.1));
+            let target = slice_target.offset(self.stride * index.0 as isize);
             &*target
         }
     }
@@ -207,8 +262,8 @@ impl<'a, T, const N: usize> IntoIterator for ChunkStridedSlice<'a, T, N> {
 pub struct ChunkStridedSliceIter<'a, T, const N: usize> {
     start: *const T,
     end: *const T,
-    offsets: [usize; N],
-    stride: usize,
+    offsets: [isize; N],
+    stride: isize,
     _member: PhantomData<&'a T>,
 }
 
@@ -221,14 +276,15 @@ impl<'a, T, const N: usize> Iterator for ChunkStridedSliceIter<'a, T, N> {
             None
         } else {
             let items: Self::Item =
-                std::array::from_fn(|i| unsafe { &*self.start.add(self.offsets[i]) });
-            self.start = unsafe { self.start.add(self.stride) };
+                std::array::from_fn(|i| unsafe { &*self.start.offset(self.offsets[i]) });
+            self.start = unsafe { self.start.offset(self.stride) };
             Some(items)
         }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = unsafe { self.end.offset_from_unsigned(self.start) } / self.stride;
+        let offset = unsafe { self.end.offset_from(self.start) };
+        let len = (offset / self.stride) as usize;
         (len, Some(len))
     }
 }
@@ -239,9 +295,9 @@ impl<'a, T, const N: usize> DoubleEndedIterator for ChunkStridedSliceIter<'a, T,
         if self.start == self.end {
             None
         } else {
-            self.end = unsafe { self.end.sub(self.stride) };
+            self.end = unsafe { self.end.offset(-self.stride) };
             let items: Self::Item =
-                std::array::from_fn(|i| unsafe { &*self.end.add(self.offsets[i]) });
+                std::array::from_fn(|i| unsafe { &*self.end.offset(self.offsets[i]) });
             Some(items)
         }
     }
@@ -250,7 +306,7 @@ impl<'a, T, const N: usize> DoubleEndedIterator for ChunkStridedSliceIter<'a, T,
 pub struct ContiguousChunkStridedSliceIter<'a, T, const N: usize> {
     start: *const T,
     end: *const T,
-    stride: usize,
+    stride: isize,
     _member: PhantomData<&'a T>,
 }
 
@@ -263,13 +319,14 @@ impl<'a, T, const N: usize> Iterator for ContiguousChunkStridedSliceIter<'a, T, 
             None
         } else {
             let items: Self::Item = unsafe { &*self.start.cast::<[T; N]>() };
-            self.start = unsafe { self.start.add(self.stride) };
+            self.start = unsafe { self.start.offset(self.stride) };
             Some(items)
         }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = unsafe { self.end.offset_from_unsigned(self.start) } / self.stride;
+        let offset = unsafe { self.end.offset_from(self.start) };
+        let len = (offset / self.stride) as usize;
         (len, Some(len))
     }
 }
@@ -280,7 +337,7 @@ impl<'a, T, const N: usize> DoubleEndedIterator for ContiguousChunkStridedSliceI
         if self.start == self.end {
             None
         } else {
-            self.end = unsafe { self.end.sub(self.stride) };
+            self.end = unsafe { self.end.offset(-self.stride) };
             let items: Self::Item = unsafe { &*self.end.cast::<[T; N]>() };
             Some(items)
         }
@@ -290,17 +347,17 @@ impl<'a, T, const N: usize> DoubleEndedIterator for ContiguousChunkStridedSliceI
 #[derive(Clone)]
 struct ArrayInfo {
     shape: Vec<usize>,
-    stride: Vec<usize>,
+    stride: Vec<isize>,
     lane_length: usize,
-    lane_stride: usize,
+    lane_stride: isize,
 }
 
 pub struct LaneSliceIter<'a, T> {
     base: *const T,
     arr_info: ArrayInfo,
     front_pos: Vec<usize>,
-    front_offset: usize,
-    rear_offset: usize,
+    front_offset: isize,
+    rear_offset: isize,
     rear_pos: Vec<usize>,
     remaining: usize,
     _member: PhantomData<&'a T>,
@@ -308,23 +365,40 @@ pub struct LaneSliceIter<'a, T> {
 
 impl<'a, T> LaneSliceIter<'a, T> {
     pub fn from_slice(arr: &'a [T], shape: &[usize], axis: usize) -> Self {
-        let stride = stride_from_shape(shape);
+        let stride = stride_from_shape(shape)
+            .into_iter()
+            .map(|i| i as isize)
+            .collect_vec();
         Self::from_slice_with_stride(arr, shape, &stride, axis)
     }
 
     pub fn from_slice_with_stride(
         arr: &'a [T],
         shape: &[usize],
-        stride: &[usize],
+        stride: &[isize],
         axis: usize,
     ) -> Self {
         assert_eq!(shape.len(), stride.len());
         let max_offset = shape
             .iter()
             .zip(stride.iter())
-            .map(|(n, step)| step * (n - 1))
+            .map(|(n, step)| step.abs() as usize * (n - 1))
             .sum();
         assert!(arr.len() > max_offset);
+        Self::get_iter(arr.as_ptr(), shape, stride, axis)
+    }
+
+    #[cfg(feature = "ndarray")]
+    pub fn from_ndarray<D: ndarray::Dimension>(
+        arr: &ndarray::ArrayRef<T, D>,
+        shape: &[usize],
+        axis: usize,
+    ) -> Self {
+        let arr = ndarray_subslice(arr, shape);
+        Self::get_iter(arr.as_ptr(), arr.shape(), arr.strides(), axis)
+    }
+
+    fn get_iter(base: *const T, shape: &[usize], stride: &[isize], axis: usize) -> Self {
         assert!(axis < shape.len());
 
         let mut stride = stride.to_owned();
@@ -340,11 +414,11 @@ impl<'a, T> LaneSliceIter<'a, T> {
         let rear_offset = rear_pos
             .iter()
             .zip(stride.iter())
-            .map(|(v1, v2)| v1 * v2)
+            .map(|(v1, v2)| *v1 as isize * v2)
             .sum();
 
         LaneSliceIter {
-            base: arr.as_ptr(),
+            base,
             arr_info: ArrayInfo {
                 shape,
                 stride,
@@ -378,7 +452,7 @@ impl<'a, T> Iterator for LaneSliceIter<'a, T> {
             } = &self.arr_info;
 
             let slice = StridedSlice {
-                base: unsafe { self.base.add(self.front_offset) },
+                base: unsafe { self.base.offset(self.front_offset) },
                 length: *lane_length,
                 stride: *lane_stride,
                 _member: PhantomData,
@@ -396,7 +470,7 @@ impl<'a, T> Iterator for LaneSliceIter<'a, T> {
                         return ControlFlow::Break(());
                     };
                     *pos = 0;
-                    self.front_offset -= shp * str;
+                    self.front_offset -= *shp as isize * str;
                     ControlFlow::Continue(())
                 });
             Some(slice)
@@ -423,7 +497,7 @@ impl<'a, T> DoubleEndedIterator for LaneSliceIter<'a, T> {
             } = &self.arr_info;
 
             let slice = StridedSlice {
-                base: unsafe { self.base.add(self.rear_offset) },
+                base: unsafe { self.base.offset(self.rear_offset) },
                 length: *lane_length,
                 stride: *lane_stride,
                 _member: PhantomData,
@@ -437,7 +511,7 @@ impl<'a, T> DoubleEndedIterator for LaneSliceIter<'a, T> {
                 .try_for_each(|((str, shp), pos)| {
                     if *pos == 0 {
                         *pos = *shp - 1;
-                        self.rear_offset += *pos * str;
+                        self.rear_offset += *pos as isize * str;
                         return ControlFlow::Continue(());
                     } else {
                         *pos -= 1;
@@ -454,32 +528,54 @@ pub struct LaneSliceChunkIter<'a, T, const N: usize> {
     base: *const T,
     arr_info: ArrayInfo,
     front_pos: Vec<usize>,
-    front_offset: usize,
+    front_offset: isize,
     rear_pos: Vec<usize>,
-    rear_offset: usize,
+    rear_offset: isize,
     remaining: usize,
     _member: PhantomData<&'a T>,
 }
 
 impl<'a, T, const N: usize> LaneSliceChunkIter<'a, T, N> {
     pub fn from_slice(arr: &'a [T], shape: &[usize], axis: usize) -> (Self, LaneSliceIter<'a, T>) {
-        let stride = stride_from_shape(shape);
+        let stride = stride_from_shape(shape)
+            .into_iter()
+            .map(|i| i as isize)
+            .collect_vec();
         Self::from_slice_with_stride(arr, shape, &stride, axis)
     }
 
     pub fn from_slice_with_stride(
         arr: &'a [T],
         shape: &[usize],
-        stride: &[usize],
+        stride: &[isize],
         axis: usize,
     ) -> (Self, LaneSliceIter<'a, T>) {
         assert_eq!(shape.len(), stride.len());
         let max_offset = shape
             .iter()
             .zip(stride.iter())
-            .map(|(n, step)| step * (n - 1))
+            .map(|(n, step)| step.abs() as usize * (n - 1))
             .sum();
         assert!(arr.len() > max_offset);
+        Self::get_iters(arr.as_ptr(), shape, stride, axis)
+    }
+
+    #[cfg(feature = "ndarray")]
+    pub fn from_ndarray<D: ndarray::Dimension>(
+        arr: &ndarray::ArrayRef<T, D>,
+        shape: &[usize],
+        axis: usize,
+    ) -> (Self, LaneSliceIter<'a, T>) {
+        let arr = ndarray_subslice(arr, shape);
+        Self::get_iters(arr.as_ptr(), arr.shape(), arr.strides(), axis)
+    }
+
+    fn get_iters(
+        base: *const T,
+        shape: &[usize],
+        stride: &[isize],
+        axis: usize,
+    ) -> (Self, LaneSliceIter<'a, T>) {
         assert!(axis < shape.len());
 
         let mut stride = stride.to_owned();
@@ -501,21 +597,21 @@ impl<'a, T, const N: usize> LaneSliceChunkIter<'a, T, N> {
         let rear_offset = rear_pos
             .iter()
             .zip(stride.iter())
-            .map(|(v1, v2)| v1 * v2)
+            .map(|(v1, v2)| *v1 as isize * v2)
             .sum();
 
         let pos_rem = unravel(n_chunkable, &shape);
         let offset_rem = pos_rem
             .iter()
             .zip(stride.iter())
-            .map(|(v1, v2)| v1 * v2)
+            .map(|(v1, v2)| *v1 as isize * v2)
             .sum();
 
         let rear_rem_pos: Vec<_> = shape.iter().map(|i| i - 1).collect();
         let rear_rem_offset = rear_rem_pos
             .iter()
             .zip(stride.iter())
-            .map(|(v1, v2)| v1 * v2)
+            .map(|(v1, v2)| *v1 as isize * v2)
             .sum();
 
         let arr_info = ArrayInfo {
@@ -527,7 +623,7 @@ impl<'a, T, const N: usize> LaneSliceChunkIter<'a, T, N> {
 
         (
             Self {
-                base: arr.as_ptr(),
+                base: base,
                 arr_info: arr_info.clone(),
                 front_pos,
                 front_offset,
@@ -537,7 +633,7 @@ impl<'a, T, const N: usize> LaneSliceChunkIter<'a, T, N> {
                 _member: PhantomData,
             },
             LaneSliceIter {
-                base: arr.as_ptr(),
+                base: base,
                 arr_info: arr_info,
                 front_pos: pos_rem,
                 front_offset: offset_rem,
@@ -580,7 +676,7 @@ impl<'a, T, const N: usize> Iterator for LaneSliceChunkIter<'a, T, N> {
                             return ControlFlow::Break(());
                         };
                         *pos = 0;
-                        self.front_offset -= shp * str;
+                        self.front_offset -= *shp as isize * str;
                         ControlFlow::Continue(())
                     });
                 off
@@ -627,7 +723,7 @@ impl<'a, T, const N: usize> DoubleEndedIterator for LaneSliceChunkIter<'a, T, N>
                     .try_for_each(|((str, shp), pos)| {
                         if *pos == 0 {
                             *pos = *shp - 1;
-                            self.rear_offset += *pos * str;
+                            self.rear_offset += *pos as isize * str;
                             return ControlFlow::Continue(());
                         } else {
                             *pos -= 1;
@@ -654,7 +750,7 @@ impl<'a, T, const N: usize> DoubleEndedIterator for LaneSliceChunkIter<'a, T, N>
 pub struct MutStridedSlice<'a, T> {
     base: *mut T,
     length: usize,
-    stride: usize,
+    stride: isize,
     _member: PhantomData<&'a T>,
 }
 
@@ -679,12 +775,12 @@ impl<'a, T> MutStridedSlice<'a, T> {
 
     #[inline]
     pub unsafe fn get_unchecked(&self, index: usize) -> &'a T {
-        unsafe { &*self.base.add(index * self.stride) }
+        unsafe { &*self.base.offset(index as isize * self.stride) }
     }
 
     #[inline]
     pub unsafe fn get_mut_unchecked(&self, index: usize) -> &'a mut T {
-        unsafe { &mut *self.base.add(index * self.stride) }
+        unsafe { &mut *self.base.offset(index as isize * self.stride) }
     }
 
     #[inline]
@@ -694,7 +790,7 @@ impl<'a, T> MutStridedSlice<'a, T> {
 
     #[inline]
     pub fn iter(&self) -> StridedIter<'a, T> {
-        let end = unsafe { self.base.add(self.stride * self.length) };
+        let end = unsafe { self.base.offset(self.stride * self.length as isize) };
         StridedIter {
             start: self.base,
             end: end,
@@ -705,7 +801,7 @@ impl<'a, T> MutStridedSlice<'a, T> {
 
     #[inline]
     pub fn iter_mut(&self) -> MutStridedIter<'a, T> {
-        let end = unsafe { self.base.add(self.stride * self.length) };
+        let end = unsafe { self.base.offset(self.stride * self.length as isize) };
         MutStridedIter {
             start: self.base,
             end: end,
@@ -745,7 +841,7 @@ impl<'a, T> From<MutStridedSlice<'a, T>> for StridedSlice<'a, T> {
 pub struct MutStridedIter<'a, T> {
     start: *mut T,
     end: *mut T,
-    stride: usize,
+    stride: isize,
     _member: PhantomData<&'a T>,
 }
 
@@ -759,14 +855,15 @@ impl<'a, T> Iterator for MutStridedIter<'a, T> {
         } else {
             let address = self.start;
             unsafe {
-                self.start = self.start.add(self.stride);
+                self.start = self.start.offset(self.stride);
                 Some(&mut *address)
             }
         }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = unsafe { self.end.offset_from_unsigned(self.start) };
+        let offset = unsafe { self.end.offset_from(self.start) };
+        let len = (offset / self.stride) as usize;
         (len, Some(len))
     }
 }
@@ -779,7 +876,7 @@ impl<'a, T> DoubleEndedIterator for MutStridedIter<'a, T> {
             None
         } else {
             unsafe {
-                self.end = self.end.sub(self.stride);
+                self.end = self.end.offset(-self.stride);
                 Some(&mut *self.end)
             }
         }
@@ -789,9 +886,9 @@ impl<'a, T> DoubleEndedIterator for MutStridedIter<'a, T> {
 #[derive(Clone, Copy)]
 pub struct MutChunkStridedSlice<'a, T, const N: usize> {
     base: *mut T,
-    offsets: [usize; N],
+    offsets: [isize; N],
     length: usize,
-    stride: usize,
+    stride: isize,
     _member: PhantomData<&'a T>,
 }
 impl<'a, T, const N: usize> MutChunkStridedSlice<'a, T, N> {
@@ -802,8 +899,8 @@ impl<'a, T, const N: usize> MutChunkStridedSlice<'a, T, N> {
 
     #[inline]
     pub fn iter(&self) -> ChunkStridedSliceIter<'a, T, N> {
-        let end_offset = self.length * self.stride;
-        let end = unsafe { self.base.add(end_offset) };
+        let end_offset = self.length as isize * self.stride;
+        let end = unsafe { self.base.offset(end_offset) };
         ChunkStridedSliceIter {
             start: self.base,
             end,
@@ -815,8 +912,8 @@ impl<'a, T, const N: usize> MutChunkStridedSlice<'a, T, N> {
 
     #[inline]
     pub fn iter_mut(&self) -> MutChunkStridedSliceIter<'a, T, N> {
-        let end_offset = self.length * self.stride;
-        let end = unsafe { self.base.add(end_offset) };
+        let end_offset = self.length as isize * self.stride;
+        let end = unsafe { self.base.offset(end_offset) };
         MutChunkStridedSliceIter {
             start: self.base,
             end,
@@ -836,8 +933,8 @@ impl<'a, T, const N: usize> MutChunkStridedSlice<'a, T, N> {
     #[inline]
     pub unsafe fn get_unchecked(&self, index: (usize, usize)) -> &T {
         unsafe {
-            let slice_target = self.base.add(*self.offsets.get_unchecked(index.1));
-            let target = slice_target.add(self.stride * index.0);
+            let slice_target = self.base.offset(*self.offsets.get_unchecked(index.1));
+            let target = slice_target.offset(self.stride * index.0 as isize);
             &*target
         }
     }
@@ -853,8 +950,8 @@ impl<'a, T, const N: usize> MutChunkStridedSlice<'a, T, N> {
     pub unsafe fn get_mut_unchecked(&self, index: (usize, usize)) -> &mut T {
         unsafe {
             let base = self.base as *mut T;
-            let slice_target = base.add(*self.offsets.get_unchecked(index.1));
-            let target = slice_target.add(self.stride * index.0);
+            let slice_target = base.offset(*self.offsets.get_unchecked(index.1));
+            let target = slice_target.offset(self.stride * index.0 as isize);
             &mut *target
         }
     }
@@ -863,9 +960,9 @@ impl<'a, T, const N: usize> MutChunkStridedSlice<'a, T, N> {
     pub fn as_chunks(&self) -> Option<ContiguousChunkStridedSliceIter<'a, T, N>> {
         let contiguous_chunk = self.offsets[..].windows(2).all(|v| v[1] - v[0] == 1);
         if contiguous_chunk {
-            let start = unsafe { self.base.add(self.offsets[0]) };
-            let end_offset = self.length * self.stride;
-            let end = unsafe { start.add(end_offset) };
+            let start = unsafe { self.base.offset(self.offsets[0]) };
+            let end_offset = self.length as isize * self.stride;
+            let end = unsafe { start.offset(end_offset) };
             Some(ContiguousChunkStridedSliceIter {
                 start,
                 end,
@@ -881,9 +978,9 @@ impl<'a, T, const N: usize> MutChunkStridedSlice<'a, T, N> {
     pub fn as_chunks_mut(&self) -> Option<MutContiguousChunkStridedSliceIter<'a, T, N>> {
         let contiguous_chunk = self.offsets[..].windows(2).all(|v| v[1] - v[0] == 1);
         if contiguous_chunk {
-            let start = unsafe { self.base.add(self.offsets[0]) };
-            let end_offset = self.length * self.stride;
-            let end = unsafe { start.add(end_offset) };
+            let start = unsafe { self.base.offset(self.offsets[0]) };
+            let end_offset = self.length as isize * self.stride;
+            let end = unsafe { start.offset(end_offset) };
             Some(MutContiguousChunkStridedSliceIter {
                 start,
                 end,
@@ -919,8 +1016,8 @@ impl<'a, T, const N: usize> IntoIterator for MutChunkStridedSlice<'a, T, N> {
 pub struct MutChunkStridedSliceIter<'a, T, const N: usize> {
     start: *mut T,
     end: *mut T,
-    offsets: [usize; N],
-    stride: usize,
+    offsets: [isize; N],
+    stride: isize,
     _member: PhantomData<&'a T>,
 }
 
@@ -933,8 +1030,8 @@ impl<'a, T, const N: usize> Iterator for MutChunkStridedSliceIter<'a, T, N> {
             None
         } else {
             let items: Self::Item =
-                std::array::from_fn(|i| unsafe { &mut *self.start.add(self.offsets[i]) });
-            self.start = unsafe { self.start.add(self.stride) };
+                std::array::from_fn(|i| unsafe { &mut *self.start.offset(self.offsets[i]) });
+            self.start = unsafe { self.start.offset(self.stride) };
 
             // let items = MutAlongChunkIter {
             //     pointer: self.start,
@@ -948,7 +1045,8 @@ impl<'a, T, const N: usize> Iterator for MutChunkStridedSliceIter<'a, T, N> {
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = unsafe { self.end.offset_from_unsigned(self.start) } / self.stride;
+        let offset = unsafe { self.end.offset_from(self.start) };
+        let len = (offset / self.stride) as usize;
         (len, Some(len))
     }
 }
@@ -959,9 +1057,9 @@ impl<'a, T, const N: usize> DoubleEndedIterator for MutChunkStridedSliceIter<'a,
         if self.start == self.end {
             None
         } else {
-            self.end = unsafe { self.end.sub(self.stride) };
+            self.end = unsafe { self.end.offset(-self.stride) };
             let items: Self::Item =
-                std::array::from_fn(|i| unsafe { &mut *self.end.add(self.offsets[i]) });
+                std::array::from_fn(|i| unsafe { &mut *self.end.offset(self.offsets[i]) });
             // let items = MutAlongChunkIter {
             //     pointer: self.end,
             //     offsets: self.offsets,
@@ -976,7 +1074,7 @@ impl<'a, T, const N: usize> DoubleEndedIterator for MutChunkStridedSliceIter<'a,
 pub struct MutContiguousChunkStridedSliceIter<'a, T, const N: usize> {
     start: *mut T,
     end: *mut T,
-    stride: usize,
+    stride: isize,
     _member: PhantomData<&'a T>,
 }
 
@@ -989,13 +1087,14 @@ impl<'a, T, const N: usize> Iterator for MutContiguousChunkStridedSliceIter<'a, 
             None
         } else {
             let items: Self::Item = unsafe { &mut *self.start.cast::<[T; N]>() };
-            self.start = unsafe { self.start.add(self.stride) };
+            self.start = unsafe { self.start.offset(self.stride) };
             Some(items)
         }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = unsafe { self.end.offset_from_unsigned(self.start) } / self.stride;
+        let offset = unsafe { self.end.offset_from(self.start) };
+        let len = (offset / self.stride) as usize;
         (len, Some(len))
     }
 }
@@ -1006,7 +1105,7 @@ impl<'a, T, const N: usize> DoubleEndedIterator for MutContiguousChunkStridedSli
         if self.start == self.end {
             None
         } else {
-            self.end = unsafe { self.end.sub(self.stride) };
+            self.end = unsafe { self.end.offset(-self.stride) };
             let items: Self::Item = unsafe { &mut *self.end.cast::<[T; N]>() };
             Some(items)
         }
@@ -1017,8 +1116,8 @@ pub struct MutLaneSliceIter<'a, T> {
     base: *mut T,
     arr_info: ArrayInfo,
     front_pos: Vec<usize>,
-    front_offset: usize,
-    rear_offset: usize,
+    front_offset: isize,
+    rear_offset: isize,
     rear_pos: Vec<usize>,
     remaining: usize,
     _member: PhantomData<&'a T>,
@@ -1026,23 +1125,40 @@ pub struct MutLaneSliceIter<'a, T> {
 
 impl<'a, T> MutLaneSliceIter<'a, T> {
     pub fn from_slice_mut(arr: &'a mut [T], shape: &[usize], axis: usize) -> Self {
-        let stride = stride_from_shape(shape);
+        let stride = stride_from_shape(shape)
+            .into_iter()
+            .map(|i| i as isize)
+            .collect_vec();
         Self::from_slice_mut_with_stride(arr, shape, &stride, axis)
     }
 
     pub fn from_slice_mut_with_stride(
         arr: &'a mut [T],
         shape: &[usize],
-        stride: &[usize],
+        stride: &[isize],
         axis: usize,
     ) -> Self {
         assert_eq!(shape.len(), stride.len());
         let max_offset = shape
             .iter()
             .zip(stride.iter())
-            .map(|(n, step)| step * (n - 1))
+            .map(|(n, step)| step.abs() as usize * (n - 1))
             .sum();
         assert!(arr.len() > max_offset);
+        Self::get_iter(arr.as_mut_ptr(), shape, stride, axis)
+    }
+
+    #[cfg(feature = "ndarray")]
+    pub fn from_ndarray<D: ndarray::Dimension>(
+        arr: &mut ndarray::ArrayRef<T, D>,
+        shape: &[usize],
+        axis: usize,
+    ) -> Self {
+        let mut arr = ndarray_subslice_mut(arr, shape);
+        Self::get_iter(arr.as_mut_ptr(), arr.shape(), arr.strides(), axis)
+    }
+
+    fn get_iter(base: *mut T, shape: &[usize], stride: &[isize], axis: usize) -> Self {
         assert!(axis < shape.len());
 
         let mut stride = stride.to_owned();
@@ -1057,11 +1173,11 @@ impl<'a, T> MutLaneSliceIter<'a, T> {
         let rear_offset = rear_pos
             .iter()
             .zip(stride.iter())
-            .map(|(v1, v2)| v1 * v2)
+            .map(|(v1, v2)| *v1 as isize * v2)
             .sum();
 
         MutLaneSliceIter {
-            base: arr.as_mut_ptr(),
+            base,
             arr_info: ArrayInfo {
                 shape,
                 stride,
@@ -1095,7 +1211,7 @@ impl<'a, T> Iterator for MutLaneSliceIter<'a, T> {
             } = &self.arr_info;
 
             let slice = MutStridedSlice {
-                base: unsafe { self.base.add(self.front_offset) },
+                base: unsafe { self.base.offset(self.front_offset) },
                 length: *lane_length,
                 stride: *lane_stride,
                 _member: PhantomData,
@@ -1113,7 +1229,7 @@ impl<'a, T> Iterator for MutLaneSliceIter<'a, T> {
                         return ControlFlow::Break(());
                     };
                     *pos = 0;
-                    self.front_offset -= shp * str;
+                    self.front_offset -= *shp as isize * str;
                     ControlFlow::Continue(())
                 });
             Some(slice)
@@ -1140,7 +1256,7 @@ impl<'a, T> DoubleEndedIterator for MutLaneSliceIter<'a, T> {
             } = &self.arr_info;
 
             let slice = MutStridedSlice {
-                base: unsafe { self.base.add(self.rear_offset) },
+                base: unsafe { self.base.offset(self.rear_offset) },
                 length: *lane_length,
                 stride: *lane_stride,
                 _member: PhantomData,
@@ -1154,7 +1270,7 @@ impl<'a, T> DoubleEndedIterator for MutLaneSliceIter<'a, T> {
                 .try_for_each(|((str, shp), pos)| {
                     if *pos == 0 {
                         *pos = *shp - 1;
-                        self.rear_offset += *pos * str;
+                        self.rear_offset += *pos as isize * str;
                         return ControlFlow::Continue(());
                     } else {
                         *pos -= 1;
@@ -1171,9 +1287,9 @@ pub struct MutLaneSliceChunkIter<'a, T, const N: usize> {
     base: *mut T,
     arr_info: ArrayInfo,
     front_pos: Vec<usize>,
-    front_offset: usize,
+    front_offset: isize,
     rear_pos: Vec<usize>,
-    rear_offset: usize,
+    rear_offset: isize,
     remaining: usize,
     _member: PhantomData<&'a T>,
 }
@@ -1184,23 +1300,45 @@ impl<'a, T, const N: usize> MutLaneSliceChunkIter<'a, T, N> {
         shape: &[usize],
         axis: usize,
     ) -> (Self, MutLaneSliceIter<'a, T>) {
-        let stride = stride_from_shape(shape);
+        let stride = stride_from_shape(shape)
+            .into_iter()
+            .map(|i| i as isize)
+            .collect_vec();
         Self::from_slice_mut_with_stride(arr, shape, &stride, axis)
     }
 
     pub fn from_slice_mut_with_stride(
         arr: &'a mut [T],
         shape: &[usize],
-        stride: &[usize],
+        stride: &[isize],
         axis: usize,
     ) -> (Self, MutLaneSliceIter<'a, T>) {
         assert_eq!(shape.len(), stride.len());
         let max_offset = shape
             .iter()
             .zip(stride.iter())
-            .map(|(n, step)| step * (n - 1))
+            .map(|(n, step)| step.abs() as usize * (n - 1))
             .sum();
         assert!(arr.len() > max_offset);
+        Self::get_iters(arr.as_mut_ptr(), shape, stride, axis)
+    }
+
+    #[cfg(feature = "ndarray")]
+    pub fn from_ndarray<D: ndarray::Dimension>(
+        arr: &mut ndarray::ArrayRef<T, D>,
+        shape: &[usize],
+        axis: usize,
+    ) -> (Self, MutLaneSliceIter<'a, T>) {
+        let mut arr = ndarray_subslice_mut(arr, shape);
+        Self::get_iters(arr.as_mut_ptr(), arr.shape(), arr.strides(), axis)
+    }
+
+    fn get_iters(
+        base: *mut T,
+        shape: &[usize],
+        stride: &[isize],
+        axis: usize,
+    ) -> (Self, MutLaneSliceIter<'a, T>) {
         assert!(axis < shape.len());
 
         let mut stride = stride.to_owned();
@@ -1222,21 +1360,21 @@ impl<'a, T, const N: usize> MutLaneSliceChunkIter<'a, T, N> {
         let rear_offset = rear_pos
             .iter()
             .zip(stride.iter())
-            .map(|(v1, v2)| v1 * v2)
+            .map(|(v1, v2)| *v1 as isize * v2)
             .sum();
 
         let pos_rem = unravel(n_chunkable, &shape);
         let offset_rem = pos_rem
             .iter()
             .zip(stride.iter())
-            .map(|(v1, v2)| v1 * v2)
+            .map(|(v1, v2)| *v1 as isize * v2)
             .sum();
 
         let rear_rem_pos: Vec<_> = shape.iter().map(|i| i - 1).collect();
         let rear_rem_offset = rear_rem_pos
             .iter()
             .zip(stride.iter())
-            .map(|(v1, v2)| v1 * v2)
+            .map(|(v1, v2)| *v1 as isize * v2)
             .sum();
 
         let arr_info = ArrayInfo {
@@ -1248,7 +1386,7 @@ impl<'a, T, const N: usize> MutLaneSliceChunkIter<'a, T, N> {
 
         (
             Self {
-                base: arr.as_mut_ptr(),
+                base,
                 arr_info: arr_info.clone(),
                 front_pos,
                 front_offset,
@@ -1258,7 +1396,7 @@ impl<'a, T, const N: usize> MutLaneSliceChunkIter<'a, T, N> {
                 _member: PhantomData,
             },
             MutLaneSliceIter {
-                base: arr.as_mut_ptr(),
+                base,
                 arr_info,
                 front_pos: pos_rem,
                 front_offset: offset_rem,
@@ -1293,13 +1431,13 @@ impl<'a, T, const N: usize> Iterator for MutLaneSliceChunkIter<'a, T, N> {
                     .zip(self.front_pos.iter_mut())
                     .rev()
                     .try_for_each(|((str, shp), pos)| {
-                        self.front_offset += *str;
+                        self.front_offset += *str as isize;
                         *pos += 1;
                         if *pos < *shp {
                             return ControlFlow::Break(());
                         };
                         *pos = 0;
-                        self.front_offset -= shp * str;
+                        self.front_offset -= *shp as isize * str;
                         ControlFlow::Continue(())
                     });
                 off
@@ -1345,7 +1483,7 @@ impl<'a, T, const N: usize> DoubleEndedIterator for MutLaneSliceChunkIter<'a, T,
                     .try_for_each(|((str, shp), pos)| {
                         if *pos == 0 {
                             *pos = *shp - 1;
-                            self.rear_offset += *pos * str;
+                            self.rear_offset += *pos as isize * str;
                             return ControlFlow::Continue(());
                         } else {
                             *pos -= 1;
@@ -1367,46 +1505,64 @@ impl<'a, T, const N: usize> DoubleEndedIterator for MutLaneSliceChunkIter<'a, T,
     }
 }
 
-pub trait LanesIterator<T> {
-    fn iter_lanes<'a>(&'a self, shape: &[usize], axis: usize) -> LaneSliceIter<'a, T>;
-    fn iter_lanes_mut<'a>(&'a mut self, shape: &[usize], axis: usize) -> MutLaneSliceIter<'a, T>;
+pub trait LanesIterator {
+    type Item;
+    fn iter_lanes<'a>(&'a self, shape: &[usize], axis: usize) -> LaneSliceIter<'a, Self::Item>;
+    fn iter_lanes_mut<'a>(
+        &'a mut self,
+        shape: &[usize],
+        axis: usize,
+    ) -> MutLaneSliceIter<'a, Self::Item>;
     fn iter_lane_chunks<'a, const N: usize>(
         &'a self,
         shape: &[usize],
         axis: usize,
-    ) -> (LaneSliceChunkIter<'a, T, N>, LaneSliceIter<'a, T>);
+    ) -> (
+        LaneSliceChunkIter<'a, Self::Item, N>,
+        LaneSliceIter<'a, Self::Item>,
+    );
     fn iter_lane_chunks_mut<'a, const N: usize>(
         &'a mut self,
         shape: &[usize],
         axis: usize,
-    ) -> (MutLaneSliceChunkIter<'a, T, N>, MutLaneSliceIter<'a, T>);
+    ) -> (
+        MutLaneSliceChunkIter<'a, Self::Item, N>,
+        MutLaneSliceIter<'a, Self::Item>,
+    );
 
     fn iter_lanes_strided<'a>(
         &'a self,
         shape: &[usize],
-        stride: &[usize],
+        stride: &[isize],
         axis: usize,
-    ) -> LaneSliceIter<'a, T>;
+    ) -> LaneSliceIter<'a, Self::Item>;
     fn iter_lanes_mut_strided<'a>(
         &'a mut self,
         shape: &[usize],
-        stride: &[usize],
+        stride: &[isize],
         axis: usize,
-    ) -> MutLaneSliceIter<'a, T>;
+    ) -> MutLaneSliceIter<'a, Self::Item>;
     fn iter_lane_chunks_strided<'a, const N: usize>(
         &'a self,
         shape: &[usize],
-        stride: &[usize],
+        stride: &[isize],
         axis: usize,
-    ) -> (LaneSliceChunkIter<'a, T, N>, LaneSliceIter<'a, T>);
+    ) -> (
+        LaneSliceChunkIter<'a, Self::Item, N>,
+        LaneSliceIter<'a, Self::Item>,
+    );
     fn iter_lane_chunks_mut_strided<'a, const N: usize>(
         &'a mut self,
         shape: &[usize],
-        stride: &[usize],
+        stride: &[isize],
         axis: usize,
-    ) -> (MutLaneSliceChunkIter<'a, T, N>, MutLaneSliceIter<'a, T>);
+    ) -> (
+        MutLaneSliceChunkIter<'a, Self::Item, N>,
+        MutLaneSliceIter<'a, Self::Item>,
+    );
 }
-impl<T> LanesIterator<T> for [T] {
+impl<T> LanesIterator for [T] {
+    type Item = T;
     fn iter_lanes<'a>(&'a self, shape: &[usize], axis: usize) -> LaneSliceIter<'a, T> {
         LaneSliceIter::from_slice(self, shape, axis)
     }
@@ -1433,7 +1589,7 @@ impl<T> LanesIterator<T> for [T] {
     fn iter_lanes_strided<'a>(
         &'a self,
         shape: &[usize],
-        stride: &[usize],
+        stride: &[isize],
         axis: usize,
     ) -> LaneSliceIter<'a, T> {
         LaneSliceIter::from_slice_with_stride(self, shape, stride, axis)
@@ -1441,7 +1597,7 @@ impl<T> LanesIterator<T> for [T] {
     fn iter_lanes_mut_strided<'a>(
         &'a mut self,
         shape: &[usize],
-        stride: &[usize],
+        stride: &[isize],
         axis: usize,
     ) -> MutLaneSliceIter<'a, T> {
         MutLaneSliceIter::from_slice_mut_with_stride(self, shape, stride, axis)
@@ -1450,7 +1606,7 @@ impl<T> LanesIterator<T> for [T] {
     fn iter_lane_chunks_strided<'a, const N: usize>(
         &'a self,
         shape: &[usize],
-        stride: &[usize],
+        stride: &[isize],
         axis: usize,
     ) -> (LaneSliceChunkIter<'a, T, N>, LaneSliceIter<'a, T>) {
         LaneSliceChunkIter::from_slice_with_stride(self, shape, stride, axis)
@@ -1459,10 +1615,72 @@ impl<T> LanesIterator<T> for [T] {
     fn iter_lane_chunks_mut_strided<'a, const N: usize>(
         &'a mut self,
         shape: &[usize],
-        stride: &[usize],
+        stride: &[isize],
         axis: usize,
     ) -> (MutLaneSliceChunkIter<'a, T, N>, MutLaneSliceIter<'a, T>) {
         MutLaneSliceChunkIter::from_slice_mut_with_stride(self, shape, stride, axis)
+    }
+}
+
+#[cfg(feature = "ndarray")]
+impl<T, D: ndarray::Dimension> LanesIterator for ndarray::ArrayRef<T, D> {
+    type Item = T;
+    fn iter_lanes<'a>(&'a self, shape: &[usize], axis: usize) -> LaneSliceIter<'a, T> {
+        LaneSliceIter::from_ndarray(self, shape, axis)
+    }
+    fn iter_lanes_mut<'a>(&'a mut self, shape: &[usize], axis: usize) -> MutLaneSliceIter<'a, T> {
+        MutLaneSliceIter::from_ndarray(self, shape, axis)
+    }
+
+    fn iter_lane_chunks<'a, const N: usize>(
+        &'a self,
+        shape: &[usize],
+        axis: usize,
+    ) -> (LaneSliceChunkIter<'a, T, N>, LaneSliceIter<'a, T>) {
+        LaneSliceChunkIter::from_ndarray(self, shape, axis)
+    }
+
+    fn iter_lane_chunks_mut<'a, const N: usize>(
+        &'a mut self,
+        shape: &[usize],
+        axis: usize,
+    ) -> (MutLaneSliceChunkIter<'a, T, N>, MutLaneSliceIter<'a, T>) {
+        MutLaneSliceChunkIter::from_ndarray(self, shape, axis)
+    }
+
+    fn iter_lanes_strided<'a>(
+        &'a self,
+        shape: &[usize],
+        _stride: &[isize],
+        axis: usize,
+    ) -> LaneSliceIter<'a, T> {
+        LaneSliceIter::from_ndarray(self, shape, axis)
+    }
+    fn iter_lanes_mut_strided<'a>(
+        &'a mut self,
+        shape: &[usize],
+        _stride: &[isize],
+        axis: usize,
+    ) -> MutLaneSliceIter<'a, T> {
+        MutLaneSliceIter::from_ndarray(self, shape, axis)
+    }
+
+    fn iter_lane_chunks_strided<'a, const N: usize>(
+        &'a self,
+        shape: &[usize],
+        _stride: &[isize],
+        axis: usize,
+    ) -> (LaneSliceChunkIter<'a, T, N>, LaneSliceIter<'a, T>) {
+        LaneSliceChunkIter::from_ndarray(self, shape, axis)
+    }
+
+    fn iter_lane_chunks_mut_strided<'a, const N: usize>(
+        &'a mut self,
+        shape: &[usize],
+        _stride: &[isize],
+        axis: usize,
+    ) -> (MutLaneSliceChunkIter<'a, T, N>, MutLaneSliceIter<'a, T>) {
+        MutLaneSliceChunkIter::from_ndarray(self, shape, axis)
     }
 }
 
@@ -1487,23 +1705,40 @@ pub mod parallel {
 
     impl<'a, T> LaneSliceParIter<'a, T> {
         pub fn from_slice(arr: &'a [T], shape: &[usize], axis: usize) -> Self {
-            let stride = stride_from_shape(shape);
+            let stride = stride_from_shape(shape)
+                .into_iter()
+                .map(|i| i as isize)
+                .collect_vec();
             Self::from_slice_with_stride(arr, shape, &stride, axis)
         }
 
         pub fn from_slice_with_stride(
             arr: &'a [T],
             shape: &[usize],
-            stride: &[usize],
+            stride: &[isize],
             axis: usize,
         ) -> Self {
             assert_eq!(shape.len(), stride.len());
             let max_offset = shape
                 .iter()
                 .zip(stride.iter())
-                .map(|(n, step)| step * (n - 1))
+                .map(|(n, step)| step.abs() as usize * (n - 1))
                 .sum();
             assert!(arr.len() > max_offset);
+            Self::get_iter(arr.as_ptr(), shape, stride, axis)
+        }
+
+        #[cfg(feature = "ndarray")]
+        pub fn from_ndarray<D: ndarray::Dimension>(
+            arr: &ndarray::ArrayRef<T, D>,
+            shape: &[usize],
+            axis: usize,
+        ) -> Self {
+            let arr = ndarray_subslice(arr, shape);
+            Self::get_iter(arr.as_ptr(), arr.shape(), arr.strides(), axis)
+        }
+
+        fn get_iter(base: *const T, shape: &[usize], stride: &[isize], axis: usize) -> Self {
             assert!(axis < shape.len());
 
             let mut stride = stride.to_owned();
@@ -1514,7 +1749,7 @@ pub mod parallel {
             let n_lanes = shape.iter().product();
 
             Self {
-                base: arr.as_ptr(),
+                base,
                 arr_info: ArrayInfo {
                     shape,
                     stride,
@@ -1565,7 +1800,7 @@ pub mod parallel {
             let front_offset = front_pos
                 .iter()
                 .zip(arr_info.stride.iter())
-                .map(|(v1, v2)| v1 * v2)
+                .map(|(v1, v2)| *v1 as isize * v2)
                 .sum();
             let rear_pos = match self.stop > 0 {
                 true => unravel(self.stop - 1, &arr_info.shape),
@@ -1574,7 +1809,7 @@ pub mod parallel {
             let rear_offset = rear_pos
                 .iter()
                 .zip(arr_info.stride.iter())
-                .map(|(v1, v2)| v1 * v2)
+                .map(|(v1, v2)| *v1 as isize * v2)
                 .sum();
 
             LaneSliceIter {
@@ -1624,23 +1859,45 @@ pub mod parallel {
             shape: &[usize],
             axis: usize,
         ) -> (Self, LaneSliceParIter<'a, T>) {
-            let stride = stride_from_shape(shape);
+            let stride = stride_from_shape(shape)
+                .into_iter()
+                .map(|i| i as isize)
+                .collect_vec();
             Self::from_slice_with_stride(arr, shape, &stride, axis)
         }
 
         pub fn from_slice_with_stride(
             arr: &'a [T],
             shape: &[usize],
-            stride: &[usize],
+            stride: &[isize],
             axis: usize,
         ) -> (Self, LaneSliceParIter<'a, T>) {
             assert_eq!(shape.len(), stride.len());
             let max_offset = shape
                 .iter()
                 .zip(stride.iter())
-                .map(|(n, step)| step * (n - 1))
+                .map(|(n, step)| step.abs() as usize * (n - 1))
                 .sum();
             assert!(arr.len() > max_offset);
+            Self::get_iters(arr.as_ptr(), shape, stride, axis)
+        }
+
+        #[cfg(feature = "ndarray")]
+        pub fn from_ndarray<D: ndarray::Dimension>(
+            arr: &ndarray::ArrayRef<T, D>,
+            shape: &[usize],
+            axis: usize,
+        ) -> (Self, LaneSliceParIter<'a, T>) {
+            let arr = ndarray_subslice(arr, shape);
+            Self::get_iters(arr.as_ptr(), arr.shape(), arr.strides(), axis)
+        }
+
+        fn get_iters(
+            base: *const T,
+            shape: &[usize],
+            stride: &[isize],
+            axis: usize,
+        ) -> (Self, LaneSliceParIter<'a, T>) {
             assert!(axis < shape.len());
 
             let mut stride = stride.to_owned();
@@ -1660,14 +1917,14 @@ pub mod parallel {
 
             (
                 Self {
-                    base: arr.as_ptr(),
+                    base,
                     arr_info: arr_info.clone(),
                     start: 0,
                     stop: n_chunkable,
                     _member: PhantomData,
                 },
                 LaneSliceParIter {
-                    base: arr.as_ptr(),
+                    base,
                     arr_info: arr_info.clone(),
                     start: n_chunkable,
                     stop: n_lanes,
@@ -1714,7 +1971,7 @@ pub mod parallel {
             let front_offset = front_pos
                 .iter()
                 .zip(arr_info.stride.iter())
-                .map(|(v1, v2)| v1 * v2)
+                .map(|(v1, v2)| *v1 as isize * v2)
                 .sum();
             let rear_pos = match self.stop > 0 {
                 true => unravel(self.stop - 1, &arr_info.shape),
@@ -1724,7 +1981,7 @@ pub mod parallel {
             let rear_offset = rear_pos
                 .iter()
                 .zip(arr_info.stride.iter())
-                .map(|(v1, v2)| v1 * v2)
+                .map(|(v1, v2)| *v1 as isize * v2)
                 .sum();
 
             Self::IntoIter {
@@ -1771,23 +2028,40 @@ pub mod parallel {
 
     impl<'a, T> MutLaneSliceParIter<'a, T> {
         pub fn from_slice_mut(arr: &'a mut [T], shape: &[usize], axis: usize) -> Self {
-            let stride = stride_from_shape(shape);
+            let stride = stride_from_shape(shape)
+                .into_iter()
+                .map(|i| i as isize)
+                .collect_vec();
             Self::from_slice_mut_with_stride(arr, shape, &stride, axis)
         }
 
         pub fn from_slice_mut_with_stride(
             arr: &'a mut [T],
             shape: &[usize],
-            stride: &[usize],
+            stride: &[isize],
             axis: usize,
         ) -> Self {
             assert_eq!(shape.len(), stride.len());
             let max_offset = shape
                 .iter()
                 .zip(stride.iter())
-                .map(|(n, step)| step * (n - 1))
+                .map(|(n, step)| step.abs() as usize * (n - 1))
                 .sum();
             assert!(arr.len() > max_offset);
+            Self::get_iter(arr.as_mut_ptr(), shape, stride, axis)
+        }
+
+        #[cfg(feature = "ndarray")]
+        pub fn from_ndarray<D: ndarray::Dimension>(
+            arr: &mut ndarray::ArrayRef<T, D>,
+            shape: &[usize],
+            axis: usize,
+        ) -> Self {
+            let mut arr = ndarray_subslice_mut(arr, shape);
+            Self::get_iter(arr.as_mut_ptr(), arr.shape(), arr.strides(), axis)
+        }
+
+        fn get_iter(base: *mut T, shape: &[usize], stride: &[isize], axis: usize) -> Self {
             assert!(axis < shape.len());
 
             let mut stride = stride.to_owned();
@@ -1798,7 +2072,7 @@ pub mod parallel {
             let n_lanes = shape.iter().product();
 
             Self {
-                base: arr.as_mut_ptr(),
+                base,
                 arr_info: ArrayInfo {
                     shape,
                     stride,
@@ -1849,7 +2123,7 @@ pub mod parallel {
             let front_offset = front_pos
                 .iter()
                 .zip(arr_info.stride.iter())
-                .map(|(v1, v2)| v1 * v2)
+                .map(|(v1, v2)| *v1 as isize * v2)
                 .sum();
             let rear_pos = match self.stop > 0 {
                 true => unravel(self.stop - 1, &arr_info.shape),
@@ -1858,7 +2132,7 @@ pub mod parallel {
             let rear_offset = rear_pos
                 .iter()
                 .zip(arr_info.stride.iter())
-                .map(|(v1, v2)| v1 * v2)
+                .map(|(v1, v2)| *v1 as isize * v2)
                 .sum();
 
             MutLaneSliceIter {
@@ -1908,23 +2182,45 @@ pub mod parallel {
             shape: &[usize],
             axis: usize,
         ) -> (Self, MutLaneSliceParIter<'a, T>) {
-            let stride = stride_from_shape(shape);
+            let stride = stride_from_shape(shape)
+                .into_iter()
+                .map(|i| i as isize)
+                .collect_vec();
             Self::from_slice_mut_with_stride(arr, shape, &stride, axis)
         }
 
         pub fn from_slice_mut_with_stride(
             arr: &'a mut [T],
             shape: &[usize],
-            stride: &[usize],
+            stride: &[isize],
             axis: usize,
         ) -> (Self, MutLaneSliceParIter<'a, T>) {
             assert_eq!(shape.len(), stride.len());
             let max_offset = shape
                 .iter()
                 .zip(stride.iter())
-                .map(|(n, step)| step * (n - 1))
+                .map(|(n, step)| step.abs() as usize * (n - 1))
                 .sum();
             assert!(arr.len() > max_offset);
+            Self::get_iters(arr.as_mut_ptr(), shape, stride, axis)
+        }
+
+        #[cfg(feature = "ndarray")]
+        pub fn from_ndarray<D: ndarray::Dimension>(
+            arr: &mut ndarray::ArrayRef<T, D>,
+            shape: &[usize],
+            axis: usize,
+        ) -> (Self, MutLaneSliceParIter<'a, T>) {
+            let mut arr = ndarray_subslice_mut(arr, shape);
+            Self::get_iters(arr.as_mut_ptr(), arr.shape(), arr.strides(), axis)
+        }
+
+        fn get_iters(
+            base: *mut T,
+            shape: &[usize],
+            stride: &[isize],
+            axis: usize,
+        ) -> (Self, MutLaneSliceParIter<'a, T>) {
             assert!(axis < shape.len());
 
             let mut stride = stride.to_owned();
@@ -1944,14 +2240,14 @@ pub mod parallel {
 
             (
                 Self {
-                    base: arr.as_mut_ptr(),
+                    base,
                     arr_info: arr_info.clone(),
                     start: 0,
                     stop: n_chunkable,
                     _member: PhantomData,
                 },
                 MutLaneSliceParIter {
-                    base: arr.as_mut_ptr(),
+                    base,
                     arr_info: arr_info.clone(),
                     start: n_chunkable,
                     stop: n_lanes,
@@ -1998,7 +2294,7 @@ pub mod parallel {
             let front_offset = front_pos
                 .iter()
                 .zip(arr_info.stride.iter())
-                .map(|(v1, v2)| v1 * v2)
+                .map(|(v1, v2)| *v1 as isize * v2)
                 .sum();
             let rear_pos = match self.stop > 0 {
                 true => unravel(self.stop - 1, &arr_info.shape),
@@ -2007,7 +2303,7 @@ pub mod parallel {
             let rear_offset = rear_pos
                 .iter()
                 .zip(arr_info.stride.iter())
-                .map(|(v1, v2)| v1 * v2)
+                .map(|(v1, v2)| *v1 as isize * v2)
                 .sum();
 
             Self::IntoIter {
@@ -2040,58 +2336,70 @@ pub mod parallel {
         }
     }
 
-    pub trait ParallelLanesIterator<T> {
-        fn par_iter_lanes<'a>(&'a self, shape: &[usize], axis: usize) -> LaneSliceParIter<'a, T>;
+    pub trait ParallelLanesIterator {
+        type Item;
+        fn par_iter_lanes<'a>(
+            &'a self,
+            shape: &[usize],
+            axis: usize,
+        ) -> LaneSliceParIter<'a, Self::Item>;
         fn par_iter_lanes_mut<'a>(
             &'a mut self,
             shape: &[usize],
             axis: usize,
-        ) -> MutLaneSliceParIter<'a, T>;
+        ) -> MutLaneSliceParIter<'a, Self::Item>;
 
         fn par_iter_lane_chunks<'a, const N: usize>(
             &'a self,
             shape: &[usize],
             axis: usize,
-        ) -> (LaneSliceChunkParIter<'a, T, N>, LaneSliceParIter<'a, T>);
+        ) -> (
+            LaneSliceChunkParIter<'a, Self::Item, N>,
+            LaneSliceParIter<'a, Self::Item>,
+        );
         fn par_iter_lane_chunks_mut<'a, const N: usize>(
             &'a mut self,
             shape: &[usize],
             axis: usize,
         ) -> (
-            MutLaneSliceChunkParIter<'a, T, N>,
-            MutLaneSliceParIter<'a, T>,
+            MutLaneSliceChunkParIter<'a, Self::Item, N>,
+            MutLaneSliceParIter<'a, Self::Item>,
         );
 
         fn par_iter_lanes_strided<'a>(
             &'a self,
             shape: &[usize],
-            stride: &[usize],
+            stride: &[isize],
             axis: usize,
-        ) -> LaneSliceParIter<'a, T>;
+        ) -> LaneSliceParIter<'a, Self::Item>;
         fn par_iter_lanes_mut_strided<'a>(
             &'a mut self,
             shape: &[usize],
-            stride: &[usize],
+            stride: &[isize],
             axis: usize,
-        ) -> MutLaneSliceParIter<'a, T>;
+        ) -> MutLaneSliceParIter<'a, Self::Item>;
         fn par_iter_lane_chunks_strided<'a, const N: usize>(
             &'a self,
             shape: &[usize],
-            stride: &[usize],
+            stride: &[isize],
             axis: usize,
-        ) -> (LaneSliceChunkParIter<'a, T, N>, LaneSliceParIter<'a, T>);
+        ) -> (
+            LaneSliceChunkParIter<'a, Self::Item, N>,
+            LaneSliceParIter<'a, Self::Item>,
+        );
         fn par_iter_lane_chunks_mut_strided<'a, const N: usize>(
             &'a mut self,
             shape: &[usize],
-            stride: &[usize],
+            stride: &[isize],
             axis: usize,
         ) -> (
-            MutLaneSliceChunkParIter<'a, T, N>,
-            MutLaneSliceParIter<'a, T>,
+            MutLaneSliceChunkParIter<'a, Self::Item, N>,
+            MutLaneSliceParIter<'a, Self::Item>,
         );
     }
 
-    impl<T> ParallelLanesIterator<T> for [T] {
+    impl<T> ParallelLanesIterator for [T] {
+        type Item = T;
         fn par_iter_lanes<'a>(&'a self, shape: &[usize], axis: usize) -> LaneSliceParIter<'a, T> {
             LaneSliceParIter::from_slice(self, shape, axis)
         }
@@ -2123,7 +2431,7 @@ pub mod parallel {
         fn par_iter_lanes_strided<'a>(
             &'a self,
             shape: &[usize],
-            stride: &[usize],
+            stride: &[isize],
             axis: usize,
         ) -> LaneSliceParIter<'a, T> {
             LaneSliceParIter::from_slice_with_stride(self, shape, stride, axis)
@@ -2131,7 +2439,7 @@ pub mod parallel {
         fn par_iter_lanes_mut_strided<'a>(
             &'a mut self,
             shape: &[usize],
-            stride: &[usize],
+            stride: &[isize],
             axis: usize,
         ) -> MutLaneSliceParIter<'a, T> {
             MutLaneSliceParIter::from_slice_mut_with_stride(self, shape, stride, axis)
@@ -2140,7 +2448,7 @@ pub mod parallel {
         fn par_iter_lane_chunks_strided<'a, const N: usize>(
             &'a self,
             shape: &[usize],
-            stride: &[usize],
+            stride: &[isize],
             axis: usize,
         ) -> (LaneSliceChunkParIter<'a, T, N>, LaneSliceParIter<'a, T>) {
             LaneSliceChunkParIter::from_slice_with_stride(self, shape, stride, axis)
@@ -2149,13 +2457,85 @@ pub mod parallel {
         fn par_iter_lane_chunks_mut_strided<'a, const N: usize>(
             &'a mut self,
             shape: &[usize],
-            stride: &[usize],
+            stride: &[isize],
             axis: usize,
         ) -> (
             MutLaneSliceChunkParIter<'a, T, N>,
             MutLaneSliceParIter<'a, T>,
         ) {
             MutLaneSliceChunkParIter::from_slice_mut_with_stride(self, shape, stride, axis)
+        }
+    }
+
+    #[cfg(feature = "ndarray")]
+    impl<T, D: ndarray::Dimension> ParallelLanesIterator for ndarray::ArrayRef<T, D> {
+        type Item = T;
+        fn par_iter_lanes<'a>(&'a self, shape: &[usize], axis: usize) -> LaneSliceParIter<'a, T> {
+            LaneSliceParIter::from_ndarray(self, shape, axis)
+        }
+        fn par_iter_lanes_mut<'a>(
+            &'a mut self,
+            shape: &[usize],
+            axis: usize,
+        ) -> MutLaneSliceParIter<'a, T> {
+            MutLaneSliceParIter::from_ndarray(self, shape, axis)
+        }
+
+        fn par_iter_lane_chunks<'a, const N: usize>(
+            &'a self,
+            shape: &[usize],
+            axis: usize,
+        ) -> (LaneSliceChunkParIter<'a, T, N>, LaneSliceParIter<'a, T>) {
+            LaneSliceChunkParIter::from_ndarray(self, shape, axis)
+        }
+
+        fn par_iter_lane_chunks_mut<'a, const N: usize>(
+            &'a mut self,
+            shape: &[usize],
+            axis: usize,
+        ) -> (
+            MutLaneSliceChunkParIter<'a, T, N>,
+            MutLaneSliceParIter<'a, T>,
+        ) {
+            MutLaneSliceChunkParIter::from_ndarray(self, shape, axis)
+        }
+
+        fn par_iter_lanes_strided<'a>(
+            &'a self,
+            shape: &[usize],
+            _stride: &[isize],
+            axis: usize,
+        ) -> LaneSliceParIter<'a, T> {
+            LaneSliceParIter::from_ndarray(self, shape, axis)
+        }
+        fn par_iter_lanes_mut_strided<'a>(
+            &'a mut self,
+            shape: &[usize],
+            _stride: &[isize],
+            axis: usize,
+        ) -> MutLaneSliceParIter<'a, T> {
+            MutLaneSliceParIter::from_ndarray(self, shape, axis)
+        }
+
+        fn par_iter_lane_chunks_strided<'a, const N: usize>(
+            &'a self,
+            shape: &[usize],
+            _stride: &[isize],
+            axis: usize,
+        ) -> (LaneSliceChunkParIter<'a, T, N>, LaneSliceParIter<'a, T>) {
+            LaneSliceChunkParIter::from_ndarray(self, shape, axis)
+        }
+
+        fn par_iter_lane_chunks_mut_strided<'a, const N: usize>(
+            &'a mut self,
+            shape: &[usize],
+            _stride: &[isize],
+            axis: usize,
+        ) -> (
+            MutLaneSliceChunkParIter<'a, T, N>,
+            MutLaneSliceParIter<'a, T>,
+        ) {
+            MutLaneSliceChunkParIter::from_ndarray(self, shape, axis)
         }
     }
 }
@@ -2388,7 +2768,7 @@ mod tests {
         let strided = MutStridedSlice {
             base: arr.as_mut_ptr(),
             stride: stride,
-            length: arr.len() / stride,
+            length: arr.len() / stride as usize,
             _member: PhantomData,
         };
 
@@ -2398,7 +2778,7 @@ mod tests {
         let strided = MutStridedSlice {
             base: arr[1..].as_mut_ptr(),
             stride: stride,
-            length: arr.len() / stride,
+            length: arr.len() / stride as usize,
             _member: PhantomData,
         };
         strided.iter_mut().for_each(|v| *v = 2);

@@ -1,5 +1,7 @@
 pub mod bior;
+pub mod coiflet;
 pub mod daubechies;
+pub mod symlet;
 
 use crate::Transformable;
 use crate::boundarys::BoundaryExtension;

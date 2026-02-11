@@ -1,10 +1,12 @@
 use itertools::Itertools;
 
 use crate::Transformable;
-use crate::boundarys::{BoundaryExtension, PeriodicBoundary};
+use crate::boundarys::{BoundaryExtension, PeriodicBoundary, ZeroBoundary};
 
 pub mod bior;
+pub mod coiflet;
 pub mod daubechies;
+pub mod symlet;
 
 pub trait DiscreteTransform<U: Clone, const N: usize> {
     const G: [U; N];
@@ -26,6 +28,26 @@ pub trait DiscreteTransform<U: Clone, const N: usize> {
         T::ScalarType: From<U>,
     {
         dwt_inverse(&Self::GI, &Self::HI, s, d, x);
+    }
+
+    // #[inline]
+    // fn adjoint_forward<T: Transformable>(s: &[T], d: &[T], x: &mut [T], &BC: BoundaryExtension)
+    // where
+    //     T::ScalarType: From<U>,
+    // {
+    //     let ga: [_; N] = Self::G.clone().into_iter().rev().collect_array().unwrap();
+    //     let ha: [_; N] = Self::H.clone().into_iter().rev().collect_array().unwrap();
+    //     dwt_inverse(&ga, &ha, s, d, x);
+    // }
+
+    #[inline]
+    fn adjoint_inverse<T: Transformable>(x: &[T], s: &mut [T], d: &mut [T])
+    where
+        T::ScalarType: From<U>,
+    {
+        let ga: [_; N] = Self::GI.clone().into_iter().rev().collect_array().unwrap();
+        let ha: [_; N] = Self::HI.clone().into_iter().rev().collect_array().unwrap();
+        dwt_forward(&ga, &ha, x, s, d, &ZeroBoundary {});
     }
 
     #[inline]
