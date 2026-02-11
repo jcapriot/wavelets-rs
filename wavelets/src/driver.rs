@@ -6,11 +6,9 @@ use crate::Wavelets;
 use crate::boundarys::BoundaryExtension;
 use crate::boundarys::LiftedAdjointBoundary;
 #[cfg(not(feature = "rayon"))]
-use crate::iter::slice::LanesIterator;
+use crate::iter::LanesIterator;
 #[cfg(feature = "rayon")]
-use crate::iter::slice::parallel::{
-    IndexedParallelIterator, ParallelIterator, ParallelLanesIterator,
-};
+use crate::iter::parallel::{IndexedParallelIterator, ParallelIterator, ParallelLanesIterator};
 
 use crate::utils::{
     deinterleave, deinterleave_strided, deinterleave_strided_chunk, stack_to_strided,

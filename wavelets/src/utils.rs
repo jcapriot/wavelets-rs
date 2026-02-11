@@ -1,5 +1,5 @@
 use crate::{
-    iter::slice::{ChunkStridedSlice, MutChunkStridedSlice, MutStridedSlice, StridedSlice},
+    iter::slice::{ChunkStridedSliceRef, StridedSliceRef},
     utils::simd::Simd,
 };
 use itertools::{Itertools, izip};
@@ -136,7 +136,7 @@ fn deinterleave_nd_unchecked<T: Clone>(input: &[T], output: &mut [T], shape: &[u
 }
 
 #[inline]
-pub fn deinterleave_strided<T: Clone>(x: StridedSlice<T>, evens: &mut [T], odds: &mut [T]) {
+pub fn deinterleave_strided<T: Clone>(x: &StridedSliceRef<T>, evens: &mut [T], odds: &mut [T]) {
     if let Some(x) = x.as_slice() {
         deinterleave(x, evens, odds);
     } else {
@@ -156,7 +156,7 @@ pub fn deinterleave_strided<T: Clone>(x: StridedSlice<T>, evens: &mut [T], odds:
 
 #[inline]
 pub fn deinterleave_strided_chunk<T: Clone, const N: usize>(
-    x: ChunkStridedSlice<T, N>,
+    x: &ChunkStridedSliceRef<T, N>,
     evens: &mut [T],
     odds: &mut [T],
 ) {
@@ -175,7 +175,7 @@ pub fn deinterleave_strided_chunk<T: Clone, const N: usize>(
     let mut do_even = true;
     let mut ind_io = 0;
 
-    if let Some(x_iter) = x.as_chunks() {
+    if let Some(x_iter) = x.chunks() {
         x_iter.for_each(|x| {
             match do_even {
                 true => x
@@ -224,7 +224,7 @@ pub fn deinterleave_strided_chunk<T: Clone, const N: usize>(
 
 #[inline]
 pub fn deinterleave_strided_simd<T: Clone, const N: usize>(
-    x: ChunkStridedSlice<T, N>,
+    x: &ChunkStridedSliceRef<T, N>,
     evens: &mut [Simd<T, N>],
     odds: &mut [Simd<T, N>],
 ) {
@@ -237,7 +237,7 @@ pub fn deinterleave_strided_simd<T: Clone, const N: usize>(
     assert_eq!(evens.len(), n_e);
     assert_eq!(odds.len(), n_o);
 
-    if let Some(x_iter) = x.as_chunks() {
+    if let Some(x_iter) = x.chunks() {
         x_iter
             .zip(evens.iter_mut().interleave(odds))
             .for_each(|(x, out)| {
@@ -261,8 +261,8 @@ pub fn stack<T: Clone>(first: &[T], second: &[T], out: &mut [T]) {
 }
 
 #[inline]
-pub fn stack_to_strided<T: Clone>(first: &[T], second: &[T], out: MutStridedSlice<T>) {
-    if let Some(out) = out.as_slice() {
+pub fn stack_to_strided<T: Clone>(first: &[T], second: &[T], out: &mut StridedSliceRef<T>) {
+    if let Some(out) = out.as_slice_mut() {
         stack(first, second, out);
     } else {
         assert_eq!(first.len() + second.len(), out.len());
@@ -276,7 +276,7 @@ pub fn stack_to_strided<T: Clone>(first: &[T], second: &[T], out: MutStridedSlic
 pub fn stack_to_strided_chunk<T: Clone, const N: usize>(
     first: &[T],
     second: &[T],
-    out: MutChunkStridedSlice<T, N>,
+    out: &mut ChunkStridedSliceRef<T, N>,
 ) {
     assert_ne!(N, 0);
 
@@ -289,7 +289,7 @@ pub fn stack_to_strided_chunk<T: Clone, const N: usize>(
     let f_chunks: [_; N] = first.chunks_exact(n_first).collect_array().unwrap();
     let s_chunks: [_; N] = second.chunks_exact(n_second).collect_array().unwrap();
 
-    if let Some(mut out_iter) = out.as_chunks_mut() {
+    if let Some(mut out_iter) = out.chunks_mut() {
         out_iter
             .by_ref()
             .take(n_first)
@@ -327,7 +327,7 @@ pub fn stack_to_strided_chunk<T: Clone, const N: usize>(
 pub fn stack_to_strided_simd<T: Clone, const N: usize>(
     first: &[Simd<T, N>],
     second: &[Simd<T, N>],
-    out: MutChunkStridedSlice<T, N>,
+    out: &mut ChunkStridedSliceRef<T, N>,
 ) {
     assert_ne!(N, 0);
 
@@ -339,6 +339,7 @@ pub fn stack_to_strided_simd<T: Clone, const N: usize>(
 
     if let Some(out_iter) = out.as_chunks_mut() {
         out_iter
+            .iter_mut()
             .zip(first.iter().chain(second))
             .for_each(|(out, v)| {
                 v.store(out);
@@ -375,8 +376,8 @@ pub fn interleave<T: Clone>(evens: &[T], odds: &[T], x: &mut [T]) {
 }
 
 #[inline]
-pub fn interleave_strided<T: Clone>(evens: &[T], odds: &[T], x: MutStridedSlice<T>) {
-    if let Some(x) = x.as_slice() {
+pub fn interleave_strided<T: Clone>(evens: &[T], odds: &[T], x: &mut StridedSliceRef<T>) {
+    if let Some(x) = x.as_slice_mut() {
         interleave(evens, odds, x);
     } else {
         let nx = x.len();
@@ -396,7 +397,7 @@ pub fn interleave_strided<T: Clone>(evens: &[T], odds: &[T], x: MutStridedSlice<
 pub fn interleave_strided_chunk<T: Clone, const N: usize>(
     evens: &[T],
     odds: &[T],
-    x: MutChunkStridedSlice<T, N>,
+    x: &mut ChunkStridedSliceRef<T, N>,
 ) {
     assert_ne!(N, 0);
 
@@ -413,7 +414,7 @@ pub fn interleave_strided_chunk<T: Clone, const N: usize>(
     let mut do_even = true;
     let mut ind_io = 0;
 
-    if let Some(x_iter) = x.as_chunks_mut() {
+    if let Some(x_iter) = x.chunks_mut() {
         x_iter.for_each(|x| {
             match do_even {
                 true => x.into_iter().zip(e_chunks.iter()).for_each(|(x, v)| {
@@ -450,7 +451,7 @@ pub fn interleave_strided_chunk<T: Clone, const N: usize>(
 pub fn interleave_strided_simd<T: Clone, const N: usize>(
     evens: &[Simd<T, N>],
     odds: &[Simd<T, N>],
-    x: MutChunkStridedSlice<T, N>,
+    x: &mut ChunkStridedSliceRef<T, N>,
 ) {
     assert_ne!(N, 0);
 
@@ -460,7 +461,7 @@ pub fn interleave_strided_simd<T: Clone, const N: usize>(
 
     assert_eq!(evens.len(), n_e);
     assert_eq!(odds.len(), n_o);
-    if let Some(x_iter) = x.as_chunks_mut() {
+    if let Some(x_iter) = x.chunks_mut() {
         x_iter
             .zip(evens.iter().interleave(odds.iter()))
             .for_each(|(x, v)| v.store(x));
@@ -481,7 +482,7 @@ pub fn split<T: Clone>(x: &[T], first: &mut [T], second: &mut [T]) {
 }
 
 #[inline]
-pub fn split_strided<T: Clone>(x: StridedSlice<T>, first: &mut [T], second: &mut [T]) {
+pub fn split_strided<T: Clone>(x: &StridedSliceRef<T>, first: &mut [T], second: &mut [T]) {
     if let Some(x) = x.as_slice() {
         split(x, first, second);
     } else {
@@ -495,7 +496,7 @@ pub fn split_strided<T: Clone>(x: StridedSlice<T>, first: &mut [T], second: &mut
 
 #[inline]
 pub fn split_strided_chunk<T: Clone, const N: usize>(
-    x: ChunkStridedSlice<T, N>,
+    x: &ChunkStridedSliceRef<T, N>,
     first: &mut [T],
     second: &mut [T],
 ) {
@@ -510,7 +511,7 @@ pub fn split_strided_chunk<T: Clone, const N: usize>(
     let mut f_chunks: [_; N] = first.chunks_exact_mut(n_first).collect_array().unwrap();
     let mut s_chunks: [_; N] = second.chunks_exact_mut(n_second).collect_array().unwrap();
 
-    if let Some(mut x_iter) = x.as_chunks() {
+    if let Some(mut x_iter) = x.chunks() {
         x_iter
             .by_ref()
             .take(n_first)
@@ -559,7 +560,7 @@ pub fn split_strided_chunk<T: Clone, const N: usize>(
 
 #[inline]
 pub fn split_strided_simd<T: Clone, const N: usize>(
-    x: ChunkStridedSlice<T, N>,
+    x: &ChunkStridedSliceRef<T, N>,
     first: &mut [Simd<T, N>],
     second: &mut [Simd<T, N>],
 ) {
@@ -571,7 +572,7 @@ pub fn split_strided_simd<T: Clone, const N: usize>(
     let n_second = second.len();
     assert_eq!(nx, n_first + n_second);
 
-    if let Some(x_iter) = x.as_chunks() {
+    if let Some(x_iter) = x.chunks() {
         x_iter
             .zip(first.iter_mut().chain(second))
             .for_each(|(x, o)| o.load(x));
@@ -664,7 +665,7 @@ fn perfect_shuffle<T: Clone>(x: &mut [T]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::iter::slice::LanesIterator;
+    use crate::iter::LanesIterator;
 
     #[test]
     fn test_interleave_inplace() {
@@ -764,10 +765,10 @@ mod tests {
 
                     let mut out = vec![0; n1 * n2];
                     let shape = [n1, n2];
-                    for (i, slc) in out.iter_lanes_mut(&shape, ax).enumerate() {
+                    for (i, mut slc) in out.iter_lanes_mut(&shape, ax).enumerate() {
                         let s = (i..ns + i).collect_vec();
                         let d = (i + ns..n + i).collect_vec();
-                        interleave_strided(&s, &d, slc);
+                        interleave_strided(&s, &d, &mut slc);
                     }
 
                     for (i, slc) in out.iter_lanes(&shape, ax).enumerate() {
@@ -795,7 +796,7 @@ mod tests {
                     let mut out = vec![0; n1 * n2];
 
                     let shape = [n1, n2];
-                    for (i, slc) in out.iter_lanes_mut(&shape, ax).enumerate() {
+                    for (i, mut slc) in out.iter_lanes_mut(&shape, ax).enumerate() {
                         slc.iter_mut()
                             .zip((i..ns + i).interleave(ns + i..n + i))
                             .for_each(|(v1, v2)| *v1 = v2);
@@ -804,7 +805,7 @@ mod tests {
                     for (i, slc) in out.iter_lanes(&shape, ax).enumerate() {
                         let mut s = vec![0; ns];
                         let mut d = vec![0; nd];
-                        deinterleave_strided(slc, &mut s, &mut d);
+                        deinterleave_strided(&slc, &mut s, &mut d);
 
                         assert_eq!(s, (i..ns + i).collect_vec());
                         assert_eq!(d, (ns + i..n + i).collect_vec());
@@ -828,10 +829,10 @@ mod tests {
 
                     let mut out = vec![0; n1 * n2];
                     let shape = [n1, n2];
-                    for (i, slc) in out.iter_lanes_mut(&shape, ax).enumerate() {
+                    for (i, mut slc) in out.iter_lanes_mut(&shape, ax).enumerate() {
                         let first = (i..ns + i).collect_vec();
                         let second = (i + ns..n + i).collect_vec();
-                        stack_to_strided(&first, &second, slc);
+                        stack_to_strided(&first, &second, &mut slc);
                     }
 
                     for (i, slc) in out.iter_lanes(&shape, ax).enumerate() {
@@ -859,14 +860,14 @@ mod tests {
                     let mut out = vec![0; n1 * n2];
 
                     let shape = [n1, n2];
-                    for (i, slc) in out.iter_lanes_mut(&shape, ax).enumerate() {
+                    for (i, mut slc) in out.iter_lanes_mut(&shape, ax).enumerate() {
                         slc.iter_mut().zip(i..n + i).for_each(|(v1, v2)| *v1 = v2);
                     }
 
                     for (i, slc) in out.iter_lanes(&shape, ax).enumerate() {
                         let mut first = vec![0; ns];
                         let mut second = vec![0; nd];
-                        split_strided(slc, &mut first, &mut second);
+                        split_strided(&slc, &mut first, &mut second);
 
                         assert_eq!(first, (i..ns + i).collect_vec());
                         assert_eq!(second, (ns + i..n + i).collect_vec());
@@ -892,10 +893,11 @@ mod tests {
 
                     let mut out = vec![0; n1 * n2];
                     let shape = [n1, n2];
-                    let (chunks, lanes) = out.iter_lane_chunks_mut::<N>(&shape, ax);
+                    let chunks = out.iter_lane_chunks_mut::<N>(&shape, ax);
+                    let lanes = chunks.remainder();
                     let n_chunks = chunks.len();
 
-                    for (i_c, slc) in chunks.enumerate() {
+                    for (i_c, mut slc) in chunks.enumerate() {
                         let s = (0..N)
                             .map(|j| {
                                 let i = N * i_c + j;
@@ -910,15 +912,15 @@ mod tests {
                             })
                             .flatten()
                             .collect_vec();
-                        interleave_strided_chunk(&s, &d, slc);
+                        interleave_strided_chunk(&s, &d, &mut slc);
                     }
 
-                    for (i, slc) in lanes.enumerate() {
+                    for (i, mut slc) in lanes.enumerate() {
                         let i = i + n_chunks * N;
 
                         let s = (i..ns + i).collect_vec();
                         let d = (i + ns..n + i).collect_vec();
-                        interleave_strided(&s, &d, slc);
+                        interleave_strided(&s, &d, &mut slc);
                     }
 
                     for (i, slc) in out.iter_lanes(&shape, ax).enumerate() {
@@ -949,19 +951,20 @@ mod tests {
 
                     let shape = [n1, n2];
 
-                    for (i, slc) in out.iter_lanes_mut(&shape, ax).enumerate() {
+                    for (i, mut slc) in out.iter_lanes_mut(&shape, ax).enumerate() {
                         slc.iter_mut()
                             .zip((0..ns).interleave(ns..ns + nd))
                             .for_each(|(v1, v2)| *v1 = v2 + i);
                     }
 
-                    let (chunks, lanes) = out.iter_lane_chunks::<N>(&shape, ax);
+                    let chunks = out.iter_lane_chunks::<N>(&shape, ax);
+                    let lanes = chunks.remainder();
                     let n_chunks = chunks.len();
 
                     for (i_c, slc) in chunks.enumerate() {
                         let mut s = vec![0; ns * N];
                         let mut d = vec![0; nd * N];
-                        deinterleave_strided_chunk(slc, &mut s, &mut d);
+                        deinterleave_strided_chunk(&slc, &mut s, &mut d);
 
                         let s_ref = (0..N)
                             .map(|j| {
@@ -984,7 +987,7 @@ mod tests {
                     for (i, slc) in lanes.enumerate() {
                         let mut s = vec![0; ns];
                         let mut d = vec![0; nd];
-                        deinterleave_strided(slc, &mut s, &mut d);
+                        deinterleave_strided(&slc, &mut s, &mut d);
 
                         let i = N * n_chunks + i;
                         assert_eq!(s, (i..ns + i).collect_vec());
@@ -1011,10 +1014,11 @@ mod tests {
 
                     let mut out = vec![0; n1 * n2];
                     let shape = [n1, n2];
-                    let (chunks, lanes) = out.iter_lane_chunks_mut::<N>(&shape, ax);
+                    let chunks = out.iter_lane_chunks_mut::<N>(&shape, ax);
+                    let lanes = chunks.remainder();
                     let n_chunks = chunks.len();
 
-                    for (i_c, slc) in chunks.enumerate() {
+                    for (i_c, mut slc) in chunks.enumerate() {
                         let first = (0..N)
                             .map(|j| {
                                 let i = N * i_c + j;
@@ -1029,14 +1033,14 @@ mod tests {
                             })
                             .flatten()
                             .collect_vec();
-                        stack_to_strided_chunk(&first, &second, slc);
+                        stack_to_strided_chunk(&first, &second, &mut slc);
                     }
 
-                    for (i, slc) in lanes.enumerate() {
+                    for (i, mut slc) in lanes.enumerate() {
                         let i = i + n_chunks * N;
                         let first = (i..ns + i).collect_vec();
                         let second = (i + ns..n + i).collect_vec();
-                        stack_to_strided(&first, &second, slc);
+                        stack_to_strided(&first, &second, &mut slc);
                     }
 
                     for (i, slc) in out.iter_lanes(&shape, ax).enumerate() {
@@ -1067,17 +1071,18 @@ mod tests {
 
                     let shape = [n1, n2];
 
-                    for (i, slc) in out.iter_lanes_mut(&shape, ax).enumerate() {
+                    for (i, mut slc) in out.iter_lanes_mut(&shape, ax).enumerate() {
                         slc.iter_mut().zip(i..n + i).for_each(|(v1, v2)| *v1 = v2);
                     }
 
-                    let (chunks, lanes) = out.iter_lane_chunks::<N>(&shape, ax);
+                    let chunks = out.iter_lane_chunks::<N>(&shape, ax);
+                    let lanes = chunks.remainder();
                     let n_chunks = chunks.len();
 
                     for (i_c, slc) in chunks.enumerate() {
                         let mut s = vec![0; ns * N];
                         let mut d = vec![0; nd * N];
-                        split_strided_chunk(slc, &mut s, &mut d);
+                        split_strided_chunk(&slc, &mut s, &mut d);
 
                         let s_ref = (0..N)
                             .map(|j| {
@@ -1100,7 +1105,7 @@ mod tests {
                     for (i, slc) in lanes.enumerate() {
                         let mut s = vec![0; ns];
                         let mut d = vec![0; nd];
-                        split_strided(slc, &mut s, &mut d);
+                        split_strided(&slc, &mut s, &mut d);
 
                         let i = N * n_chunks + i;
                         assert_eq!(s, (i..ns + i).collect_vec());
