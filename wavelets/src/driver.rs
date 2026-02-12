@@ -1,3 +1,5 @@
+#[cfg(feature = "ndarray")]
+use ndarray::{ArrayRef, Dimension};
 use num_traits::Zero;
 use std::collections::HashSet;
 
@@ -8,7 +10,7 @@ use crate::iter::LanesIterator;
 
 use crate::utils::{
     deinterleave, deinterleave_strided, deinterleave_strided_chunk, stack_to_strided,
-    stack_to_strided_chunk, stride_from_shape,
+    stack_to_strided_chunk,
 };
 use crate::utils::{
     interleave, interleave_strided, interleave_strided_chunk, split_strided, split_strided_chunk,
@@ -34,7 +36,7 @@ impl<T, BC, const N: usize> Wavelet<T, BC, N>
 where
     T: Transformable + Zero + ChunkWidth<T, N>,
     T::ScalarType: From<f64>,
-    BC: BoundaryExtension + LiftedAdjointBoundary + Sync,
+    BC: BoundaryExtension + LiftedAdjointBoundary,
 {
     pub fn new(wvlt: Wavelets, bc: BC) -> Self {
         use crate::lwt::bior::*;
@@ -93,36 +95,30 @@ where
     }
 
     pub fn forward_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
-        let stride = stride_from_shape(shape);
         let axes = HashSet::from_iter(axes.iter().cloned());
-        self.forward_strided_multilevel_nd(input, output, shape, &stride, &stride, &axes, 1);
+        self.forward_multilevel_nd(input, output, shape, &axes, 1);
     }
 
     pub fn inverse_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
-        let stride = stride_from_shape(shape);
         let axes = HashSet::from_iter(axes.iter().cloned());
-        self.inverse_strided_multilevel_nd(input, output, shape, &stride, &stride, &axes, 1);
+        self.inverse_multilevel_nd(input, output, shape, &axes, 1);
     }
 
     pub fn adj_forward_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
-        let stride = stride_from_shape(shape);
         let axes = HashSet::from_iter(axes.iter().cloned());
-        self.adj_forward_strided_multilevel_nd(input, output, shape, &stride, &stride, &axes, 1);
+        self.adj_forward_multilevel_nd(input, output, shape, &axes, 1);
     }
 
     pub fn adj_inverse_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
-        let stride = stride_from_shape(shape);
         let axes = HashSet::from_iter(axes.iter().cloned());
-        self.adj_inverse_strided_multilevel_nd(input, output, shape, &stride, &stride, &axes, 1);
+        self.adj_inverse_multilevel_nd(input, output, shape, &axes, 1);
     }
 
-    pub fn forward_strided_multilevel_nd(
+    pub fn forward_multilevel_nd(
         &self,
         input: &[T],
         output: &mut [T],
         shape: &[usize],
-        stride_in: &[usize],
-        stride_out: &[usize],
         axes: &HashSet<usize>,
         level: usize,
     ) {
@@ -131,20 +127,16 @@ where
             input,
             output,
             shape,
-            stride_in,
-            stride_out,
             axes,
             level,
         );
     }
 
-    pub fn inverse_strided_multilevel_nd(
+    pub fn inverse_multilevel_nd(
         &self,
         input: &[T],
         output: &mut [T],
         shape: &[usize],
-        stride_in: &[usize],
-        stride_out: &[usize],
         axes: &HashSet<usize>,
         level: usize,
     ) {
@@ -153,20 +145,16 @@ where
             input,
             output,
             shape,
-            stride_in,
-            stride_out,
             axes,
             level,
         );
     }
 
-    pub fn adj_forward_strided_multilevel_nd(
+    pub fn adj_forward_multilevel_nd(
         &self,
         input: &[T],
         output: &mut [T],
         shape: &[usize],
-        stride_in: &[usize],
-        stride_out: &[usize],
         axes: &HashSet<usize>,
         level: usize,
     ) {
@@ -175,20 +163,16 @@ where
             input,
             output,
             shape,
-            stride_in,
-            stride_out,
             axes,
             level,
         );
     }
 
-    pub fn adj_inverse_strided_multilevel_nd(
+    pub fn adj_inverse_multilevel_nd(
         &self,
         input: &[T],
         output: &mut [T],
         shape: &[usize],
-        stride_in: &[usize],
-        stride_out: &[usize],
         axes: &HashSet<usize>,
         level: usize,
     ) {
@@ -197,20 +181,51 @@ where
             input,
             output,
             shape,
-            stride_in,
-            stride_out,
             axes,
             level,
         );
     }
 }
+
+#[cfg(feature = "ndarray")]
+impl<T, BC, const N: usize> Wavelet<T, BC, N>
+where
+    T: Transformable + Zero + ChunkWidth<T, N>,
+    T::ScalarType: From<f64>,
+    BC: BoundaryExtension + LiftedAdjointBoundary,
+{
+    pub fn forward_ndarray_multilevel<D: Dimension>(
+        &self,
+        input: &ArrayRef<T, D>,
+        output: &mut ArrayRef<T, D>,
+        axes: &[usize],
+        level: usize,
+    ) {
+        let axes = HashSet::from_iter(axes.iter().cloned());
+        let shape = input.shape();
+        assert_eq!(
+            shape,
+            output.shape(),
+            "input shape and output shape must be equal."
+        );
+        // stride in and stride out are not actually used here...
+
+        general_nd_forward_multilevel(
+            |s, d| (self.lwt_forward)(s, d, &self.bc),
+            input,
+            output,
+            shape,
+            &axes,
+            level,
+        );
+    }
+}
+
 fn general_nd_forward_multilevel<F, T, L, const N: usize>(
     func: F,
     input: &L,
     output: &mut L,
     shape: &[usize],
-    stride_in: &[usize],
-    stride_out: &[usize],
     axes: &HashSet<usize>,
     level: usize,
 ) where
@@ -220,14 +235,12 @@ fn general_nd_forward_multilevel<F, T, L, const N: usize>(
     T::ScalarType: From<f64>,
 {
     let ndim = shape.len();
-    assert_eq!(ndim, stride_in.len());
-    assert_eq!(ndim, stride_out.len());
     assert!(axes.iter().all(|i| *i < ndim));
     // note that axes is a HashSet, so they are gauranteed to be different axes.
 
     let mut first = true;
 
-    let mut shape = shape.to_owned();
+    let mut sub_shape = shape.to_owned();
     for _level in 0..level {
         for &ax in axes {
             let n_ax = shape[ax];
@@ -237,10 +250,9 @@ fn general_nd_forward_multilevel<F, T, L, const N: usize>(
 
             match first {
                 true => {
-                    let in_chunks = input.iter_lane_chunks_strided::<N>(&shape, stride_in, ax);
+                    let in_chunks = input.iter_lane_chunks_sub::<N>(&shape, &sub_shape, ax);
                     let in_rem = in_chunks.remainder();
-                    let out_chunks =
-                        output.iter_lane_chunks_mut_strided::<N>(&shape, stride_out, ax);
+                    let out_chunks = output.iter_lane_chunks_sub_mut::<N>(&shape, &sub_shape, ax);
                     let out_rem = out_chunks.remainder();
 
                     if in_chunks.len() > 0 {
@@ -275,7 +287,7 @@ fn general_nd_forward_multilevel<F, T, L, const N: usize>(
                     first = false;
                 }
                 false => {
-                    let chunks = output.iter_lane_chunks_mut_strided::<N>(&shape, stride_out, ax);
+                    let chunks = output.iter_lane_chunks_sub_mut::<N>(&shape, &sub_shape, ax);
                     let rem = chunks.remainder();
 
                     if chunks.len() > 0 {
@@ -310,7 +322,7 @@ fn general_nd_forward_multilevel<F, T, L, const N: usize>(
 
         // shrink shape for each axis we used.
         for &ax in axes {
-            shape[ax] = (shape[ax] + 1) / 2;
+            sub_shape[ax] = (sub_shape[ax] + 1) / 2;
         }
     }
 }
@@ -320,8 +332,6 @@ fn general_nd_inverse_multilevel<F, T, L, const N: usize>(
     input: &L,
     output: &mut L,
     shape: &[usize],
-    stride_in: &[usize],
-    stride_out: &[usize],
     axes: &HashSet<usize>,
     level: usize,
 ) where
@@ -331,22 +341,16 @@ fn general_nd_inverse_multilevel<F, T, L, const N: usize>(
     T::ScalarType: From<f64>,
 {
     let ndim = shape.len();
-    assert_eq!(ndim, stride_in.len());
-    assert_eq!(ndim, stride_out.len());
     assert!(axes.iter().all(|i| *i < ndim));
     // note that axes is a HashSet, so they are gauranteed to be different axes.
 
     // copy input into the output
-    let (mstride_in_axis, _) = stride_out
-        .iter()
-        .enumerate()
-        .reduce(|acc, v| if v.1 < acc.1 { v } else { acc })
-        .expect("dimensions should be greater thann 0.");
+    let min_axis = output.min_stride_axis(shape);
 
-    let out_chunks = output.iter_lane_chunks_mut_strided::<N>(shape, stride_out, mstride_in_axis);
-    let out_rem = out_chunks.remainder();
-    let in_chunks = input.iter_lane_chunks_strided::<N>(shape, stride_in, mstride_in_axis);
+    let in_chunks = input.iter_lane_chunks::<N>(shape, min_axis);
     let in_rem = in_chunks.remainder();
+    let out_chunks = output.iter_lane_chunks_mut::<N>(shape, min_axis);
+    let out_rem = out_chunks.remainder();
 
     out_chunks.zip(in_chunks).for_each(|(mut o, i)| {
         o.iter_mut().zip(i.iter()).for_each(|(o, i)| {
@@ -359,27 +363,27 @@ fn general_nd_inverse_multilevel<F, T, L, const N: usize>(
         o.iter_mut().zip(i.iter()).for_each(|(o, i)| *o = i.clone());
     });
 
-    let mut shape = shape.to_owned();
+    let mut sub_shape = shape.to_owned();
 
     let shape_levels = (0..level)
         .map(|_| {
-            let next_shape = shape.clone();
+            let next_shape = sub_shape.clone();
             for &ax in axes {
-                shape[ax] = (shape[ax] + 1) / 2;
+                sub_shape[ax] = (sub_shape[ax] + 1) / 2;
             }
             next_shape
         })
         .collect::<Vec<_>>();
 
     for lvl in (0..level).rev() {
-        let shape = &shape_levels[lvl];
+        let sub_shape = &shape_levels[lvl];
         for &ax in axes {
             let n_ax = shape[ax];
 
             let n_d = n_ax / 2;
             let n_s = n_ax - n_d;
 
-            let chunks = output.iter_lane_chunks_mut_strided::<N>(shape, stride_out, ax);
+            let chunks = output.iter_lane_chunks_sub_mut::<N>(shape, &sub_shape, ax);
             let rem = chunks.remainder();
 
             if chunks.len() > 0 {
@@ -412,7 +416,7 @@ fn general_nd_inverse_multilevel<F, T, L, const N: usize>(
 pub mod parallel {
     use super::*;
 
-    use crate::iter::parallel::ParallelLanesIterator;
+    use crate::iter::parallel::LanesParallelIterator;
     use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 
     pub struct Wavelet<T, BC, const N: usize>
@@ -491,15 +495,13 @@ pub mod parallel {
         }
 
         pub fn forward_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
-            let stride = stride_from_shape(shape);
             let axes = HashSet::from_iter(axes.iter().cloned());
-            self.forward_strided_multilevel_nd(input, output, shape, &stride, &stride, &axes, 1);
+            self.forward_strided_multilevel_nd(input, output, shape, &axes, 1);
         }
 
         pub fn inverse_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
-            let stride = stride_from_shape(shape);
             let axes = HashSet::from_iter(axes.iter().cloned());
-            self.inverse_strided_multilevel_nd(input, output, shape, &stride, &stride, &axes, 1);
+            self.inverse_strided_multilevel_nd(input, output, shape, &axes, 1);
         }
 
         pub fn adj_forward_nd(
@@ -509,11 +511,8 @@ pub mod parallel {
             shape: &[usize],
             axes: &[usize],
         ) {
-            let stride = stride_from_shape(shape);
             let axes = HashSet::from_iter(axes.iter().cloned());
-            self.adj_forward_strided_multilevel_nd(
-                input, output, shape, &stride, &stride, &axes, 1,
-            );
+            self.adj_forward_strided_multilevel_nd(input, output, shape, &axes, 1);
         }
 
         pub fn adj_inverse_nd(
@@ -523,11 +522,8 @@ pub mod parallel {
             shape: &[usize],
             axes: &[usize],
         ) {
-            let stride = stride_from_shape(shape);
             let axes = HashSet::from_iter(axes.iter().cloned());
-            self.adj_inverse_strided_multilevel_nd(
-                input, output, shape, &stride, &stride, &axes, 1,
-            );
+            self.adj_inverse_strided_multilevel_nd(input, output, shape, &axes, 1);
         }
 
         pub fn forward_strided_multilevel_nd(
@@ -535,8 +531,6 @@ pub mod parallel {
             input: &[T],
             output: &mut [T],
             shape: &[usize],
-            stride_in: &[usize],
-            stride_out: &[usize],
             axes: &HashSet<usize>,
             level: usize,
         ) {
@@ -545,8 +539,6 @@ pub mod parallel {
                 input,
                 output,
                 shape,
-                stride_in,
-                stride_out,
                 axes,
                 level,
             );
@@ -557,8 +549,6 @@ pub mod parallel {
             input: &[T],
             output: &mut [T],
             shape: &[usize],
-            stride_in: &[usize],
-            stride_out: &[usize],
             axes: &HashSet<usize>,
             level: usize,
         ) {
@@ -567,8 +557,6 @@ pub mod parallel {
                 input,
                 output,
                 shape,
-                stride_in,
-                stride_out,
                 axes,
                 level,
             );
@@ -579,8 +567,6 @@ pub mod parallel {
             input: &[T],
             output: &mut [T],
             shape: &[usize],
-            stride_in: &[usize],
-            stride_out: &[usize],
             axes: &HashSet<usize>,
             level: usize,
         ) {
@@ -589,8 +575,6 @@ pub mod parallel {
                 input,
                 output,
                 shape,
-                stride_in,
-                stride_out,
                 axes,
                 level,
             );
@@ -601,8 +585,6 @@ pub mod parallel {
             input: &[T],
             output: &mut [T],
             shape: &[usize],
-            stride_in: &[usize],
-            stride_out: &[usize],
             axes: &HashSet<usize>,
             level: usize,
         ) {
@@ -611,8 +593,6 @@ pub mod parallel {
                 input,
                 output,
                 shape,
-                stride_in,
-                stride_out,
                 axes,
                 level,
             );
@@ -624,25 +604,21 @@ pub mod parallel {
         input: &L,
         output: &mut L,
         shape: &[usize],
-        stride_in: &[usize],
-        stride_out: &[usize],
         axes: &HashSet<usize>,
         level: usize,
     ) where
         F: Fn(&mut [T], &mut [T]) + Sync,
-        L: ParallelLanesIterator<Item = T> + ?Sized,
+        L: LanesParallelIterator<Item = T> + ?Sized,
         T: Transformable + Zero + ChunkWidth<T, N> + Sync + Send,
         T::ScalarType: From<f64>,
     {
         let ndim = shape.len();
-        assert_eq!(ndim, stride_in.len());
-        assert_eq!(ndim, stride_out.len());
         assert!(axes.iter().all(|i| *i < ndim));
         // note that axes is a HashSet, so they are gauranteed to be different axes.
 
         let mut first = true;
 
-        let mut shape = shape.to_owned();
+        let mut sub_shape = shape.to_owned();
         for _level in 0..level {
             for &ax in axes {
                 let n_ax = shape[ax];
@@ -652,10 +628,10 @@ pub mod parallel {
 
                 match first {
                     true => {
-                        let in_chunks = input.iter_lane_chunks_strided::<N>(&shape, stride_in, ax);
+                        let in_chunks = input.iter_lane_chunks_sub::<N>(shape, &sub_shape, ax);
                         let in_rem = in_chunks.remainder();
                         let out_chunks =
-                            output.iter_lane_chunks_mut_strided::<N>(&shape, stride_out, ax);
+                            output.iter_lane_chunks_sub_mut::<N>(shape, &sub_shape, ax);
                         let out_rem = out_chunks.remainder();
 
                         in_chunks.zip(out_chunks).for_each_init(
@@ -693,8 +669,7 @@ pub mod parallel {
                         first = false;
                     }
                     false => {
-                        let chunks =
-                            output.iter_lane_chunks_mut_strided::<N>(&shape, stride_out, ax);
+                        let chunks = output.iter_lane_chunks_sub_mut::<N>(shape, &sub_shape, ax);
                         let rem = chunks.remainder();
 
                         chunks.for_each_init(
@@ -734,7 +709,7 @@ pub mod parallel {
             }
             // shrink shape for each axis we used.
             for &ax in axes {
-                shape[ax] = (shape[ax] + 1) / 2;
+                sub_shape[ax] = (sub_shape[ax] + 1) / 2;
             }
         }
     }
@@ -744,33 +719,24 @@ pub mod parallel {
         input: &L,
         output: &mut L,
         shape: &[usize],
-        stride_in: &[usize],
-        stride_out: &[usize],
         axes: &HashSet<usize>,
         level: usize,
     ) where
         F: Fn(&mut [T], &mut [T]) + Sync,
-        L: ParallelLanesIterator<Item = T> + ?Sized,
+        L: LanesParallelIterator<Item = T> + ?Sized,
         T: Transformable + Zero + ChunkWidth<T, N> + Send + Sync,
         T::ScalarType: From<f64>,
     {
         let ndim = shape.len();
-        assert_eq!(ndim, stride_in.len());
-        assert_eq!(ndim, stride_out.len());
         assert!(axes.iter().all(|i| *i < ndim));
         // note that axes is a HashSet, so they are gauranteed to be different axes.
 
         // copy input into the output
-        let (mstride_in_axis, _) = stride_out
-            .iter()
-            .enumerate()
-            .reduce(|acc, v| if v.1 < acc.1 { v } else { acc })
-            .expect("dimensions should be greater than 0.");
+        let min_axis = output.min_stride_axis(shape);
 
-        let in_chunks = input.iter_lane_chunks_strided::<N>(shape, stride_in, mstride_in_axis);
+        let in_chunks = input.iter_lane_chunks::<N>(shape, min_axis);
         let in_rem = in_chunks.remainder();
-        let out_chunks =
-            output.iter_lane_chunks_mut_strided::<N>(shape, stride_out, mstride_in_axis);
+        let out_chunks = output.iter_lane_chunks_mut::<N>(shape, min_axis);
         let out_rem = out_chunks.remainder();
 
         out_chunks.zip(in_chunks).for_each(|(mut o, i)| {
@@ -784,27 +750,27 @@ pub mod parallel {
             o.iter_mut().zip(i.iter()).for_each(|(o, i)| *o = i.clone());
         });
 
-        let mut shape = shape.to_owned();
+        let mut sub_shape = shape.to_owned();
 
         let shape_levels = (0..level)
             .map(|_| {
-                let next_shape = shape.clone();
+                let next_shape = sub_shape.clone();
                 for &ax in axes {
-                    shape[ax] = (shape[ax] + 1) / 2;
+                    sub_shape[ax] = (sub_shape[ax] + 1) / 2;
                 }
                 next_shape
             })
             .collect::<Vec<_>>();
 
         for lvl in (0..level).rev() {
-            let shape = &shape_levels[lvl];
+            let sub_shape = &shape_levels[lvl];
             for &ax in axes {
                 let n_ax = shape[ax];
 
                 let n_d = n_ax / 2;
                 let n_s = n_ax - n_d;
 
-                let chunks = output.iter_lane_chunks_mut_strided::<N>(shape, stride_out, ax);
+                let chunks = output.iter_lane_chunks_sub_mut::<N>(shape, &sub_shape, ax);
                 let rem = chunks.remainder();
                 if chunks.len() > 0 {
                     chunks.for_each_init(
@@ -852,7 +818,6 @@ mod tests {
     #[rstest]
     fn test_roundtrip(#[values(5, 6)] n: usize, #[values(2)] dim: usize) {
         let shape = vec![n; dim];
-        let stride = stride_from_shape(&shape);
 
         let axes = HashSet::from_iter(0..dim);
         let n_total = shape.iter().product();
@@ -876,10 +841,10 @@ mod tests {
             }
         }
 
-        general_nd_forward_multilevel(|_, _| {}, v1, v2, &shape, &stride, &stride, &axes, 1);
+        general_nd_forward_multilevel(|_, _| {}, v1, v2, &shape, &axes, 1);
 
         assert_eq!(v2, v2_ref);
-        general_nd_inverse_multilevel(|_, _| {}, v2, v3, &shape, &stride, &stride, &axes, 1);
+        general_nd_inverse_multilevel(|_, _| {}, v2, v3, &shape, &axes, 1);
         assert_eq!(v1, v3);
     }
 }

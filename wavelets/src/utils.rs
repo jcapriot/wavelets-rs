@@ -41,7 +41,7 @@ pub fn deinterleave<T: Clone>(x: &[T], evens: &mut [T], odds: &mut [T]) {
 
 #[inline]
 pub fn deinterleave_2d<T: Clone>(input: &[T], output: &mut [T], shape: &[usize; 2]) {
-    let n_total = shape.iter().product();
+    let n_total: usize = shape.iter().product();
     assert_eq!(input.len(), n_total);
     assert_eq!(output.len(), n_total);
 

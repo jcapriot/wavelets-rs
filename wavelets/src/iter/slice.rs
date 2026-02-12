@@ -595,17 +595,38 @@ impl ArrayInfo {
 }
 
 fn lane_parts_from_slice<T>(arr: &[T], shape: &[usize], axis: usize) -> (NonNull<T>, ArrayInfo) {
-    let arr_len = arr.len();
+    lane_parts_from_sub_slice(arr, shape, shape, axis)
+}
+
+fn lane_parts_from_sub_slice<T>(
+    arr: &[T],
+    shape: &[usize],
+    sub_shape: &[usize],
+    axis: usize,
+) -> (NonNull<T>, ArrayInfo) {
+    let n = arr.len();
     assert_ne!(
-        arr_len, 0,
+        n, 0,
         "Attempted to create a lane iterator from an empty slice."
     );
     let n_items: usize = shape.iter().product();
     assert_eq!(
-        arr_len, n_items,
-        "array length must be consistent with the shape. Shape suggests {n_items}, but slice had {arr_len} items."
+        n, n_items,
+        "array length must be consistent with the shape. Shape suggests {n_items}, but slice had {n} items."
     );
-
+    assert_eq!(
+        shape.len(),
+        sub_shape.len(),
+        "shape length, {}, and sub_shape length, {}, must be equal",
+        shape.len(),
+        sub_shape.len()
+    );
+    assert!(
+        sub_shape.iter().zip(shape.iter()).all(|(n1, n2)| n1 <= n2),
+        "sub_shape: {:?}, must be equal to our smaller than shape, {:?}",
+        sub_shape,
+        shape,
+    );
     assert!(
         axis < shape.len(),
         "axis: {axis} is out of bounds for dimension size of {}",
@@ -621,53 +642,10 @@ fn lane_parts_from_slice<T>(arr: &[T], shape: &[usize], axis: usize) -> (NonNull
     (ptr, ArrayInfo::new(shape, &stride, axis))
 }
 
-fn lane_parts_from_slice_strided<T>(
-    arr: &[T],
-    shape: &[usize],
-    stride: &[usize],
-    axis: usize,
-) -> (NonNull<T>, ArrayInfo) {
-    let n = arr.len();
-    assert_ne!(
-        n, 0,
-        "Attempted to create a lane iterator from an empty slice."
-    );
-    assert_eq!(
-        shape.len(),
-        stride.len(),
-        "shape length, {}, and stride length, {}, must be equal",
-        shape.len(),
-        stride.len()
-    );
-    let max_offset = shape
-        .iter()
-        .zip(stride.iter())
-        .map(|(n, step)| step * (n - 1))
-        .sum();
-    assert!(
-        n > max_offset,
-        "Given strides and shapes would result in out-of-bounds access, max offset is {max_offset} but length of slice is {n}"
-    );
-
-    assert!(
-        axis < shape.len(),
-        "axis: {axis} is out of bounds for dimension size of {}",
-        shape.len()
-    );
-
-    let stride = stride
-        .iter()
-        .cloned()
-        .map(|s| s as isize)
-        .collect::<Vec<_>>();
-    // SAFETY: slice length > 0 so ptr is NonNull.
-    let ptr = unsafe { NonNull::new_unchecked(arr.as_ptr() as *mut T) };
-    (ptr, ArrayInfo::new(shape, &stride, axis))
-}
-
 #[cfg(feature = "ndarray")]
 fn lane_parts_from_ndarray<T, D: Dimension>(
     arr: &ArrayRef<T, D>,
+    sub_shape: &[usize],
     axis: usize,
 ) -> (NonNull<T>, ArrayInfo) {
     assert_ne!(
@@ -675,15 +653,28 @@ fn lane_parts_from_ndarray<T, D: Dimension>(
         0,
         "Cannot create a lane iterator from an empty ndarray."
     );
+    let ndim = arr.ndim();
     assert!(
-        axis < arr.ndim(),
-        "axis: {axis} is out of bounds for dimension size of {}",
-        arr.ndim()
+        axis < ndim,
+        "axis: {axis} is out of bounds for dimension size of {ndim}",
+    );
+    assert_eq!(
+        sub_shape.len(),
+        arr.ndim(),
+        "shape.len(), {}, is not equal to arr.ndim(), {ndim}",
+        sub_shape.len(),
+    );
+
+    assert!(
+        sub_shape.iter().zip(arr.shape()).all(|(n, m)| n <= m),
+        "requested shape, {:?} must all be <= arr.shape(), {:?}.",
+        sub_shape,
+        arr.shape(),
     );
 
     // SAFETY: Array is not empty, so pointer to first element is gauranteed non-null.
     let ptr = unsafe { NonNull::new_unchecked(arr.as_ptr() as *mut T) };
-    (ptr, ArrayInfo::new(arr.shape(), arr.strides(), axis))
+    (ptr, ArrayInfo::new(sub_shape, arr.strides(), axis))
 }
 
 macro_rules! implement_lane_iter {
@@ -708,24 +699,24 @@ macro_rules! implement_lane_iter {
                 Self::new(ptr, arr_info)
             }
 
-            pub fn from_slice_with_stride(
+            pub fn from_sub_slice(
                 arr: &'a $( $mut_ )? [T],
                 shape: &[usize],
-                stride: &[usize], // this excepts only usize for use safety (i.e. it's difficult to get negative strides correct for slices.)
+                sub_shape: &[usize],
                 axis: usize,
             ) -> Self {
-
-                let (ptr, arr_info) = lane_parts_from_slice_strided(arr, shape, stride, axis);
+                let (ptr, arr_info) = lane_parts_from_sub_slice(arr, shape, sub_shape, axis);
                 Self::new(ptr, arr_info)
             }
 
             #[cfg(feature="ndarray")]
             pub fn from_ndarray<D: Dimension>(
                 arr: &'a $( $mut_ )? ArrayRef<T, D>,
+                shape: &[usize],
                 axis: usize,
             ) -> Self
             {
-                let (ptr, arr_info) = lane_parts_from_ndarray(arr, axis);
+                let (ptr, arr_info) = lane_parts_from_ndarray(arr, shape, axis);
                 Self::new(ptr, arr_info)
             }
 
@@ -1436,23 +1427,24 @@ macro_rules! implement_lane_chunk_iter {
                 Self::new(ptr, arr_info)
             }
 
-            pub fn from_slice_with_stride(
+            pub fn from_sub_slice(
                 arr: &'a $( $mut_ )? [T],
                 shape: &[usize],
-                stride: &[usize], // this excepts only usize for use safety (i.e. it's difficult to get negative strides correct.)
+                sub_shape: &[usize],
                 axis: usize,
             ) ->  Self {
-                let (ptr, arr_info) = lane_parts_from_slice_strided(arr, shape,  stride, axis);
+                let (ptr, arr_info) = lane_parts_from_sub_slice(arr, shape, sub_shape, axis);
                 Self::new(ptr, arr_info)
             }
 
             #[cfg(feature="ndarray")]
             pub fn from_ndarray<D: Dimension>(
                 arr: &'a $( $mut_ )? ArrayRef<T, D>,
+                shape: &[usize],
                 axis: usize,
             ) -> Self
             {
-                let (ptr, arr_info) = lane_parts_from_ndarray(arr, axis);
+                let (ptr, arr_info) = lane_parts_from_ndarray(arr, shape, axis);
                 Self::new(ptr, arr_info)
             }
 
@@ -1691,23 +1683,24 @@ pub mod parallel {
                     Self::new(ptr, arr_info)
                 }
 
-                pub fn from_slice_with_stride(
+                pub fn from_sub_slice(
                     arr: &'a $( $mut_ )? [T],
                     shape: &[usize],
-                    stride: &[usize], // this excepts only usize for use safety (i.e. it's difficult to get negative strides correct.)
+                    sub_shape: &[usize], // this excepts only usize for use safety (i.e. it's difficult to get negative strides correct.)
                     axis: usize,
                 ) -> Self {
-                    let (ptr, arr_info) = lane_parts_from_slice_strided(arr, shape, stride, axis);
+                    let (ptr, arr_info) = lane_parts_from_sub_slice(arr, shape, sub_shape, axis);
                     Self::new(ptr, arr_info)
                 }
 
                 #[cfg(feature="ndarray")]
                 pub fn from_ndarray<D: Dimension>(
                     arr: &'a $( $mut_ )? ArrayRef<T, D>,
+                    shape: &[usize],
                     axis: usize,
                 ) -> Self
                 {
-                    let (ptr, arr_info) = lane_parts_from_ndarray(arr, axis);
+                    let (ptr, arr_info) = lane_parts_from_ndarray(arr, shape, axis);
                     Self::new(ptr, arr_info)
                 }
 
@@ -1845,23 +1838,24 @@ pub mod parallel {
                     Self::new(ptr, arr_info)
                 }
 
-                pub fn from_slice_with_stride(
+                pub fn from_sub_slice(
                     arr: &'a $( $mut_ )? [T],
                     shape: &[usize],
-                    stride: &[usize], // this excepts only usize for use safety (i.e. it's difficult to get negative strides correct.)
+                    sub_shape: &[usize], // this excepts only usize for use safety (i.e. it's difficult to get negative strides correct.)
                     axis: usize,
                 ) -> Self {
-                    let (ptr, arr_info) = lane_parts_from_slice_strided(arr, shape, stride, axis);
+                    let (ptr, arr_info) = lane_parts_from_sub_slice(arr, shape, sub_shape, axis);
                     Self::new(ptr, arr_info)
                 }
 
                 #[cfg(feature="ndarray")]
                 pub fn from_ndarray<D: Dimension>(
                     arr: &'a $( $mut_ )? ArrayRef<T, D>,
+                    shape: &[usize],
                     axis: usize,
                 ) -> Self
                 {
-                    let (ptr, arr_info) = lane_parts_from_ndarray(arr, axis);
+                    let (ptr, arr_info) = lane_parts_from_ndarray(arr, shape, axis);
                     Self::new(ptr, arr_info)
                 }
 
