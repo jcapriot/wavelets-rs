@@ -2,6 +2,9 @@ use crate::utils::stride_from_shape;
 use std::ops::{ControlFlow, Deref, DerefMut};
 use std::{marker::PhantomData, ptr::NonNull};
 
+#[cfg(feature = "ndarray")]
+use ndarray::{ArrayRef, Dimension};
+
 #[inline]
 pub(crate) fn unravel(flat_index: usize, shape: &[usize]) -> Vec<usize> {
     let n_max: usize = shape.iter().product();
@@ -100,6 +103,7 @@ impl<T> StridedSliceRef<T> {
 
     #[inline]
     pub unsafe fn get_unchecked(&self, index: usize) -> &T {
+        // SAFETY: index must be within bounds.
         unsafe { &*self.as_ptr().offset(index as isize * self.0.stride) }
     }
 
@@ -114,13 +118,15 @@ impl<T> StridedSliceRef<T> {
 
     #[inline]
     pub unsafe fn get_unchecked_mut(&mut self, index: usize) -> &mut T {
+        // SAFETY: index must be within bounds.
         unsafe { &mut *self.as_ptr_mut().offset(index as isize * self.0.stride) }
     }
 
     #[inline]
     pub fn as_slice(&self) -> Option<&[T]> {
         if self.0.stride == 1 {
-            // SAFETY: The caller guarantees that the data is valid for `length` elements, and that the stride is 1, so this is a valid slice.
+            // SAFETY: The construction guarantees that the data is valid for `length` elements
+            // and we checked that the stride is 1, so this is a valid slice.
             unsafe { Some(std::slice::from_raw_parts(self.as_ptr(), self.len())) }
         } else {
             None
@@ -130,7 +136,8 @@ impl<T> StridedSliceRef<T> {
     #[inline]
     pub fn as_slice_mut(&mut self) -> Option<&mut [T]> {
         if self.0.stride == 1 {
-            // SAFETY: The caller guarantees that the data is valid for `length` elements, and that the stride is 1, so this is a valid slice.
+            // SAFETY: The construction guarantees that the data is valid for `length` elements
+            // and we checked that the stride is 1, so this is a valid slice.
             unsafe {
                 Some(std::slice::from_raw_parts_mut(
                     self.as_ptr_mut(),
@@ -180,9 +187,11 @@ pub type StridedSliceMut<'a, T> = StridedSliceBase<SliceLifetime<&'a mut T>, T>;
 
 impl<'a, T> StridedSlice<'a, T> {
     pub fn from_slice(slice: &'a [T], stride: usize) -> Self {
+        assert_ne!(slice.len(), 0);
         Self {
+            // SAFETY: slice length > 0 so ptr is non-null.
             parts: StrideParts {
-                base: NonNull::new(slice.as_ptr() as *mut T).unwrap(),
+                base: unsafe { NonNull::new_unchecked(slice.as_ptr() as *mut T) },
                 length: (slice.len() + stride - 1) / stride,
                 stride: stride as isize,
             },
@@ -195,9 +204,12 @@ impl<'a, T> StridedSlice<'a, T> {
 
 impl<'a, T> StridedSliceMut<'a, T> {
     pub fn from_slice_mut(slice: &'a mut [T], stride: usize) -> Self {
+        assert_ne!(slice.len(), 0);
+
+        // SAFETY: slice length > 0 so ptr is non-null.
         Self {
             parts: StrideParts {
-                base: NonNull::new(slice.as_ptr() as *mut T).unwrap(),
+                base: unsafe { NonNull::new_unchecked(slice.as_ptr() as *mut T) },
                 length: (slice.len() + stride - 1) / stride,
                 stride: stride as isize,
             },
@@ -264,6 +276,8 @@ macro_rules! implement_strided_iter {
             fn len(&self) -> usize {
                 let end = unsafe { std::mem::transmute::<*const T, NonNull<T>>(self.end) };
                 let offset = unsafe { end.offset_from(self.ptr) };
+                // if stride is negative, end address will be before start address
+                // and offset will also be negative, thus cast to usize is valid.
                 (offset / self.stride) as usize
             }
         }
@@ -313,7 +327,7 @@ macro_rules! implement_strided_iter {
 
             // We override the default implementation, which uses `try_fold`,
             // because this simple implementation generates less LLVM IR and is
-            // faster to compile.
+            // faster to compile, according to slice iter source code.
             #[inline]
             fn for_each<F>(mut self, mut f: F)
             where
@@ -346,7 +360,7 @@ macro_rules! implement_strided_iter {
                     }
                     return None;
                 }
-                // SAFETY: We are in bounds. `pre_dec_end` does the right thing even for ZSTs.
+                // SAFETY: We are in bounds.
                 unsafe {
                     self.pre_dec_end(n);
                     Some(self.next_back_unchecked())
@@ -417,6 +431,7 @@ pub type ChunkStridedSliceMut<'a, T, const N: usize> =
 
 impl<'a, T, const N: usize> ChunkStridedSlice<'a, T, N> {
     pub fn from_slice(slice: &'a [T], shape: &[usize], ax: usize, ind: usize) -> Self {
+        assert_ne!(slice.len(), 0);
         assert_eq!(shape.iter().product::<usize>(), slice.len());
         assert!(ax < shape.len());
 
@@ -436,9 +451,10 @@ impl<'a, T, const N: usize> ChunkStridedSlice<'a, T, N> {
                 .fold(0, |acc, vs| acc + vs.0 * vs.1) as isize
         });
 
+        // SAFETY: slice length > 0 so ptr is non-null.
         Self {
             parts: ChunkStrideParts {
-                base: NonNull::new(slice.as_ptr() as *mut T).unwrap(),
+                base: unsafe { NonNull::new_unchecked(slice.as_ptr() as *mut T) },
                 offsets,
                 length,
                 stride: stride as isize,
@@ -452,6 +468,7 @@ impl<'a, T, const N: usize> ChunkStridedSlice<'a, T, N> {
 
 impl<'a, T, const N: usize> ChunkStridedSliceMut<'a, T, N> {
     pub fn from_slice_mut(slice: &'a [T], shape: &[usize], ax: usize, ind: usize) -> Self {
+        assert_ne!(slice.len(), 0);
         assert_eq!(shape.iter().cloned().product::<usize>(), slice.len());
         assert!(ax < shape.len());
 
@@ -471,9 +488,10 @@ impl<'a, T, const N: usize> ChunkStridedSliceMut<'a, T, N> {
                 .fold(0, |acc, vs| acc + vs.0 * vs.1) as isize
         });
 
+        // SAFETY: slice length > 0 so ptr is non-null.
         Self {
             parts: ChunkStrideParts {
-                base: NonNull::new(slice.as_ptr() as *mut T).unwrap(),
+                base: unsafe { NonNull::new_unchecked(slice.as_ptr() as *mut T) },
                 offsets,
                 length,
                 stride: stride as isize,
@@ -502,7 +520,7 @@ impl ArrayInfo {
         assert_eq!(
             stride.len(),
             shape.len(),
-            "Shape and stride should have the same length.s"
+            "Shape and stride should have the same length."
         );
         let mut stride = stride.to_owned();
         let mut shape = shape.to_owned();
@@ -576,42 +594,96 @@ impl ArrayInfo {
     }
 }
 
-fn lane_parts_from_slice<'a, T>(
-    arr: &'a [T],
-    shape: &[usize],
-    axis: usize,
-) -> (NonNull<T>, ArrayInfo) {
-    assert_ne!(arr.len(), 0);
-    assert_eq!(arr.len(), shape.iter().product::<usize>());
+fn lane_parts_from_slice<T>(arr: &[T], shape: &[usize], axis: usize) -> (NonNull<T>, ArrayInfo) {
+    let arr_len = arr.len();
+    assert_ne!(
+        arr_len, 0,
+        "Attempted to create a lane iterator from an empty slice."
+    );
+    let n_items: usize = shape.iter().product();
+    assert_eq!(
+        arr_len, n_items,
+        "array length must be consistent with the shape. Shape suggests {n_items}, but slice had {arr_len} items."
+    );
+
+    assert!(
+        axis < shape.len(),
+        "axis: {axis} is out of bounds for dimension size of {}",
+        shape.len()
+    );
+
     let stride = stride_from_shape(shape)
         .into_iter()
         .map(|s| s as isize)
         .collect::<Vec<_>>();
+    // SAFETY: slice length > 0 so ptr is NonNull.
     let ptr = unsafe { NonNull::new_unchecked(arr.as_ptr() as *mut T) };
     (ptr, ArrayInfo::new(shape, &stride, axis))
 }
 
-fn lane_parts_from_slice_strided<'a, T>(
-    arr: &'a [T],
+fn lane_parts_from_slice_strided<T>(
+    arr: &[T],
     shape: &[usize],
     stride: &[usize],
     axis: usize,
 ) -> (NonNull<T>, ArrayInfo) {
-    assert_ne!(arr.len(), 0);
+    let n = arr.len();
+    assert_ne!(
+        n, 0,
+        "Attempted to create a lane iterator from an empty slice."
+    );
+    assert_eq!(
+        shape.len(),
+        stride.len(),
+        "shape length, {}, and stride length, {}, must be equal",
+        shape.len(),
+        stride.len()
+    );
     let max_offset = shape
         .iter()
         .zip(stride.iter())
         .map(|(n, step)| step * (n - 1))
         .sum();
-    assert!(arr.len() > max_offset);
+    assert!(
+        n > max_offset,
+        "Given strides and shapes would result in out-of-bounds access, max offset is {max_offset} but length of slice is {n}"
+    );
+
+    assert!(
+        axis < shape.len(),
+        "axis: {axis} is out of bounds for dimension size of {}",
+        shape.len()
+    );
 
     let stride = stride
         .iter()
         .cloned()
         .map(|s| s as isize)
         .collect::<Vec<_>>();
+    // SAFETY: slice length > 0 so ptr is NonNull.
     let ptr = unsafe { NonNull::new_unchecked(arr.as_ptr() as *mut T) };
     (ptr, ArrayInfo::new(shape, &stride, axis))
+}
+
+#[cfg(feature = "ndarray")]
+fn lane_parts_from_ndarray<T, D: Dimension>(
+    arr: &ArrayRef<T, D>,
+    axis: usize,
+) -> (NonNull<T>, ArrayInfo) {
+    assert_ne!(
+        arr.len(),
+        0,
+        "Cannot create a lane iterator from an empty ndarray."
+    );
+    assert!(
+        axis < arr.ndim(),
+        "axis: {axis} is out of bounds for dimension size of {}",
+        arr.ndim()
+    );
+
+    // SAFETY: Array is not empty, so pointer to first element is gauranteed non-null.
+    let ptr = unsafe { NonNull::new_unchecked(arr.as_ptr() as *mut T) };
+    (ptr, ArrayInfo::new(arr.shape(), arr.strides(), axis))
 }
 
 macro_rules! implement_lane_iter {
@@ -632,20 +704,31 @@ macro_rules! implement_lane_iter {
 
         impl<'a, T> $name<'a, T> {
             pub fn from_slice(arr: &'a $( $mut_ )? [T], shape: &[usize], axis: usize) -> Self {
-                let (ptr, arr_info) = lane_parts_from_slice(&arr, shape, axis);
+                let (ptr, arr_info) = lane_parts_from_slice(arr, shape, axis);
                 Self::new(ptr, arr_info)
             }
 
             pub fn from_slice_with_stride(
                 arr: &'a $( $mut_ )? [T],
                 shape: &[usize],
-                stride: &[usize], // this excepts only usize for use safety (i.e. it's difficult to get negative strides correct.)
+                stride: &[usize], // this excepts only usize for use safety (i.e. it's difficult to get negative strides correct for slices.)
                 axis: usize,
             ) -> Self {
 
-                let (ptr, arr_info) = lane_parts_from_slice_strided(&arr, shape, stride, axis);
+                let (ptr, arr_info) = lane_parts_from_slice_strided(arr, shape, stride, axis);
                 Self::new(ptr, arr_info)
             }
+
+            #[cfg(feature="ndarray")]
+            pub fn from_ndarray<D: Dimension>(
+                arr: &'a $( $mut_ )? ArrayRef<T, D>,
+                axis: usize,
+            ) -> Self
+            {
+                let (ptr, arr_info) = lane_parts_from_ndarray(arr, axis);
+                Self::new(ptr, arr_info)
+            }
+
 
             fn new(base: NonNull<T>, arr_info: ArrayInfo) -> Self {
                 let remaining = arr_info.n_lanes();
@@ -1308,6 +1391,7 @@ where
         // - The pointer is aligned because neither type uses repr(align)
         // - It is "dereferencable" because it comes from a reference
         // - For the same reason, it is initialized
+        // - The cast is valid because StridedSliceRef uses #[repr(transparent)]
         let Self { parts, _member } = self;
         let ptr = (parts as *const ChunkStrideParts<T, N>) as *const ChunkStridedSliceRef<T, N>;
         unsafe { &*ptr }
@@ -1348,7 +1432,7 @@ macro_rules! implement_lane_chunk_iter {
 
         impl<'a, T, const N: usize> $name<'a, T, N> {
             pub fn from_slice(arr: &'a $( $mut_ )? [T], shape: &[usize], axis: usize) -> Self {
-                let (ptr, arr_info) = lane_parts_from_slice(&arr,  shape, axis);
+                let (ptr, arr_info) = lane_parts_from_slice(arr,  shape, axis);
                 Self::new(ptr, arr_info)
             }
 
@@ -1358,7 +1442,17 @@ macro_rules! implement_lane_chunk_iter {
                 stride: &[usize], // this excepts only usize for use safety (i.e. it's difficult to get negative strides correct.)
                 axis: usize,
             ) ->  Self {
-                let (ptr, arr_info) = lane_parts_from_slice_strided(&arr, shape,  stride, axis);
+                let (ptr, arr_info) = lane_parts_from_slice_strided(arr, shape,  stride, axis);
+                Self::new(ptr, arr_info)
+            }
+
+            #[cfg(feature="ndarray")]
+            pub fn from_ndarray<D: Dimension>(
+                arr: &'a $( $mut_ )? ArrayRef<T, D>,
+                axis: usize,
+            ) -> Self
+            {
+                let (ptr, arr_info) = lane_parts_from_ndarray(arr, axis);
                 Self::new(ptr, arr_info)
             }
 
@@ -1607,6 +1701,16 @@ pub mod parallel {
                     Self::new(ptr, arr_info)
                 }
 
+                #[cfg(feature="ndarray")]
+                pub fn from_ndarray<D: Dimension>(
+                    arr: &'a $( $mut_ )? ArrayRef<T, D>,
+                    axis: usize,
+                ) -> Self
+                {
+                    let (ptr, arr_info) = lane_parts_from_ndarray(arr, axis);
+                    Self::new(ptr, arr_info)
+                }
+
                 pub(super) fn new(base: NonNull<T>, arr_info: ArrayInfo) -> Self {
                     let end = arr_info.n_lanes();
                     Self {
@@ -1748,6 +1852,16 @@ pub mod parallel {
                     axis: usize,
                 ) -> Self {
                     let (ptr, arr_info) = lane_parts_from_slice_strided(arr, shape, stride, axis);
+                    Self::new(ptr, arr_info)
+                }
+
+                #[cfg(feature="ndarray")]
+                pub fn from_ndarray<D: Dimension>(
+                    arr: &'a $( $mut_ )? ArrayRef<T, D>,
+                    axis: usize,
+                ) -> Self
+                {
+                    let (ptr, arr_info) = lane_parts_from_ndarray(arr, axis);
                     Self::new(ptr, arr_info)
                 }
 

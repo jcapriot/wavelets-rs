@@ -1,5 +1,5 @@
 pub mod slice;
-pub mod slice_old;
+//pub mod slice_old;
 
 use slice::*;
 
@@ -116,7 +116,7 @@ impl<T> LanesIterator for [T] {
 #[cfg(feature = "rayon")]
 pub mod parallel {
     use super::slice::parallel::*;
-    pub trait ParLanesIterator {
+    pub trait ParallelLanesIterator {
         type Item;
 
         fn iter_lanes<'a>(
@@ -165,7 +165,7 @@ pub mod parallel {
             axis: usize,
         ) -> LaneChunkSliceParIterMut<'a, Self::Item, N>;
     }
-    impl<T> ParLanesIterator for [T] {
+    impl<T> ParallelLanesIterator for [T] {
         type Item = T;
         fn iter_lanes<'a>(
             &'a self,

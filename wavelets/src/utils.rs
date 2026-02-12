@@ -337,9 +337,8 @@ pub fn stack_to_strided_simd<T: Clone, const N: usize>(
     let n_second = second.len();
     assert_eq!(nx, n_first + n_second);
 
-    if let Some(out_iter) = out.as_chunks_mut() {
+    if let Some(out_iter) = out.chunks_mut() {
         out_iter
-            .iter_mut()
             .zip(first.iter().chain(second))
             .for_each(|(out, v)| {
                 v.store(out);
@@ -667,452 +666,271 @@ mod tests {
     use super::*;
     use crate::iter::LanesIterator;
 
-    #[test]
-    fn test_interleave_inplace() {
-        for n in [20, 21, 22, 32, 432, 553] {
-            let evens = (0..n).step_by(2).collect_vec();
-            let odds = (1..n).step_by(2).collect_vec();
+    use rstest::rstest;
 
-            let mut x = vec![0; n];
-            stack(&evens, &odds, &mut x);
+    #[rstest]
+    fn test_interleave_inplace(#[values(20, 21, 22, 32, 423, 553)] n: usize) {
+        let evens = (0..n).step_by(2).collect_vec();
+        let odds = (1..n).step_by(2).collect_vec();
 
-            interleave_inplace(&mut x);
-            assert_eq!(x, (0..n).collect_vec());
+        let mut x = vec![0; n];
+        stack(&evens, &odds, &mut x);
+
+        interleave_inplace(&mut x);
+        assert_eq!(x, (0..n).collect_vec());
+    }
+
+    #[rstest]
+    fn test_interleave(#[values(20, 21, 22, 32, 423, 553)] n: usize) {
+        let ns = (n + 1) / 2;
+        let nd = n / 2;
+
+        let s = (0..ns).collect_vec();
+        let d = (ns..ns + nd).collect_vec();
+
+        let mut out = vec![0; n];
+
+        interleave(&s, &d, &mut out);
+
+        let expected = (0..ns).interleave(ns..ns + nd).collect_vec();
+        assert_eq!(out, expected);
+    }
+
+    #[rstest]
+    fn test_deinterleave(#[values(20, 21, 22, 32, 423, 553)] n: usize) {
+        let ns = (n + 1) / 2;
+        let nd = n / 2;
+
+        let mut s = vec![0; ns];
+        let mut d = vec![0; nd];
+
+        let inp = (0..ns).interleave(ns..ns + nd).collect_vec();
+
+        deinterleave(&inp, &mut s, &mut d);
+
+        assert_eq!(s, (0..ns).collect_vec());
+        assert_eq!(d, (ns..ns + nd).collect_vec());
+    }
+
+    #[rstest]
+    fn test_stack(#[values(20, 21, 22, 32, 423, 553)] n: usize) {
+        let ns = (n + 1) / 2;
+        let nd = n / 2;
+
+        let first = (0..ns).collect_vec();
+        let second = (ns..ns + nd).collect_vec();
+
+        let mut out = vec![0; n];
+        stack(&first, &second, &mut out);
+
+        assert_eq!(out, (0..n).collect_vec());
+    }
+
+    #[rstest]
+    fn test_split(#[values(20, 21, 22, 32, 423, 553)] n: usize) {
+        let ns = (n + 1) / 2;
+        let nd = n / 2;
+
+        let inp = (0..n).collect_vec();
+
+        let mut first = vec![0; ns];
+        let mut second = vec![0; nd];
+
+        split(&inp, &mut first, &mut second);
+
+        assert_eq!(first, (0..ns).collect_vec());
+        assert_eq!(second, (ns..ns + nd).collect_vec());
+    }
+
+    #[rstest]
+    fn test_interleave_strided(
+        #[values(10, 11)] n0: usize,
+        #[values(10, 11)] n1: usize,
+        #[values(0, 1)] ax: usize,
+    ) {
+        let shape = [n0, n1];
+        let n_total: usize = shape.iter().product();
+        let n = shape[ax];
+        let ns = (n + 1) / 2;
+
+        let mut out = vec![0; n_total];
+        for (i, mut slc) in out.iter_lanes_mut(&shape, ax).enumerate() {
+            let s = (i..ns + i).collect_vec();
+            let d = (i + ns..n + i).collect_vec();
+            interleave_strided(&s, &d, &mut slc);
+        }
+
+        for (i, slc) in out.iter_lanes(&shape, ax).enumerate() {
+            let expected = (i..ns + i).interleave(i + ns..n + i).collect_vec();
+            assert_eq!(slc.iter().cloned().collect_vec(), expected);
         }
     }
 
-    #[test]
-    fn test_interleave() {
-        for n in [10, 11] {
-            let ns = (n + 1) / 2;
-            let nd = n / 2;
+    #[rstest]
+    fn test_deinterleave_strided(
+        #[values(10, 11)] n0: usize,
+        #[values(10, 11)] n1: usize,
+        #[values(0, 1)] ax: usize,
+    ) {
+        let shape = [n0, n1];
+        let n_total: usize = shape.iter().product();
+        let n = shape[ax];
+        let ns = (n + 1) / 2;
+        let nd = n / 2;
 
-            let s = (0..ns).collect_vec();
-            let d = (ns..ns + nd).collect_vec();
-
-            let mut out = vec![0; n];
-
-            interleave(&s, &d, &mut out);
-
-            let expected = (0..ns).interleave(ns..ns + nd).collect_vec();
-            assert_eq!(out, expected);
+        let mut out = vec![0; n_total];
+        for (i, mut slc) in out.iter_lanes_mut(&shape, ax).enumerate() {
+            slc.iter_mut()
+                .zip((i..ns + i).interleave(ns + i..n + i))
+                .for_each(|(v1, v2)| *v1 = v2);
         }
-    }
-    #[test]
-    fn test_deinterleave() {
-        for n in [10, 11] {
-            let ns = (n + 1) / 2;
-            let nd = n / 2;
 
+        for (i, slc) in out.iter_lanes(&shape, ax).enumerate() {
             let mut s = vec![0; ns];
             let mut d = vec![0; nd];
+            deinterleave_strided(&slc, &mut s, &mut d);
 
-            let inp = (0..ns).interleave(ns..ns + nd).collect_vec();
-
-            deinterleave(&inp, &mut s, &mut d);
-
-            assert_eq!(s, (0..ns).collect_vec());
-            assert_eq!(d, (ns..ns + nd).collect_vec());
-            // deinterleave_strided(&inp, &mut s, &mut d);
-            // assert_eq!(s, (0..ns).collect_vec());
-            // assert_eq!(d, (ns..ns + nd).collect_vec());
+            assert_eq!(s, (i..ns + i).collect_vec());
+            assert_eq!(d, (ns + i..n + i).collect_vec());
         }
     }
-    #[test]
-    fn test_stack() {
-        for n in [10, 11] {
-            let ns = (n + 1) / 2;
-            let nd = n / 2;
 
-            let first = (0..ns).collect_vec();
-            let second = (ns..ns + nd).collect_vec();
+    #[rstest]
+    fn test_stack_strided(
+        #[values(10, 11)] n0: usize,
+        #[values(10, 11)] n1: usize,
+        #[values(0, 1)] ax: usize,
+    ) {
+        let shape = [n0, n1];
+        let n_total: usize = shape.iter().product();
+        let n = shape[ax];
+        let ns = (n + 1) / 2;
 
-            let mut out = vec![0; n];
-            stack(&first, &second, &mut out);
+        let mut out = vec![0; n_total];
+        for (i, mut slc) in out.iter_lanes_mut(&shape, ax).enumerate() {
+            let first = (i..ns + i).collect_vec();
+            let second = (i + ns..n + i).collect_vec();
+            stack_to_strided(&first, &second, &mut slc);
+        }
 
-            assert_eq!(out, (0..n).collect_vec());
+        for (i, slc) in out.iter_lanes(&shape, ax).enumerate() {
+            let expected = (i..n + i).collect_vec();
+            assert_eq!(slc.iter().cloned().collect_vec(), expected);
         }
     }
-    #[test]
-    fn test_split() {
-        for n in [10, 11] {
-            let ns = (n + 1) / 2;
-            let nd = n / 2;
 
-            let inp = (0..n).collect_vec();
+    #[rstest]
+    fn test_split_strided(
+        #[values(10, 11)] n0: usize,
+        #[values(10, 11)] n1: usize,
+        #[values(0, 1)] ax: usize,
+    ) {
+        let shape = [n0, n1];
+        let n_total: usize = shape.iter().product();
+        let n = shape[ax];
+        let ns = (n + 1) / 2;
+        let nd = n / 2;
 
+        let mut out = vec![0; n_total];
+        for (i, mut slc) in out.iter_lanes_mut(&shape, ax).enumerate() {
+            slc.iter_mut().zip(i..n + i).for_each(|(v1, v2)| *v1 = v2);
+        }
+
+        for (i, slc) in out.iter_lanes(&shape, ax).enumerate() {
             let mut first = vec![0; ns];
             let mut second = vec![0; nd];
+            split_strided(&slc, &mut first, &mut second);
 
-            split(&inp, &mut first, &mut second);
-
-            assert_eq!(first, (0..ns).collect_vec());
-            assert_eq!(second, (ns..ns + nd).collect_vec());
+            assert_eq!(first, (i..ns + i).collect_vec());
+            assert_eq!(second, (ns + i..n + i).collect_vec());
         }
     }
 
-    #[test]
-    fn test_interleave_strided() {
-        for n1 in [10, 11] {
-            for n2 in [10, 11] {
-                for ax in [0, 1] {
-                    let n = match ax {
-                        0 => n1,
-                        1 => n2,
-                        _ => unreachable!(),
-                    };
-                    let ns = (n + 1) / 2;
-
-                    let mut out = vec![0; n1 * n2];
-                    let shape = [n1, n2];
-                    for (i, mut slc) in out.iter_lanes_mut(&shape, ax).enumerate() {
-                        let s = (i..ns + i).collect_vec();
-                        let d = (i + ns..n + i).collect_vec();
-                        interleave_strided(&s, &d, &mut slc);
-                    }
-
-                    for (i, slc) in out.iter_lanes(&shape, ax).enumerate() {
-                        let expected = (i..ns + i).interleave(i + ns..n + i).collect_vec();
-                        assert_eq!(slc.iter().cloned().collect_vec(), expected);
-                    }
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn test_deinterleave_strided() {
-        for n1 in [10, 11] {
-            for n2 in [10, 11] {
-                for ax in [0, 1] {
-                    let n = match ax {
-                        0 => n1,
-                        1 => n2,
-                        _ => unreachable!(),
-                    };
-                    let ns = (n + 1) / 2;
-                    let nd = n / 2;
-
-                    let mut out = vec![0; n1 * n2];
-
-                    let shape = [n1, n2];
-                    for (i, mut slc) in out.iter_lanes_mut(&shape, ax).enumerate() {
-                        slc.iter_mut()
-                            .zip((i..ns + i).interleave(ns + i..n + i))
-                            .for_each(|(v1, v2)| *v1 = v2);
-                    }
-
-                    for (i, slc) in out.iter_lanes(&shape, ax).enumerate() {
-                        let mut s = vec![0; ns];
-                        let mut d = vec![0; nd];
-                        deinterleave_strided(&slc, &mut s, &mut d);
-
-                        assert_eq!(s, (i..ns + i).collect_vec());
-                        assert_eq!(d, (ns + i..n + i).collect_vec());
-                    }
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn test_stack_strided() {
-        for n1 in [10, 11] {
-            for n2 in [10, 11] {
-                for ax in [0, 1] {
-                    let n = match ax {
-                        0 => n1,
-                        1 => n2,
-                        _ => unreachable!(),
-                    };
-                    let ns = (n + 1) / 2;
-
-                    let mut out = vec![0; n1 * n2];
-                    let shape = [n1, n2];
-                    for (i, mut slc) in out.iter_lanes_mut(&shape, ax).enumerate() {
-                        let first = (i..ns + i).collect_vec();
-                        let second = (i + ns..n + i).collect_vec();
-                        stack_to_strided(&first, &second, &mut slc);
-                    }
-
-                    for (i, slc) in out.iter_lanes(&shape, ax).enumerate() {
-                        let expected = (i..n + i).collect_vec();
-                        assert_eq!(slc.iter().cloned().collect_vec(), expected);
-                    }
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn test_split_strided() {
-        for n1 in [10, 11] {
-            for n2 in [10, 11] {
-                for ax in [0, 1] {
-                    let n = match ax {
-                        0 => n1,
-                        1 => n2,
-                        _ => unreachable!(),
-                    };
-                    let ns = (n + 1) / 2;
-                    let nd = n / 2;
-
-                    let mut out = vec![0; n1 * n2];
-
-                    let shape = [n1, n2];
-                    for (i, mut slc) in out.iter_lanes_mut(&shape, ax).enumerate() {
-                        slc.iter_mut().zip(i..n + i).for_each(|(v1, v2)| *v1 = v2);
-                    }
-
-                    for (i, slc) in out.iter_lanes(&shape, ax).enumerate() {
-                        let mut first = vec![0; ns];
-                        let mut second = vec![0; nd];
-                        split_strided(&slc, &mut first, &mut second);
-
-                        assert_eq!(first, (i..ns + i).collect_vec());
-                        assert_eq!(second, (ns + i..n + i).collect_vec());
-                    }
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn test_interleave_strided_chunk() {
+    #[rstest]
+    fn test_split_and_interleave_strided_chunk(
+        #[values(10, 11)] n0: usize,
+        #[values(10, 11)] n1: usize,
+        #[values(0, 1)] ax: usize,
+    ) {
         const N: usize = 4;
 
-        for n1 in [10, 11] {
-            for n2 in [10, 11] {
-                for ax in [0, 1] {
-                    let n = match ax {
-                        0 => n1,
-                        1 => n2,
-                        _ => unreachable!(),
-                    };
-                    let ns = (n + 1) / 2;
+        let shape = [n0, n1];
+        let n_total: usize = shape.iter().product();
+        let n = shape[ax];
+        let ns = (n + 1) / 2;
+        let nd = n / 2;
 
-                    let mut out = vec![0; n1 * n2];
-                    let shape = [n1, n2];
-                    let chunks = out.iter_lane_chunks_mut::<N>(&shape, ax);
-                    let lanes = chunks.remainder();
-                    let n_chunks = chunks.len();
+        let mut out = (0..n_total).collect_vec();
+        let mut out2 = (0..n_total).collect_vec();
 
-                    for (i_c, mut slc) in chunks.enumerate() {
-                        let s = (0..N)
-                            .map(|j| {
-                                let i = N * i_c + j;
-                                i..ns + i
-                            })
-                            .flatten()
-                            .collect_vec();
-                        let d = (0..N)
-                            .map(|j| {
-                                let i = N * i_c + j;
-                                ns + i..n + i
-                            })
-                            .flatten()
-                            .collect_vec();
-                        interleave_strided_chunk(&s, &d, &mut slc);
-                    }
+        let chunks = out.iter_lane_chunks_mut::<N>(&shape, ax);
+        let lanes = chunks.remainder();
 
-                    for (i, mut slc) in lanes.enumerate() {
-                        let i = i + n_chunks * N;
+        let mut work_e = vec![0; ns * N];
+        let mut work_o = vec![0; nd * N];
 
-                        let s = (i..ns + i).collect_vec();
-                        let d = (i + ns..n + i).collect_vec();
-                        interleave_strided(&s, &d, &mut slc);
-                    }
+        chunks.for_each(|mut chunk| {
+            split_strided_chunk(&chunk, &mut work_e, &mut work_o);
+            interleave_strided_chunk(&work_e, &work_o, &mut chunk);
+        });
+        let mut work_e = vec![0; ns];
+        let mut work_o = vec![0; nd];
 
-                    for (i, slc) in out.iter_lanes(&shape, ax).enumerate() {
-                        let expected = (i..ns + i).interleave(i + ns..n + i).collect_vec();
-                        assert_eq!(slc.iter().cloned().collect_vec(), expected);
-                    }
-                }
-            }
-        }
+        lanes.for_each(|mut slc| {
+            split_strided(&slc, &mut work_e, &mut work_o);
+            interleave_strided(&work_e, &work_o, &mut slc);
+        });
+
+        // iterate over all of them using single lanes
+        out2.iter_lanes_mut(&shape, ax).for_each(|mut slc| {
+            split_strided(&slc, &mut work_e, &mut work_o);
+            interleave_strided(&work_e, &work_o, &mut slc);
+        });
+
+        assert_eq!(out, out2);
     }
 
-    #[test]
-    fn test_deinterleave_strided_chunk() {
+    #[rstest]
+    fn test_deinterleave_and_stack_strided_chunk(
+        #[values(10, 11)] n0: usize,
+        #[values(10, 11)] n1: usize,
+        #[values(0, 1)] ax: usize,
+    ) {
         const N: usize = 4;
 
-        for n1 in [10, 11] {
-            for n2 in [10, 11] {
-                for ax in [0, 1] {
-                    let n = match ax {
-                        0 => n1,
-                        1 => n2,
-                        _ => unreachable!(),
-                    };
-                    let ns = (n + 1) / 2;
-                    let nd = n / 2;
+        let shape = [n0, n1];
+        let n_total: usize = shape.iter().product();
+        let n = shape[ax];
+        let ns = (n + 1) / 2;
+        let nd = n / 2;
 
-                    let mut out = vec![0; n1 * n2];
+        let mut out = (0..n_total).collect_vec();
+        let mut out2 = (0..n_total).collect_vec();
 
-                    let shape = [n1, n2];
+        let chunks = out.iter_lane_chunks_mut::<N>(&shape, ax);
+        let lanes = chunks.remainder();
 
-                    for (i, mut slc) in out.iter_lanes_mut(&shape, ax).enumerate() {
-                        slc.iter_mut()
-                            .zip((0..ns).interleave(ns..ns + nd))
-                            .for_each(|(v1, v2)| *v1 = v2 + i);
-                    }
+        let mut work_e = vec![0; ns * N];
+        let mut work_o = vec![0; nd * N];
 
-                    let chunks = out.iter_lane_chunks::<N>(&shape, ax);
-                    let lanes = chunks.remainder();
-                    let n_chunks = chunks.len();
+        chunks.for_each(|mut chunk| {
+            deinterleave_strided_chunk(&chunk, &mut work_e, &mut work_o);
+            stack_to_strided_chunk(&work_e, &work_o, &mut chunk);
+        });
+        let mut work_e = vec![0; ns];
+        let mut work_o = vec![0; nd];
 
-                    for (i_c, slc) in chunks.enumerate() {
-                        let mut s = vec![0; ns * N];
-                        let mut d = vec![0; nd * N];
-                        deinterleave_strided_chunk(&slc, &mut s, &mut d);
+        lanes.for_each(|mut slc| {
+            deinterleave_strided(&slc, &mut work_e, &mut work_o);
+            stack_to_strided(&work_e, &work_o, &mut slc);
+        });
 
-                        let s_ref = (0..N)
-                            .map(|j| {
-                                let i = N * i_c + j;
-                                i..ns + i
-                            })
-                            .flatten()
-                            .collect_vec();
-                        let d_ref = (0..N)
-                            .map(|j| {
-                                let i = N * i_c + j;
-                                ns + i..n + i
-                            })
-                            .flatten()
-                            .collect_vec();
-                        assert_eq!(s, s_ref);
-                        assert_eq!(d, d_ref);
-                    }
+        // iterate over all of them using single lanes
+        out2.iter_lanes_mut(&shape, ax).for_each(|mut slc| {
+            deinterleave_strided(&slc, &mut work_e, &mut work_o);
+            stack_to_strided(&work_e, &work_o, &mut slc);
+        });
 
-                    for (i, slc) in lanes.enumerate() {
-                        let mut s = vec![0; ns];
-                        let mut d = vec![0; nd];
-                        deinterleave_strided(&slc, &mut s, &mut d);
-
-                        let i = N * n_chunks + i;
-                        assert_eq!(s, (i..ns + i).collect_vec());
-                        assert_eq!(d, (ns + i..ns + nd + i).collect_vec());
-                    }
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn test_stack_strided_chunk() {
-        const N: usize = 4;
-
-        for n1 in [10, 11] {
-            for n2 in [10, 11] {
-                for ax in [0, 1] {
-                    let n = match ax {
-                        0 => n1,
-                        1 => n2,
-                        _ => unreachable!(),
-                    };
-                    let ns = (n + 1) / 2;
-
-                    let mut out = vec![0; n1 * n2];
-                    let shape = [n1, n2];
-                    let chunks = out.iter_lane_chunks_mut::<N>(&shape, ax);
-                    let lanes = chunks.remainder();
-                    let n_chunks = chunks.len();
-
-                    for (i_c, mut slc) in chunks.enumerate() {
-                        let first = (0..N)
-                            .map(|j| {
-                                let i = N * i_c + j;
-                                i..ns + i
-                            })
-                            .flatten()
-                            .collect_vec();
-                        let second = (0..N)
-                            .map(|j| {
-                                let i = N * i_c + j;
-                                ns + i..n + i
-                            })
-                            .flatten()
-                            .collect_vec();
-                        stack_to_strided_chunk(&first, &second, &mut slc);
-                    }
-
-                    for (i, mut slc) in lanes.enumerate() {
-                        let i = i + n_chunks * N;
-                        let first = (i..ns + i).collect_vec();
-                        let second = (i + ns..n + i).collect_vec();
-                        stack_to_strided(&first, &second, &mut slc);
-                    }
-
-                    for (i, slc) in out.iter_lanes(&shape, ax).enumerate() {
-                        let expected = (i..n + i).collect_vec();
-                        assert_eq!(slc.iter().cloned().collect_vec(), expected);
-                    }
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn test_split_strided_chunk() {
-        const N: usize = 4;
-
-        for n1 in [10, 11] {
-            for n2 in [10, 11] {
-                for ax in [0, 1] {
-                    let n = match ax {
-                        0 => n1,
-                        1 => n2,
-                        _ => unreachable!(),
-                    };
-                    let ns = (n + 1) / 2;
-                    let nd = n / 2;
-
-                    let mut out = vec![0; n1 * n2];
-
-                    let shape = [n1, n2];
-
-                    for (i, mut slc) in out.iter_lanes_mut(&shape, ax).enumerate() {
-                        slc.iter_mut().zip(i..n + i).for_each(|(v1, v2)| *v1 = v2);
-                    }
-
-                    let chunks = out.iter_lane_chunks::<N>(&shape, ax);
-                    let lanes = chunks.remainder();
-                    let n_chunks = chunks.len();
-
-                    for (i_c, slc) in chunks.enumerate() {
-                        let mut s = vec![0; ns * N];
-                        let mut d = vec![0; nd * N];
-                        split_strided_chunk(&slc, &mut s, &mut d);
-
-                        let s_ref = (0..N)
-                            .map(|j| {
-                                let i = N * i_c + j;
-                                i..ns + i
-                            })
-                            .flatten()
-                            .collect_vec();
-                        let d_ref = (0..N)
-                            .map(|j| {
-                                let i = N * i_c + j;
-                                ns + i..n + i
-                            })
-                            .flatten()
-                            .collect_vec();
-                        assert_eq!(s, s_ref);
-                        assert_eq!(d, d_ref);
-                    }
-
-                    for (i, slc) in lanes.enumerate() {
-                        let mut s = vec![0; ns];
-                        let mut d = vec![0; nd];
-                        split_strided(&slc, &mut s, &mut d);
-
-                        let i = N * n_chunks + i;
-                        assert_eq!(s, (i..ns + i).collect_vec());
-                        assert_eq!(d, (ns + i..ns + nd + i).collect_vec());
-                    }
-                }
-            }
-        }
+        assert_eq!(out, out2);
     }
 }

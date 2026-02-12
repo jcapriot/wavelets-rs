@@ -2,7 +2,7 @@ use itertools::Itertools;
 use wavelets::Wavelets;
 use wavelets::boundarys::ZeroBoundary;
 use wavelets::driver::Wavelet;
-use wavelets::iter::slice::LanesIterator;
+use wavelets::iter::LanesIterator;
 use wavelets::lwt::{self, LiftingTransform};
 use wavelets::utils::{deinterleave_2d, deinterleave_strided, stack_to_strided};
 
@@ -27,9 +27,9 @@ pub fn test_broadcasted_db2() {
     let no = shape[0] / 2;
     let mut e = vec![0.0; ne];
     let mut s = vec![0.0; no];
-    for (in_lane, out_lane) in x.iter_lanes(&shape, 0).zip(x2.iter_lanes_mut(&shape, 0)) {
-        deinterleave_strided(in_lane, &mut e, &mut s);
-        stack_to_strided(&e, &s, out_lane);
+    for (in_lane, mut out_lane) in x.iter_lanes(&shape, 0).zip(x2.iter_lanes_mut(&shape, 0)) {
+        deinterleave_strided(&in_lane, &mut e, &mut s);
+        stack_to_strided(&e, &s, &mut out_lane);
     }
 
     let (s, d) = x2.split_at_mut(ne * shape[1]);

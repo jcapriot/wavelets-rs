@@ -124,7 +124,7 @@ fn interleave_slice_benchmark(c: &mut Criterion) {
 }
 
 fn interleave_strided_benchmark(c: &mut Criterion) {
-    use wavelets::iter::slice::LanesIterator;
+    use wavelets::iter::LanesIterator;
     use wavelets::utils::interleave;
 
     let n = 100;
@@ -144,7 +144,9 @@ fn interleave_strided_benchmark(c: &mut Criterion) {
 
     group.bench_function("lanes - out of place", |b| {
         b.iter(|| {
-            for (lane_in, lane_out) in x1.iter_lanes(&shape, 0).zip(x2.iter_lanes_mut(&shape, 0)) {
+            for (lane_in, mut lane_out) in
+                x1.iter_lanes(&shape, 0).zip(x2.iter_lanes_mut(&shape, 0))
+            {
                 lane_in
                     .iter()
                     .cloned()
@@ -170,16 +172,18 @@ fn interleave_strided_benchmark(c: &mut Criterion) {
 
     group.bench_function("lane chunks - out of place", |b| {
         b.iter(|| {
-            let (in_chunk, in_rem) = x1.iter_lane_chunks::<N>(&shape, 0);
-            let (out_chunk, out_rem) = x2.iter_lane_chunks_mut::<N>(&shape, 0);
+            let in_chunk = x1.iter_lane_chunks::<N>(&shape, 0);
+            let in_rem = in_chunk.remainder();
+            let out_chunk = x2.iter_lane_chunks_mut::<N>(&shape, 0);
+            let out_rem = out_chunk.remainder();
 
-            for (in_chunk, out_chunk) in in_chunk.zip(out_chunk) {
-                split_strided_chunk(in_chunk, &mut work_f, &mut work_s);
-                interleave_strided_chunk(&work_f, &work_s, out_chunk);
+            for (in_chunk, mut out_chunk) in in_chunk.zip(out_chunk) {
+                split_strided_chunk(&in_chunk, &mut work_f, &mut work_s);
+                interleave_strided_chunk(&work_f, &work_s, &mut out_chunk);
             }
-            for (in_rem, out_rem) in in_rem.zip(out_rem) {
-                split_strided(in_rem, &mut work_f2, &mut work_s2);
-                interleave_strided(&work_f2, &work_s2, out_rem);
+            for (in_rem, mut out_rem) in in_rem.zip(out_rem) {
+                split_strided(&in_rem, &mut work_f2, &mut work_s2);
+                interleave_strided(&work_f2, &work_s2, &mut out_rem);
             }
         })
     });
@@ -228,16 +232,18 @@ fn interleave_strided_benchmark(c: &mut Criterion) {
     let mut work_s2 = vec![0; ns];
     group.bench_function("simd(chunk) - out of place", |b| {
         b.iter(|| {
-            let (in_chunk, in_rem) = x1.iter_lane_chunks::<N>(&shape, 0);
-            let (out_chunk, out_rem) = x2.iter_lane_chunks_mut::<N>(&shape, 0);
+            let in_chunk = x1.iter_lane_chunks::<N>(&shape, 0);
+            let in_rem = in_chunk.remainder();
+            let out_chunk = x2.iter_lane_chunks_mut::<N>(&shape, 0);
+            let out_rem = out_chunk.remainder();
 
-            for (in_chunk, out_chunk) in in_chunk.zip(out_chunk) {
-                split_strided_simd(in_chunk, &mut work_f, &mut work_s);
-                interleave_strided_simd(&work_f, &work_s, out_chunk);
+            for (in_chunk, mut out_chunk) in in_chunk.zip(out_chunk) {
+                split_strided_simd(&in_chunk, &mut work_f, &mut work_s);
+                interleave_strided_simd(&work_f, &work_s, &mut out_chunk);
             }
-            for (in_rem, out_rem) in in_rem.zip(out_rem) {
-                split_strided(in_rem, &mut work_f2, &mut work_s2);
-                interleave_strided(&work_f2, &work_s2, out_rem);
+            for (in_rem, mut out_rem) in in_rem.zip(out_rem) {
+                split_strided(&in_rem, &mut work_f2, &mut work_s2);
+                interleave_strided(&work_f2, &work_s2, &mut out_rem);
             }
         })
     });
@@ -246,7 +252,7 @@ fn interleave_strided_benchmark(c: &mut Criterion) {
 }
 
 fn deinterleave_benchmark(c: &mut Criterion) {
-    use wavelets::iter::slice::LanesIterator;
+    use wavelets::iter::LanesIterator;
     use wavelets::utils::{deinterleave_nd, deinterleave_strided};
 
     const D: usize = 2;
@@ -267,11 +273,11 @@ fn deinterleave_benchmark(c: &mut Criterion) {
                 let n_o = n / 2;
                 let mut work_e = vec![0; n_e];
                 let mut work_o = vec![0; n_o];
-                for (lane_in, lane_out) in
+                for (lane_in, mut lane_out) in
                     x1.iter_lanes(&shape, ax).zip(x2.iter_lanes_mut(&shape, ax))
                 {
-                    deinterleave_strided(lane_in, &mut work_e, &mut work_o);
-                    stack_to_strided(&work_e, &work_o, lane_out);
+                    deinterleave_strided(&lane_in, &mut work_e, &mut work_o);
+                    stack_to_strided(&work_e, &work_o, &mut lane_out);
                 }
             }
         })
@@ -289,7 +295,7 @@ fn deinterleave_benchmark(c: &mut Criterion) {
 fn broadcasted_vs_strided_db2(c: &mut Criterion) {
     use wavelets::Wavelets;
     use wavelets::boundarys::ZeroBoundary;
-    use wavelets::driver::Wavelet;
+    use wavelets::driver::parallel::Wavelet;
     use wavelets::lwt::LiftingTransform;
     use wavelets::utils::deinterleave_nd;
 
@@ -335,7 +341,7 @@ fn broadcasted_vs_strided_db2(c: &mut Criterion) {
 fn broadcasted_vs_strided_db4(c: &mut Criterion) {
     use wavelets::Wavelets;
     use wavelets::boundarys::ZeroBoundary;
-    use wavelets::driver::Wavelet;
+    use wavelets::driver::parallel::Wavelet;
     use wavelets::lwt::LiftingTransform;
     use wavelets::utils::deinterleave_nd;
 
@@ -382,7 +388,7 @@ fn broadcasted_vs_strided_db4(c: &mut Criterion) {
 fn broadcasted_vs_strided_db6(c: &mut Criterion) {
     use wavelets::Wavelets;
     use wavelets::boundarys::ZeroBoundary;
-    use wavelets::driver::Wavelet;
+    use wavelets::driver::parallel::Wavelet;
     use wavelets::lwt::LiftingTransform;
     use wavelets::utils::deinterleave_nd;
 
