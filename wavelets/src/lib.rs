@@ -1,5 +1,4 @@
 pub mod boundarys;
-pub mod driver;
 pub mod dwt;
 pub mod iter;
 pub mod lwt;
@@ -71,19 +70,7 @@ pub mod bior {
     gen_wavelet_struct!((CDF9_7, 10));
 }
 
-generate_wavelet_enum!(Wavelets);
-
-// #[derive(Clone, Copy, Debug)]
-// pub enum Direction {
-//     Forward,
-//     Inverse,
-// }
-
-// #[derive(Clone, Copy, Debug)]
-// pub enum Operation {
-//     Normal,
-//     Adjoint,
-// }
+generate_wavelet_enum!(Wavelets, (Clone, Copy, Debug, PartialEq, Eq, Hash));
 
 pub trait Transformable:
     NumOps
@@ -98,6 +85,14 @@ pub trait Transformable:
         + Clone
         + std::ops::Mul<Self::ScalarType, Output = Self::ScalarType>
         + std::fmt::Debug;
+
+    #[inline(always)]
+    fn scalar_type_from_isize(x: isize) -> Self::ScalarType {
+        Self::ScalarType::from_isize(x).unwrap()
+    }
+    fn scalar_type_from_f64(x: f64) -> Self::ScalarType {
+        Self::ScalarType::from_f64(x).unwrap()
+    }
 }
 
 macro_rules! impl_transformable {

@@ -1,8 +1,8 @@
 use itertools::Itertools;
 use wavelets::Wavelets;
 use wavelets::boundarys::ZeroBoundary;
-use wavelets::driver::Wavelet;
 use wavelets::iter::LanesIterator;
+use wavelets::lwt::driver::WaveletTransform;
 use wavelets::lwt::{self, LiftingTransform};
 use wavelets::utils::{deinterleave_2d, deinterleave_strided, stack_to_strided};
 
@@ -13,7 +13,7 @@ pub fn test_broadcasted_db2() {
     let x = (0..n_total).map(|i| i as f64).collect_vec();
 
     let wvlt = Wavelets::Daubechies2;
-    let trans = Wavelet::new(wvlt, ZeroBoundary {});
+    let trans = WaveletTransform::new(wvlt, ZeroBoundary {});
 
     let mut sd = vec![0.0; n_total];
     let axes = [0];
@@ -53,7 +53,7 @@ pub fn test_broadcasted_db2_full() {
     let x = (0..n_total).map(|i| i as f64).collect_vec();
 
     let wvlt = Wavelets::Daubechies2;
-    let trans = Wavelet::new(wvlt, ZeroBoundary {});
+    let trans = WaveletTransform::new(wvlt, ZeroBoundary {});
 
     let mut sd = vec![0.0; n_total];
     let axes = [1, 0];

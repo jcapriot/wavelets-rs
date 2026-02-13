@@ -194,7 +194,9 @@ mod test {
                     BoundaryCondition::Constant,
                     BoundaryCondition::Reflect,
                     BoundaryCondition::Symmetric,
-                    BoundaryCondition::Antisymmetric
+                    BoundaryCondition::Antisymmetric,
+                    BoundaryCondition::Smooth,
+                    BoundaryCondition::Antireflect
                 )]
                 bc: BoundaryCondition,
                 #[values(64, 65)] n: usize,

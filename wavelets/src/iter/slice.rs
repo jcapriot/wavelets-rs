@@ -639,7 +639,7 @@ fn lane_parts_from_sub_slice<T>(
         .collect::<Vec<_>>();
     // SAFETY: slice length > 0 so ptr is NonNull.
     let ptr = unsafe { NonNull::new_unchecked(arr.as_ptr() as *mut T) };
-    (ptr, ArrayInfo::new(shape, &stride, axis))
+    (ptr, ArrayInfo::new(sub_shape, &stride, axis))
 }
 
 #[cfg(feature = "ndarray")]

@@ -1,3 +1,15 @@
 [build-system]
 requires = ["maturin>=1.0,<2.0"]
 build-backend = "maturin"
+
+[project]
+name = "wavelets"
+classifiers = [
+    "Development Status :: 1 - Planning",
+    "Programming Language :: Python",
+    "Programming Language :: Rust",
+]
+dependencies = ["numpy"]
+
+[tool.maturin]
+module-name = "wavelets._wavelets_ext"

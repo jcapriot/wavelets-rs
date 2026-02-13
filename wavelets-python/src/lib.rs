@@ -1,103 +1,210 @@
-//generate_wavelet_enum!(Wavelets);
-use pyo3::prelude::*;
+use pyo3::prelude::{pyclass, pymodule};
 
-#[pymodule]
-mod wavelets_ext {
-    use super::*;
-    use wavelets::Wavelets as WaveletsEnum;
+use wavelets;
+use wavelets::boundarys;
+use wavelets_macros::generate_wavelet_enum;
+use wavelets_macros::generate_wavelet_match_arms;
 
-    #[pyclass]
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-    pub enum Wavelets {
-        Daubechies1,
-        Daubechies2,
-        Daubechies3,
-        Daubechies4,
+generate_wavelet_enum! {
+    Wavelets,
+    (Clone, Copy, Debug, PartialEq, Eq, Hash),
+    {#[pyclass]}
+}
+
+impl Wavelets {
+    fn to_enum(&self) -> wavelets::Wavelets {
+        generate_wavelet_match_arms! {Self, self, {wavelets::Wavelets::#wvlt,}}
     }
+}
 
-    impl Wavelets {
-        fn to_enum(&self) -> WaveletsEnum {
-            match self {
-                Wavelets::Daubechies1 => WaveletsEnum::Daubechies1,
-                Wavelets::Daubechies2 => WaveletsEnum::Daubechies2,
-                Wavelets::Daubechies3 => WaveletsEnum::Daubechies3,
-                Wavelets::Daubechies4 => WaveletsEnum::Daubechies4,
-            }
+#[pyclass]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum BoundaryCondition {
+    Zero,
+    Periodic,
+    Constant,
+    Symmetric,
+    Reflect,
+    Antisymmetric,
+    Smooth,
+    Antireflect,
+}
+
+impl BoundaryCondition {
+    fn to_enum(&self) -> boundarys::BoundaryCondition {
+        match self {
+            Self::Zero => boundarys::BoundaryCondition::Zero,
+            Self::Periodic => boundarys::BoundaryCondition::Periodic,
+            Self::Constant => boundarys::BoundaryCondition::Constant,
+            Self::Symmetric => boundarys::BoundaryCondition::Symmetric,
+            Self::Reflect => boundarys::BoundaryCondition::Reflect,
+            Self::Antisymmetric => boundarys::BoundaryCondition::Antisymmetric,
+            Self::Smooth => boundarys::BoundaryCondition::Smooth,
+            Self::Antireflect => boundarys::BoundaryCondition::Antireflect,
         }
     }
+}
+
+#[pymodule]
+mod _wavelets_ext {
+    use pyo3::prelude::{pyfunction, PyErr, PyResult, Python};
+    use wavelets::lwt::driver;
 
     use numpy::{PyReadonlyArrayDyn, PyReadwriteArrayDyn};
 
+    #[pymodule_export]
+    use super::Wavelets;
+
+    #[pymodule_export]
+    use super::BoundaryCondition;
+
+    macro_rules! implement_transform {
+        ($trans_func:ident, $py:ident, $wavelet:ident, $x:ident, $y:ident, $bc:ident, $axes:ident, $level:ident) => {
+            let x = $x.as_array();
+            let mut y = $y.as_array_mut();
+
+            if x.shape() != y.shape() {
+                return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                    "input and output arrays must have the same shape",
+                ));
+            }
+            let ndim = x.ndim();
+            let axes = $axes
+                .map(|v| {
+                    let v = v
+                        .into_iter()
+                        .map(|i| {
+                            if i < 0 {
+                                i.rem_euclid(ndim as isize) as usize
+                            } else {
+                                i as usize
+                            }
+                        })
+                        .collect::<Vec<_>>();
+                    v
+                })
+                .unwrap_or_else(|| (0..ndim).collect::<Vec<_>>());
+
+            if axes.iter().any(|ax| *ax >= ndim) {
+                return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                    "request axis is beyond the dimensionality of the input.",
+                ));
+            }
+            $py.detach(|| {
+                let bc = $bc.unwrap_or(BoundaryCondition::Symmetric).to_enum();
+                let level = $level.unwrap_or(1);
+                let wvlt = $wavelet.to_enum();
+
+                let trans = driver::parallel::WaveletTransform::new(wvlt, bc);
+
+                trans.$trans_func(&x, &mut y, &axes, level);
+            });
+
+            Ok(())
+        };
+    }
+
     #[pyfunction]
-    fn forward_transform<'py>(
+    fn forward_transform_f64<'py>(
         py: Python<'py>,
         wavelet: Wavelets,
         x: PyReadonlyArrayDyn<f64>,
         mut y: PyReadwriteArrayDyn<f64>,
+        bc: Option<BoundaryCondition>,
+        axes: Option<Vec<isize>>,
+        level: Option<usize>,
     ) -> PyResult<()> {
-        let x = x.as_array();
-        if x.strides().iter().any(|s| *s < 0) {
-            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
-                "Negative strides are not supported",
-            ));
-        }
-        let ptr = x.as_ptr();
-        let shape = x.shape();
-        let stride = x.strides().iter().map(|s| *s as usize).collect::<Vec<_>>();
-        let max_offset = shape
-            .iter()
-            .zip(stride.iter())
-            .map(|(n, step)| n * step)
-            .max()
-            .unwrap_or(0);
+        implement_transform! {forward_ndarray_multilevel, py, wavelet, x, y, bc, axes, level}
+    }
 
-        let first_element_ptr = x.as_ptr();
-        let y = y.as_array_mut();
-        let wvlt = wavelet.to_enum();
+    #[pyfunction]
+    fn inverse_transform_f64<'py>(
+        py: Python<'py>,
+        wavelet: Wavelets,
+        x: PyReadonlyArrayDyn<f64>,
+        mut y: PyReadwriteArrayDyn<f64>,
+        bc: Option<BoundaryCondition>,
+        axes: Option<Vec<isize>>,
+        level: Option<usize>,
+    ) -> PyResult<()> {
+        implement_transform! {inverse_ndarray_multilevel, py, wavelet, x, y, bc, axes, level}
+    }
 
-        Ok(())
+    #[pyfunction]
+    fn adj_forward_transform_f64<'py>(
+        py: Python<'py>,
+        wavelet: Wavelets,
+        x: PyReadonlyArrayDyn<f64>,
+        mut y: PyReadwriteArrayDyn<f64>,
+        bc: Option<BoundaryCondition>,
+        axes: Option<Vec<isize>>,
+        level: Option<usize>,
+    ) -> PyResult<()> {
+        implement_transform! {adj_forward_ndarray_multilevel, py, wavelet, x, y, bc, axes, level}
+    }
+
+    #[pyfunction]
+    fn adj_inverse_transform_f64<'py>(
+        py: Python<'py>,
+        wavelet: Wavelets,
+        x: PyReadonlyArrayDyn<f64>,
+        mut y: PyReadwriteArrayDyn<f64>,
+        bc: Option<BoundaryCondition>,
+        axes: Option<Vec<isize>>,
+        level: Option<usize>,
+    ) -> PyResult<()> {
+        implement_transform! {adj_inverse_ndarray_multilevel, py, wavelet, x, y, bc, axes, level}
+    }
+
+    #[pyfunction]
+    fn forward_transform_f32<'py>(
+        py: Python<'py>,
+        wavelet: Wavelets,
+        x: PyReadonlyArrayDyn<f32>,
+        mut y: PyReadwriteArrayDyn<f32>,
+        bc: Option<BoundaryCondition>,
+        axes: Option<Vec<isize>>,
+        level: Option<usize>,
+    ) -> PyResult<()> {
+        implement_transform! {forward_ndarray_multilevel, py, wavelet, x, y, bc, axes, level}
+    }
+
+    #[pyfunction]
+    fn inverse_transform_f32<'py>(
+        py: Python<'py>,
+        wavelet: Wavelets,
+        x: PyReadonlyArrayDyn<f32>,
+        mut y: PyReadwriteArrayDyn<f32>,
+        bc: Option<BoundaryCondition>,
+        axes: Option<Vec<isize>>,
+        level: Option<usize>,
+    ) -> PyResult<()> {
+        implement_transform! {inverse_ndarray_multilevel, py, wavelet, x, y, bc, axes, level}
+    }
+
+    #[pyfunction]
+    fn adj_forward_transform_f32<'py>(
+        py: Python<'py>,
+        wavelet: Wavelets,
+        x: PyReadonlyArrayDyn<f32>,
+        mut y: PyReadwriteArrayDyn<f32>,
+        bc: Option<BoundaryCondition>,
+        axes: Option<Vec<isize>>,
+        level: Option<usize>,
+    ) -> PyResult<()> {
+        implement_transform! {adj_forward_ndarray_multilevel, py, wavelet, x, y, bc, axes, level}
+    }
+
+    #[pyfunction]
+    fn adj_inverse_transform_f32<'py>(
+        py: Python<'py>,
+        wavelet: Wavelets,
+        x: PyReadonlyArrayDyn<f32>,
+        mut y: PyReadwriteArrayDyn<f32>,
+        bc: Option<BoundaryCondition>,
+        axes: Option<Vec<isize>>,
+        level: Option<usize>,
+    ) -> PyResult<()> {
+        implement_transform! {adj_inverse_ndarray_multilevel, py, wavelet, x, y, bc, axes, level}
     }
 }
-
-// #[pyfunction]
-// fn guess_the_number() {
-//     println!("Guess the number!");
-
-//     let secret_number = rand::rng().random_range(1..101);
-
-//     loop {
-//         println!("Please input your guess.");
-
-//         let mut guess = String::new();
-
-//         io::stdin()
-//             .read_line(&mut guess)
-//             .expect("Failed to read line");
-
-//         let guess: u32 = match guess.trim().parse() {
-//             Ok(num) => num,
-//             Err(_) => continue,
-//         };
-
-//         println!("You guessed: {}", guess);
-
-//         match guess.cmp(&secret_number) {
-//             Ordering::Less => println!("Too small!"),
-//             Ordering::Greater => println!("Too big!"),
-//             Ordering::Equal => {
-//                 println!("You win!");
-//                 break;
-//             }
-//         }
-//     }
-// }
-
-// /// A Python module implemented in Rust. The name of this function must match
-// /// the `lib.name` setting in the `Cargo.toml`, else Python will not be able to
-// /// import the module.
-// #[pymodule]
-// fn guessing_game(m: &Bound<'_, PyModule>) -> PyResult<()> {
-//     m.add_function(wrap_pyfunction!(guess_the_number, m)?)?;
-
-//     Ok(())
-// }

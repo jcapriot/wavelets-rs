@@ -3,6 +3,7 @@ extern crate proc_macro;
 use proc_macro::TokenStream;
 use proc_macro2::TokenTree;
 use quote::{ToTokens, quote};
+use syn::ext::IdentExt;
 use syn::parse::{Parse, ParseStream};
 use syn::spanned::Spanned;
 use syn::{Ident, LitFloat, Result, Token, parse_macro_input};
@@ -51,13 +52,59 @@ fn wavelet_idents() -> Vec<Ident> {
         .collect::<Vec<_>>()
 }
 
+struct WaveletEnum {
+    enum_name: Ident,
+    derives: Vec<Ident>,
+    extras: Option<proc_macro2::TokenStream>,
+}
+
+impl Parse for WaveletEnum {
+    fn parse(input: ParseStream) -> Result<Self> {
+        let enum_name: Ident = input.parse()?;
+        input.parse::<Token![,]>()?;
+
+        let derives_content;
+        syn::parenthesized!(derives_content in input);
+        let derives: Vec<Ident> = derives_content
+            .parse_terminated(Ident::parse, Token![,])?
+            .into_iter()
+            .collect();
+        let extras = if let Ok(_) = input.parse::<Token![,]>() {
+            let extra_content;
+            syn::braced!(extra_content in input);
+            let extras: proc_macro2::TokenStream = extra_content.parse()?;
+            Some(extras)
+        } else {
+            None
+        };
+
+        Ok(Self {
+            enum_name,
+            derives,
+            extras,
+        })
+    }
+}
+
 #[proc_macro]
 pub fn generate_wavelet_enum(input: TokenStream) -> TokenStream {
-    let name = parse_macro_input!(input as syn::Ident);
+    let WaveletEnum {
+        enum_name,
+        derives,
+        extras,
+    } = parse_macro_input!(input as WaveletEnum);
     let wvlts = wavelet_idents();
+    // quote! {
+    //     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    //     pub enum #name{
+    //         #(#wvlts), *
+    //     }
+    // }
+    // .into()
     quote! {
-        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-        pub enum #name{
+        #extras
+        #[derive(#(#derives),*)]
+        pub enum #enum_name{
             #(#wvlts), *
         }
     }
@@ -72,9 +119,9 @@ struct WaveletMatchArms {
 
 impl Parse for WaveletMatchArms {
     fn parse(input: ParseStream) -> Result<Self> {
-        let enum_name: Ident = input.parse()?;
+        let enum_name: Ident = input.call(Ident::parse_any)?;
         input.parse::<Token![,]>()?;
-        let var_name: Ident = input.parse()?;
+        let var_name: Ident = input.call(Ident::parse_any)?;
         input.parse::<Token![,]>()?;
         let content;
         syn::braced!(content in input);
@@ -243,7 +290,7 @@ fn expand_lifting_step(
 
             let terms = coefs.iter().map(|c| {
                 quote! {
-                    T::ScalarType::from(#c)
+                    T::scalar_type_from_f64(#c)
                 }
             });
 
@@ -343,7 +390,7 @@ fn expand_lifting_step(
             loop_body
         }
         LiftingStep::Scale { scale } => {
-            let scale_step = quote! {let scaling = T::ScalarType::from(#scale);};
+            let scale_step = quote! {let scaling = T::scalar_type_from_f64(#scale);};
 
             let (s_op, d_op) = match direction {
                 LiftingDirection::Forward => (quote! {*=}, quote! {/=}),
@@ -406,7 +453,7 @@ fn expand_lifting_step_chunk(
 
             let terms = coefs.iter().map(|c| {
                 quote! {
-                    T::ScalarType::from(#c)
+                    T::scalar_type_from_f64(#c)
                 }
             });
 
@@ -585,7 +632,7 @@ fn expand_lifting_step_chunk(
             loop_body
         }
         LiftingStep::Scale { scale } => {
-            let scale_step = quote! {let scaling = T::ScalarType::from(#scale);};
+            let scale_step = quote! {let scaling = T::scalar_type_from_f64(#scale);};
 
             let (s_op, d_op) = match direction {
                 LiftingDirection::Forward => (quote! {*=}, quote! {/=}),
@@ -642,7 +689,7 @@ fn expand_adjoint_lifting_step(
 
             let terms = coefs.iter().rev().map(|c| {
                 quote! {
-                    T::ScalarType::from(#c)
+                    T::scalar_type_from_f64(#c)
                 }
             });
 
@@ -655,7 +702,6 @@ fn expand_adjoint_lifting_step(
                     #loop_body
                     for i in 0..#n_front as isize{
                         let i_left = i + #offset;
-                        let i_right = i_left + #offset_r;
                         bc.adjoint_op(|v, x| *v #update_op x, #l, #r, #offset_r, &c, i_left);
                     }
                 };
@@ -760,7 +806,7 @@ fn expand_adjoint_lifting_step(
             loop_body
         }
         LiftingStep::Scale { scale } => {
-            let scale_step = quote! {let scaling = T::ScalarType::from(#scale);};
+            let scale_step = quote! {let scaling = T::scalar_type_from_f64(#scale);};
 
             let (s_op, d_op) = match direction {
                 LiftingDirection::Forward => (quote! {*=}, quote! {/=}),
@@ -793,7 +839,6 @@ fn generate_forward_op(steps: &[LiftingStep<LitFloat>]) -> proc_macro2::TokenStr
         fn forward<T, BC>(s: &mut [T], d: &mut [T], bc: &BC)
         where
             T: crate::Transformable,
-            T::ScalarType: From<f64>,
             BC: crate::boundarys::BoundaryExtension
         {
             #func_body
@@ -819,7 +864,6 @@ fn generate_forward_chunk_op(steps: &[LiftingStep<LitFloat>]) -> proc_macro2::To
         fn forward_chunk<T, BC>(s: &mut [T], d: &mut [T], chunk_size: usize, bc: &BC)
         where
             T: crate::Transformable,
-            T::ScalarType: From<f64>,
             BC: crate::boundarys::BoundaryExtension
         {
             use ::itertools::izip;
@@ -842,7 +886,6 @@ fn generate_inverse_op(steps: &[LiftingStep<LitFloat>]) -> proc_macro2::TokenStr
         fn inverse<T, BC>(s: &mut [T], d: &mut [T], bc: &BC)
         where
             T: crate::Transformable,
-            T::ScalarType: From<f64>,
             BC: crate::lwt::BoundaryExtension
         {
             #func_body
@@ -864,7 +907,6 @@ fn generate_adjoint_inverse_op(steps: &[LiftingStep<LitFloat>]) -> proc_macro2::
         fn adjoint_inverse<T, BC>(s: &mut [T], d: &mut [T], bc: &BC)
         where
             T: crate::Transformable,
-            T::ScalarType: From<f64>,
             BC: crate::lwt::LiftedAdjointBoundary
         {
             #func_body
@@ -886,7 +928,6 @@ fn generate_adjoint_forward_op(steps: &[LiftingStep<LitFloat>]) -> proc_macro2::
         fn adjoint_forward<T, BC>(s: &mut [T], d: &mut [T], bc: &BC)
         where
             T: crate::Transformable,
-            T::ScalarType: From<f64>,
             BC: crate::lwt::LiftedAdjointBoundary
         {
             #func_body
@@ -960,7 +1001,7 @@ pub fn implement_dwt_orthogonal(input: TokenStream) -> TokenStream {
     let hi = h.clone().into_iter().rev().collect::<Vec<_>>();
 
     quote! {
-    impl crate::dwt::DiscreteTransform<f64, {#name::WIDTH}> for #name {
+    impl crate::dwt::DiscreteTransform<{#name::WIDTH}> for #name {
             const G: [f64; #name::WIDTH] = [#(#g), *];
             const H: [f64; #name::WIDTH] = [#(#h), *];
             const GI: [f64; #name::WIDTH] = [#(#gi), *];
@@ -1026,7 +1067,7 @@ pub fn implement_dwt_biorthogonal(input: TokenStream) -> TokenStream {
         .collect::<Vec<_>>();
 
     quote! {
-    impl crate::dwt::DiscreteTransform<f64, {#name::WIDTH}> for #name {
+    impl crate::dwt::DiscreteTransform<{#name::WIDTH}> for #name {
             const G: [f64; #name::WIDTH] = [#(#g), *];
             const H: [f64; #name::WIDTH] = [#(#h), *];
             const GI: [f64; #name::WIDTH] = [#(#gi), *];

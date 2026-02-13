@@ -295,8 +295,8 @@ fn deinterleave_benchmark(c: &mut Criterion) {
 fn broadcasted_vs_strided_db2(c: &mut Criterion) {
     use wavelets::Wavelets;
     use wavelets::boundarys::ZeroBoundary;
-    use wavelets::driver::parallel::Wavelet;
     use wavelets::lwt::LiftingTransform;
+    use wavelets::lwt::driver::parallel::WaveletTransform;
     use wavelets::utils::deinterleave_nd;
 
     let n = 500;
@@ -306,7 +306,7 @@ fn broadcasted_vs_strided_db2(c: &mut Criterion) {
     let x = (0..n_total).map(|i| i as f64).collect_vec();
 
     let wvlt = Wavelets::Daubechies2;
-    let trans = Wavelet::new(wvlt, ZeroBoundary {});
+    let trans = WaveletTransform::new(wvlt, ZeroBoundary {});
 
     let mut sd = vec![0.0; n_total];
     let axes = [1, 0];
@@ -341,8 +341,8 @@ fn broadcasted_vs_strided_db2(c: &mut Criterion) {
 fn broadcasted_vs_strided_db4(c: &mut Criterion) {
     use wavelets::Wavelets;
     use wavelets::boundarys::ZeroBoundary;
-    use wavelets::driver::parallel::Wavelet;
     use wavelets::lwt::LiftingTransform;
+    use wavelets::lwt::driver::parallel::WaveletTransform;
     use wavelets::utils::deinterleave_nd;
 
     let n = 500;
@@ -352,7 +352,7 @@ fn broadcasted_vs_strided_db4(c: &mut Criterion) {
     let x = (0..n_total).map(|i| i as f64).collect_vec();
 
     let wvlt = Wavelets::Daubechies4;
-    let trans = Wavelet::new(wvlt, ZeroBoundary {});
+    let trans = WaveletTransform::new(wvlt, ZeroBoundary {});
 
     let mut sd = vec![0.0; n_total];
     let axes = [1, 0];
@@ -388,8 +388,8 @@ fn broadcasted_vs_strided_db4(c: &mut Criterion) {
 fn broadcasted_vs_strided_db6(c: &mut Criterion) {
     use wavelets::Wavelets;
     use wavelets::boundarys::ZeroBoundary;
-    use wavelets::driver::parallel::Wavelet;
     use wavelets::lwt::LiftingTransform;
+    use wavelets::lwt::driver::parallel::WaveletTransform;
     use wavelets::utils::deinterleave_nd;
 
     let n = 500;
@@ -399,7 +399,7 @@ fn broadcasted_vs_strided_db6(c: &mut Criterion) {
     let x = (0..n_total).map(|i| i as f64).collect_vec();
 
     let wvlt = Wavelets::Daubechies6;
-    let trans = Wavelet::new(wvlt, ZeroBoundary {});
+    let trans = WaveletTransform::new(wvlt, ZeroBoundary {});
 
     let mut sd = vec![0.0; n_total];
     let axes = [1, 0];

@@ -1,6 +1,7 @@
 pub mod bior;
 pub mod coiflet;
 pub mod daubechies;
+pub mod driver;
 pub mod symlet;
 
 use crate::Transformable;
@@ -8,32 +9,24 @@ use crate::boundarys::BoundaryExtension;
 use crate::boundarys::LiftedAdjointBoundary;
 
 pub trait LiftingTransform {
-    fn forward<T: Transformable, BC: BoundaryExtension>(s: &mut [T], d: &mut [T], bc: &BC)
-    where
-        T::ScalarType: From<f64>;
-
+    fn forward<T: Transformable, BC: BoundaryExtension>(s: &mut [T], d: &mut [T], bc: &BC);
     fn forward_chunk<T: Transformable, BC: BoundaryExtension>(
         s: &mut [T],
         d: &mut [T],
         chunk_size: usize,
         bc: &BC,
-    ) where
-        T::ScalarType: From<f64>;
-    fn inverse<T: Transformable, BC: BoundaryExtension>(s: &mut [T], d: &mut [T], bc: &BC)
-    where
-        T::ScalarType: From<f64>;
+    );
+    fn inverse<T: Transformable, BC: BoundaryExtension>(s: &mut [T], d: &mut [T], bc: &BC);
     fn adjoint_forward<T: Transformable, BC: LiftedAdjointBoundary>(
         s: &mut [T],
         d: &mut [T],
         bc: &BC,
-    ) where
-        T::ScalarType: From<f64>;
+    );
     fn adjoint_inverse<T: Transformable, BC: LiftedAdjointBoundary>(
         s: &mut [T],
         d: &mut [T],
         bc: &BC,
-    ) where
-        T::ScalarType: From<f64>;
+    );
 }
 
 #[cfg(test)]
@@ -66,7 +59,9 @@ mod tests {
             BoundaryCondition::Constant,
             BoundaryCondition::Reflect,
             BoundaryCondition::Symmetric,
-            BoundaryCondition::Antisymmetric
+            BoundaryCondition::Antisymmetric,
+            BoundaryCondition::Smooth,
+            BoundaryCondition::Antireflect
         )]
         bc: BoundaryCondition,
         #[values(32, 31)] n: usize,
@@ -94,7 +89,9 @@ mod tests {
             BoundaryCondition::Constant,
             BoundaryCondition::Reflect,
             BoundaryCondition::Symmetric,
-            BoundaryCondition::Antisymmetric
+            BoundaryCondition::Antisymmetric,
+            BoundaryCondition::Smooth,
+            BoundaryCondition::Antireflect
         )]
         bc: BoundaryCondition,
         #[values(32, 31)] n: usize,
@@ -122,7 +119,9 @@ mod tests {
             BoundaryCondition::Constant,
             BoundaryCondition::Reflect,
             BoundaryCondition::Symmetric,
-            BoundaryCondition::Antisymmetric
+            BoundaryCondition::Antisymmetric,
+            BoundaryCondition::Smooth,
+            BoundaryCondition::Antireflect
         )]
         bc: BoundaryCondition,
         #[values(32, 31)] n: usize,
@@ -166,7 +165,9 @@ mod tests {
             BoundaryCondition::Constant,
             BoundaryCondition::Reflect,
             BoundaryCondition::Symmetric,
-            BoundaryCondition::Antisymmetric
+            BoundaryCondition::Antisymmetric,
+            BoundaryCondition::Smooth,
+            BoundaryCondition::Antireflect
         )]
         bc: BoundaryCondition,
         #[values(32, 31)] n: usize,
@@ -210,7 +211,9 @@ mod tests {
             BoundaryCondition::Constant,
             BoundaryCondition::Reflect,
             BoundaryCondition::Symmetric,
-            BoundaryCondition::Antisymmetric
+            BoundaryCondition::Antisymmetric,
+            BoundaryCondition::Smooth,
+            BoundaryCondition::Antireflect
         )]
         bc: BoundaryCondition,
         #[values(32, 31)] n: usize,

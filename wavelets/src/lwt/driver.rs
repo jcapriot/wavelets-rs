@@ -19,10 +19,9 @@ use crate::{ChunkWidth, Transformable};
 
 use wavelets_macros::generate_wavelet_match_arms;
 
-pub struct Wavelet<T, BC, const N: usize>
+pub struct WaveletTransform<T, BC, const N: usize>
 where
     T: Transformable + Zero + ChunkWidth<T, N>,
-    T::ScalarType: From<f64>,
     BC: BoundaryExtension + LiftedAdjointBoundary,
 {
     lwt_forward: fn(&mut [T], &mut [T], &BC),
@@ -32,10 +31,9 @@ where
     bc: BC,
 }
 
-impl<T, BC, const N: usize> Wavelet<T, BC, N>
+impl<T, BC, const N: usize> WaveletTransform<T, BC, N>
 where
     T: Transformable + Zero + ChunkWidth<T, N>,
-    T::ScalarType: From<f64>,
     BC: BoundaryExtension + LiftedAdjointBoundary,
 {
     pub fn new(wvlt: Wavelets, bc: BC) -> Self {
@@ -188,10 +186,9 @@ where
 }
 
 #[cfg(feature = "ndarray")]
-impl<T, BC, const N: usize> Wavelet<T, BC, N>
+impl<T, BC, const N: usize> WaveletTransform<T, BC, N>
 where
     T: Transformable + Zero + ChunkWidth<T, N>,
-    T::ScalarType: From<f64>,
     BC: BoundaryExtension + LiftedAdjointBoundary,
 {
     pub fn forward_ndarray_multilevel<D: Dimension>(
@@ -208,10 +205,81 @@ where
             output.shape(),
             "input shape and output shape must be equal."
         );
-        // stride in and stride out are not actually used here...
 
         general_nd_forward_multilevel(
             |s, d| (self.lwt_forward)(s, d, &self.bc),
+            input,
+            output,
+            shape,
+            &axes,
+            level,
+        );
+    }
+    pub fn inverse_ndarray_multilevel<D: Dimension>(
+        &self,
+        input: &ArrayRef<T, D>,
+        output: &mut ArrayRef<T, D>,
+        axes: &[usize],
+        level: usize,
+    ) {
+        let axes = HashSet::from_iter(axes.iter().cloned());
+        let shape = input.shape();
+        assert_eq!(
+            shape,
+            output.shape(),
+            "input shape and output shape must be equal."
+        );
+
+        general_nd_inverse_multilevel(
+            |s, d| (self.lwt_inverse)(s, d, &self.bc),
+            input,
+            output,
+            shape,
+            &axes,
+            level,
+        );
+    }
+    pub fn adj_forward_ndarray_multilevel<D: Dimension>(
+        &self,
+        input: &ArrayRef<T, D>,
+        output: &mut ArrayRef<T, D>,
+        axes: &[usize],
+        level: usize,
+    ) {
+        let axes = HashSet::from_iter(axes.iter().cloned());
+        let shape = input.shape();
+        assert_eq!(
+            shape,
+            output.shape(),
+            "input shape and output shape must be equal."
+        );
+
+        general_nd_inverse_multilevel(
+            |s, d| (self.lwt_adj_forward)(s, d, &self.bc),
+            input,
+            output,
+            shape,
+            &axes,
+            level,
+        );
+    }
+    pub fn adj_inverse_ndarray_multilevel<D: Dimension>(
+        &self,
+        input: &ArrayRef<T, D>,
+        output: &mut ArrayRef<T, D>,
+        axes: &[usize],
+        level: usize,
+    ) {
+        let axes = HashSet::from_iter(axes.iter().cloned());
+        let shape = input.shape();
+        assert_eq!(
+            shape,
+            output.shape(),
+            "input shape and output shape must be equal."
+        );
+
+        general_nd_forward_multilevel(
+            |s, d| (self.lwt_adj_inverse)(s, d, &self.bc),
             input,
             output,
             shape,
@@ -232,7 +300,6 @@ fn general_nd_forward_multilevel<F, T, L, const N: usize>(
     F: Fn(&mut [T], &mut [T]),
     L: LanesIterator<Item = T> + ?Sized,
     T: Transformable + Zero + ChunkWidth<T, N>,
-    T::ScalarType: From<f64>,
 {
     let ndim = shape.len();
     assert!(axes.iter().all(|i| *i < ndim));
@@ -243,7 +310,7 @@ fn general_nd_forward_multilevel<F, T, L, const N: usize>(
     let mut sub_shape = shape.to_owned();
     for _level in 0..level {
         for &ax in axes {
-            let n_ax = shape[ax];
+            let n_ax = sub_shape[ax];
 
             let n_d = n_ax / 2;
             let n_s = n_ax - n_d;
@@ -338,7 +405,6 @@ fn general_nd_inverse_multilevel<F, T, L, const N: usize>(
     F: Fn(&mut [T], &mut [T]),
     L: LanesIterator<Item = T> + ?Sized,
     T: Transformable + Zero + ChunkWidth<T, N>,
-    T::ScalarType: From<f64>,
 {
     let ndim = shape.len();
     assert!(axes.iter().all(|i| *i < ndim));
@@ -378,7 +444,7 @@ fn general_nd_inverse_multilevel<F, T, L, const N: usize>(
     for lvl in (0..level).rev() {
         let sub_shape = &shape_levels[lvl];
         for &ax in axes {
-            let n_ax = shape[ax];
+            let n_ax = sub_shape[ax];
 
             let n_d = n_ax / 2;
             let n_s = n_ax - n_d;
@@ -419,11 +485,10 @@ pub mod parallel {
     use crate::iter::parallel::LanesParallelIterator;
     use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 
-    pub struct Wavelet<T, BC, const N: usize>
+    pub struct WaveletTransform<T, BC, const N: usize>
     where
         T: Transformable + Zero + ChunkWidth<T, N> + Sync + Send,
-        T::ScalarType: From<f64>,
-        BC: BoundaryExtension + LiftedAdjointBoundary + Sync,
+        BC: BoundaryExtension + LiftedAdjointBoundary,
     {
         lwt_forward: fn(&mut [T], &mut [T], &BC),
         lwt_inverse: fn(&mut [T], &mut [T], &BC),
@@ -432,11 +497,10 @@ pub mod parallel {
         bc: BC,
     }
 
-    impl<T, BC, const N: usize> Wavelet<T, BC, N>
+    impl<T, BC, const N: usize> WaveletTransform<T, BC, N>
     where
         T: Transformable + Zero + ChunkWidth<T, N> + Sync + Send,
-        T::ScalarType: From<f64>,
-        BC: BoundaryExtension + LiftedAdjointBoundary + Sync,
+        BC: BoundaryExtension + LiftedAdjointBoundary,
     {
         pub fn new(wvlt: Wavelets, bc: BC) -> Self {
             use crate::lwt::bior::*;
@@ -496,12 +560,12 @@ pub mod parallel {
 
         pub fn forward_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
             let axes = HashSet::from_iter(axes.iter().cloned());
-            self.forward_strided_multilevel_nd(input, output, shape, &axes, 1);
+            self.forward_multilevel_nd(input, output, shape, &axes, 1);
         }
 
         pub fn inverse_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
             let axes = HashSet::from_iter(axes.iter().cloned());
-            self.inverse_strided_multilevel_nd(input, output, shape, &axes, 1);
+            self.inverse_multilevel_nd(input, output, shape, &axes, 1);
         }
 
         pub fn adj_forward_nd(
@@ -512,7 +576,7 @@ pub mod parallel {
             axes: &[usize],
         ) {
             let axes = HashSet::from_iter(axes.iter().cloned());
-            self.adj_forward_strided_multilevel_nd(input, output, shape, &axes, 1);
+            self.adj_forward_multilevel_nd(input, output, shape, &axes, 1);
         }
 
         pub fn adj_inverse_nd(
@@ -523,10 +587,10 @@ pub mod parallel {
             axes: &[usize],
         ) {
             let axes = HashSet::from_iter(axes.iter().cloned());
-            self.adj_inverse_strided_multilevel_nd(input, output, shape, &axes, 1);
+            self.adj_inverse_multilevel_nd(input, output, shape, &axes, 1);
         }
 
-        pub fn forward_strided_multilevel_nd(
+        pub fn forward_multilevel_nd(
             &self,
             input: &[T],
             output: &mut [T],
@@ -544,7 +608,7 @@ pub mod parallel {
             );
         }
 
-        pub fn inverse_strided_multilevel_nd(
+        pub fn inverse_multilevel_nd(
             &self,
             input: &[T],
             output: &mut [T],
@@ -562,7 +626,7 @@ pub mod parallel {
             );
         }
 
-        pub fn adj_forward_strided_multilevel_nd(
+        pub fn adj_forward_multilevel_nd(
             &self,
             input: &[T],
             output: &mut [T],
@@ -580,7 +644,7 @@ pub mod parallel {
             );
         }
 
-        pub fn adj_inverse_strided_multilevel_nd(
+        pub fn adj_inverse_multilevel_nd(
             &self,
             input: &[T],
             output: &mut [T],
@@ -599,6 +663,110 @@ pub mod parallel {
         }
     }
 
+    #[cfg(feature = "ndarray")]
+    impl<T, BC, const N: usize> WaveletTransform<T, BC, N>
+    where
+        T: Transformable + Zero + ChunkWidth<T, N> + Sync + Send,
+        BC: BoundaryExtension + LiftedAdjointBoundary,
+    {
+        pub fn forward_ndarray_multilevel<D: Dimension>(
+            &self,
+            input: &ArrayRef<T, D>,
+            output: &mut ArrayRef<T, D>,
+            axes: &[usize],
+            level: usize,
+        ) {
+            let axes = HashSet::from_iter(axes.iter().cloned());
+            let shape = input.shape();
+            assert_eq!(
+                shape,
+                output.shape(),
+                "input shape and output shape must be equal."
+            );
+
+            general_nd_forward_multilevel(
+                |s, d| (self.lwt_forward)(s, d, &self.bc),
+                input,
+                output,
+                shape,
+                &axes,
+                level,
+            );
+        }
+        pub fn inverse_ndarray_multilevel<D: Dimension>(
+            &self,
+            input: &ArrayRef<T, D>,
+            output: &mut ArrayRef<T, D>,
+            axes: &[usize],
+            level: usize,
+        ) {
+            let axes = HashSet::from_iter(axes.iter().cloned());
+            let shape = input.shape();
+            assert_eq!(
+                shape,
+                output.shape(),
+                "input shape and output shape must be equal."
+            );
+
+            general_nd_inverse_multilevel(
+                |s, d| (self.lwt_inverse)(s, d, &self.bc),
+                input,
+                output,
+                shape,
+                &axes,
+                level,
+            );
+        }
+        pub fn adj_forward_ndarray_multilevel<D: Dimension>(
+            &self,
+            input: &ArrayRef<T, D>,
+            output: &mut ArrayRef<T, D>,
+            axes: &[usize],
+            level: usize,
+        ) {
+            let axes = HashSet::from_iter(axes.iter().cloned());
+            let shape = input.shape();
+            assert_eq!(
+                shape,
+                output.shape(),
+                "input shape and output shape must be equal."
+            );
+
+            general_nd_inverse_multilevel(
+                |s, d| (self.lwt_adj_forward)(s, d, &self.bc),
+                input,
+                output,
+                shape,
+                &axes,
+                level,
+            );
+        }
+        pub fn adj_inverse_ndarray_multilevel<D: Dimension>(
+            &self,
+            input: &ArrayRef<T, D>,
+            output: &mut ArrayRef<T, D>,
+            axes: &[usize],
+            level: usize,
+        ) {
+            let axes = HashSet::from_iter(axes.iter().cloned());
+            let shape = input.shape();
+            assert_eq!(
+                shape,
+                output.shape(),
+                "input shape and output shape must be equal."
+            );
+
+            general_nd_forward_multilevel(
+                |s, d| (self.lwt_adj_inverse)(s, d, &self.bc),
+                input,
+                output,
+                shape,
+                &axes,
+                level,
+            );
+        }
+    }
+
     fn general_nd_forward_multilevel<F, T, L, const N: usize>(
         func: F,
         input: &L,
@@ -610,7 +778,6 @@ pub mod parallel {
         F: Fn(&mut [T], &mut [T]) + Sync,
         L: LanesParallelIterator<Item = T> + ?Sized,
         T: Transformable + Zero + ChunkWidth<T, N> + Sync + Send,
-        T::ScalarType: From<f64>,
     {
         let ndim = shape.len();
         assert!(axes.iter().all(|i| *i < ndim));
@@ -725,7 +892,6 @@ pub mod parallel {
         F: Fn(&mut [T], &mut [T]) + Sync,
         L: LanesParallelIterator<Item = T> + ?Sized,
         T: Transformable + Zero + ChunkWidth<T, N> + Send + Sync,
-        T::ScalarType: From<f64>,
     {
         let ndim = shape.len();
         assert!(axes.iter().all(|i| *i < ndim));
@@ -816,13 +982,16 @@ mod tests {
     use rstest::rstest;
 
     #[rstest]
-    fn test_roundtrip(#[values(5, 6)] n: usize, #[values(2)] dim: usize) {
+    fn test_roundtrip(
+        #[values(16, 17)] n: usize,
+        #[values(1, 2, 3, 4)] dim: usize,
+        #[values(1, 2, 3)] level: usize,
+    ) {
         let shape = vec![n; dim];
 
         let axes = HashSet::from_iter(0..dim);
         let n_total = shape.iter().product();
         let v1 = (0..n_total).map(|i| i as f64).collect_vec();
-        let mut v2_ref = (0..n_total).map(|i| i as f64).collect_vec();
         let mut v2 = vec![0.0; n_total];
         let mut v3 = vec![0.0; n_total];
 
@@ -830,21 +999,24 @@ mod tests {
         let v2 = v2.as_mut_slice();
         let v3 = v3.as_mut_slice();
 
-        for ax in axes.iter().cloned() {
-            let ns = (shape[ax] + 1) / 2;
-            let nd = shape[ax] / 2;
-            let mut work_e = vec![0.0; ns];
-            let mut work_o = vec![0.0; nd];
-            for mut slc in v2_ref.iter_lanes_mut(&shape, ax) {
-                deinterleave_strided(&slc, &mut work_e, &mut work_o);
-                stack_to_strided(&work_e, &work_o, &mut slc);
+        general_nd_forward_multilevel(|_, _| {}, v1, v2, &shape, &axes, level);
+
+        if level == 1 {
+            let mut v2_ref = v1.to_owned();
+
+            for ax in axes.iter().cloned() {
+                let ns = (shape[ax] + 1) / 2;
+                let nd = shape[ax] / 2;
+                let mut work_e = vec![0.0; ns];
+                let mut work_o = vec![0.0; nd];
+                for mut slc in v2_ref.iter_lanes_mut(&shape, ax) {
+                    deinterleave_strided(&slc, &mut work_e, &mut work_o);
+                    stack_to_strided(&work_e, &work_o, &mut slc);
+                }
             }
+            assert_eq!(v2, v2_ref);
         }
-
-        general_nd_forward_multilevel(|_, _| {}, v1, v2, &shape, &axes, 1);
-
-        assert_eq!(v2, v2_ref);
-        general_nd_inverse_multilevel(|_, _| {}, v2, v3, &shape, &axes, 1);
+        general_nd_inverse_multilevel(|_, _| {}, v2, v3, &shape, &axes, level);
         assert_eq!(v1, v3);
     }
 }

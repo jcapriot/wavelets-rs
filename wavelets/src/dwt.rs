@@ -6,27 +6,27 @@ use crate::boundarys::{BoundaryExtension, PeriodicBoundary, ZeroBoundary};
 pub mod bior;
 pub mod coiflet;
 pub mod daubechies;
+pub mod driver;
 pub mod symlet;
 
-pub trait DiscreteTransform<U: Clone, const N: usize> {
-    const G: [U; N];
-    const H: [U; N];
-    const GI: [U; N];
-    const HI: [U; N];
+pub trait DiscreteTransform<const N: usize> {
+    const G: [f64; N];
+    const H: [f64; N];
+    const GI: [f64; N];
+    const HI: [f64; N];
 
     #[inline]
-    fn forward<T: Transformable, BC: BoundaryExtension>(x: &[T], s: &mut [T], d: &mut [T], bc: &BC)
-    where
-        T::ScalarType: From<U>,
-    {
+    fn forward<T: Transformable, BC: BoundaryExtension>(
+        x: &[T],
+        s: &mut [T],
+        d: &mut [T],
+        bc: &BC,
+    ) {
         dwt_forward(&Self::G, &Self::H, x, s, d, bc);
     }
 
     #[inline]
-    fn inverse<T: Transformable>(s: &[T], d: &[T], x: &mut [T])
-    where
-        T::ScalarType: From<U>,
-    {
+    fn inverse<T: Transformable>(s: &[T], d: &[T], x: &mut [T]) {
         dwt_inverse(&Self::GI, &Self::HI, s, d, x);
     }
 
@@ -41,46 +41,31 @@ pub trait DiscreteTransform<U: Clone, const N: usize> {
     // }
 
     #[inline]
-    fn adjoint_inverse<T: Transformable>(x: &[T], s: &mut [T], d: &mut [T])
-    where
-        T::ScalarType: From<U>,
-    {
+    fn adjoint_inverse<T: Transformable>(x: &[T], s: &mut [T], d: &mut [T]) {
         let ga: [_; N] = Self::GI.clone().into_iter().rev().collect_array().unwrap();
         let ha: [_; N] = Self::HI.clone().into_iter().rev().collect_array().unwrap();
         dwt_forward(&ga, &ha, x, s, d, &ZeroBoundary {});
     }
 
     #[inline]
-    fn forward_per<T: Transformable>(x: &[T], s: &mut [T], d: &mut [T])
-    where
-        T::ScalarType: From<U>,
-    {
+    fn forward_per<T: Transformable>(x: &[T], s: &mut [T], d: &mut [T]) {
         dwt_per_forward(&Self::G, &Self::H, x, s, d);
     }
 
     #[inline]
-    fn adjoint_forward_per<T: Transformable>(s: &[T], d: &[T], x: &mut [T])
-    where
-        T::ScalarType: From<U>,
-    {
+    fn adjoint_forward_per<T: Transformable>(s: &[T], d: &[T], x: &mut [T]) {
         let ga: [_; N] = Self::G.clone().into_iter().rev().collect_array().unwrap();
         let ha: [_; N] = Self::H.clone().into_iter().rev().collect_array().unwrap();
         dwt_per_inverse(&ga, &ha, s, d, x);
     }
 
     #[inline]
-    fn inverse_per<T: Transformable>(s: &[T], d: &[T], x: &mut [T])
-    where
-        T::ScalarType: From<U>,
-    {
+    fn inverse_per<T: Transformable>(s: &[T], d: &[T], x: &mut [T]) {
         dwt_per_inverse(&Self::GI, &Self::HI, s, d, x);
     }
 
     #[inline]
-    fn adjoint_inverse_per<T: Transformable>(x: &[T], s: &mut [T], d: &mut [T])
-    where
-        T::ScalarType: From<U>,
-    {
+    fn adjoint_inverse_per<T: Transformable>(x: &[T], s: &mut [T], d: &mut [T]) {
         let gia: [_; N] = Self::GI.clone().into_iter().rev().collect_array().unwrap();
         let hia: [_; N] = Self::HI.clone().into_iter().rev().collect_array().unwrap();
         dwt_per_forward(&gia, &hia, x, s, d);
@@ -103,16 +88,14 @@ pub fn get_outlen<const N: usize>(n: usize) -> usize {
     }
 }
 
-pub fn dwt_forward<T: Transformable, U: Clone, const N: usize, BC: BoundaryExtension>(
-    g: &[U; N],
-    h: &[U; N],
+pub fn dwt_forward<T: Transformable, const N: usize, BC: BoundaryExtension>(
+    g: &[f64; N],
+    h: &[f64; N],
     x: &[T],
     s: &mut [T],
     d: &mut [T],
     bc: &BC,
-) where
-    T::ScalarType: From<U>,
-{
+) {
     let (nx, ns, nd) = (x.len(), s.len(), d.len());
 
     assert_eq!(ns, nd, "'d.len()' must be equal to 's.len()'");
@@ -127,13 +110,13 @@ pub fn dwt_forward<T: Transformable, U: Clone, const N: usize, BC: BoundaryExten
     let g: [T::ScalarType; N] = g
         .iter()
         .rev()
-        .map(|v| v.clone().into())
+        .map(|v| T::scalar_type_from_f64(*v))
         .collect_array()
         .expect("N=N");
     let h: [T::ScalarType; N] = h
         .iter()
         .rev()
-        .map(|v| v.clone().into())
+        .map(|v| T::scalar_type_from_f64(*v))
         .collect_array()
         .expect("N=N");
 
@@ -190,15 +173,13 @@ pub fn dwt_forward<T: Transformable, U: Clone, const N: usize, BC: BoundaryExten
     });
 }
 
-pub fn dwt_inverse<T: Transformable, U: Clone, const N: usize>(
-    gi: &[U; N],
-    hi: &[U; N],
+pub fn dwt_inverse<T: Transformable, const N: usize>(
+    gi: &[f64; N],
+    hi: &[f64; N],
     s: &[T],
     d: &[T],
     x: &mut [T],
-) where
-    T::ScalarType: From<U>,
-{
+) {
     let (nx, ns, nd) = (x.len(), s.len(), d.len());
 
     assert_eq!(ns, nd, "'d.len()' must be equal to 's.len()'");
@@ -216,13 +197,13 @@ pub fn dwt_inverse<T: Transformable, U: Clone, const N: usize>(
     let g: [T::ScalarType; N] = gi
         .iter()
         .rev()
-        .map(|v| v.clone().into())
+        .map(|v| T::scalar_type_from_f64(*v))
         .collect_array()
         .expect("N=N");
     let h: [T::ScalarType; N] = hi
         .iter()
         .rev()
-        .map(|v| v.clone().into())
+        .map(|v| T::scalar_type_from_f64(*v))
         .collect_array()
         .expect("N=N");
 
@@ -272,15 +253,13 @@ pub fn dwt_inverse<T: Transformable, U: Clone, const N: usize>(
     }
 }
 
-pub fn dwt_per_forward<T: Transformable, U: Clone, const N: usize>(
-    g: &[U; N],
-    h: &[U; N],
+pub fn dwt_per_forward<T: Transformable, const N: usize>(
+    g: &[f64; N],
+    h: &[f64; N],
     x: &[T],
     s: &mut [T],
     d: &mut [T],
-) where
-    T::ScalarType: From<U>,
-{
+) {
     let (nx, ns, nd) = (x.len(), s.len(), d.len());
 
     assert!(
@@ -310,16 +289,15 @@ pub fn dwt_per_forward<T: Transformable, U: Clone, const N: usize>(
     let g: [T::ScalarType; N] = g
         .iter()
         .rev()
-        .map(|v| v.clone().into())
+        .map(|v| T::scalar_type_from_f64(*v))
         .collect_array()
         .expect("N=N");
     let h: [T::ScalarType; N] = h
         .iter()
         .rev()
-        .map(|v| v.clone().into())
+        .map(|v| T::scalar_type_from_f64(*v))
         .collect_array()
         .expect("N=N");
-
     let gh_iter = g.iter().zip(h.iter());
 
     // front boundary:
@@ -372,15 +350,13 @@ pub fn dwt_per_forward<T: Transformable, U: Clone, const N: usize>(
     });
 }
 
-pub fn dwt_per_inverse<T: Transformable, U: Clone, const N: usize>(
-    gi: &[U; N],
-    hi: &[U; N],
+pub fn dwt_per_inverse<T: Transformable, const N: usize>(
+    gi: &[f64; N],
+    hi: &[f64; N],
     s: &[T],
     d: &[T],
     x: &mut [T],
-) where
-    T::ScalarType: From<U>,
-{
+) {
     let (nx, ns, nd) = (x.len(), s.len(), d.len());
 
     assert!(
@@ -412,13 +388,13 @@ pub fn dwt_per_inverse<T: Transformable, U: Clone, const N: usize>(
     let g: [T::ScalarType; N] = gi
         .iter()
         .rev()
-        .map(|v| v.clone().into())
+        .map(|v| T::scalar_type_from_f64(*v))
         .collect_array()
         .expect("N=N");
     let h: [T::ScalarType; N] = hi
         .iter()
         .rev()
-        .map(|v| v.clone().into())
+        .map(|v| T::scalar_type_from_f64(*v))
         .collect_array()
         .expect("N=N");
 
