@@ -21,8 +21,16 @@ pub fn deinterleave<T: Clone>(x: &[T], evens: &mut [T], odds: &mut [T]) {
     let n_e = evens.len();
     let n_o = odds.len();
 
-    assert_eq!(nx / 2, n_o);
-    assert_eq!((nx + 1) / 2, n_e);
+    assert_eq!(
+        nx / 2,
+        n_o,
+        "incorrect odd length, {n_o}, for slice deinterleave"
+    );
+    assert_eq!(
+        (nx + 1) / 2,
+        n_e,
+        "incorrect even length, {n_e}, for slice deinterleave"
+    );
 
     let (chunks, rem) = x.as_chunks::<2>();
     chunks
@@ -144,8 +152,16 @@ pub fn deinterleave_strided<T: Clone>(x: &StridedSliceRef<T>, evens: &mut [T], o
         let n_e = evens.len();
         let n_o = odds.len();
 
-        assert_eq!(nx / 2, n_o);
-        assert_eq!((nx + 1) / 2, n_e);
+        assert_eq!(
+            nx / 2,
+            n_o,
+            "incorrect odd length, {n_o}, for strided deinterleave"
+        );
+        assert_eq!(
+            (nx + 1) / 2,
+            n_e,
+            "incorrect even length, {n_e}, for strided deinterleave"
+        );
         x.iter()
             .zip(evens.iter_mut().interleave(odds.iter_mut()))
             .for_each(|(v, ou)| {
@@ -166,8 +182,16 @@ pub fn deinterleave_strided_chunk<T: Clone, const N: usize>(
     let n_o = nx / 2;
     let n_e = nx - n_o;
 
-    assert_eq!(evens.len(), N * n_e);
-    assert_eq!(odds.len(), N * n_o);
+    assert_eq!(
+        evens.len(),
+        N * n_e,
+        "incorrect even length, {n_e}, for strided chunk deinterleave"
+    );
+    assert_eq!(
+        odds.len(),
+        N * n_o,
+        "incorrect odd length, {n_o}, for strided chunk deinterleave"
+    );
 
     let mut e_chunks: [_; N] = evens.chunks_exact_mut(n_e).collect_array().unwrap();
     let mut o_chunks: [_; N] = odds.chunks_exact_mut(n_o).collect_array().unwrap();
@@ -254,7 +278,14 @@ pub fn deinterleave_strided_simd<T: Clone, const N: usize>(
 
 #[inline]
 pub fn stack<T: Clone>(first: &[T], second: &[T], out: &mut [T]) {
-    assert_eq!(first.len() + second.len(), out.len());
+    assert_eq!(
+        first.len() + second.len(),
+        out.len(),
+        "invalid lengths for slice stack, first: {}, second: {}, third: {}",
+        first.len(),
+        second.len(),
+        out.len()
+    );
     out.iter_mut()
         .zip(first.iter().chain(second).cloned())
         .for_each(|(a, b)| *a = b);
@@ -265,7 +296,14 @@ pub fn stack_to_strided<T: Clone>(first: &[T], second: &[T], out: &mut StridedSl
     if let Some(out) = out.as_slice_mut() {
         stack(first, second, out);
     } else {
-        assert_eq!(first.len() + second.len(), out.len());
+        assert_eq!(
+            first.len() + second.len(),
+            out.len(),
+            "invalid lengths for strided stack, first: {}, second: {}, third: {}",
+            first.len(),
+            second.len(),
+            out.len()
+        );
         out.iter_mut()
             .zip(first.iter().chain(second).cloned())
             .for_each(|(a, b)| *a = b);
@@ -284,7 +322,11 @@ pub fn stack_to_strided_chunk<T: Clone, const N: usize>(
 
     let n_first = first.len() / N;
     let n_second = second.len() / N;
-    assert_eq!(nx, n_first + n_second);
+    assert_eq!(
+        n_first + n_second,
+        nx,
+        "invalid lengths for strided chunk stack, first: {n_first}, second: {n_second}, third: {nx}"
+    );
 
     let f_chunks: [_; N] = first.chunks_exact(n_first).collect_array().unwrap();
     let s_chunks: [_; N] = second.chunks_exact(n_second).collect_array().unwrap();

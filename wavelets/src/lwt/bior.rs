@@ -189,8 +189,8 @@ implement_lifting_scheme! {
 
 implement_lifting_scheme! {
     CDF5_3,
-    UpdateD(-1, [0.5, 0.5]),
-    UpdateS(0, [-0.25, -0.25]),
+    UpdateS(-1, [0.5, 0.5]),
+    UpdateD(0, [-0.25, -0.25]),
     Scale(0.707106781186547524400844362104849039284835937688474036588340)
 }
 

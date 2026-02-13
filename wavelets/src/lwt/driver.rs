@@ -767,7 +767,7 @@ pub mod parallel {
         }
     }
 
-    fn general_nd_forward_multilevel<F, T, L, const N: usize>(
+    pub(super) fn general_nd_forward_multilevel<F, T, L, const N: usize>(
         func: F,
         input: &L,
         output: &mut L,
@@ -788,7 +788,7 @@ pub mod parallel {
         let mut sub_shape = shape.to_owned();
         for _level in 0..level {
             for &ax in axes {
-                let n_ax = shape[ax];
+                let n_ax = sub_shape[ax];
 
                 let n_d = n_ax / 2;
                 let n_s = n_ax - n_d;
@@ -881,7 +881,7 @@ pub mod parallel {
         }
     }
 
-    fn general_nd_inverse_multilevel<F, T, L, const N: usize>(
+    pub(super) fn general_nd_inverse_multilevel<F, T, L, const N: usize>(
         func: F,
         input: &L,
         output: &mut L,
@@ -931,7 +931,7 @@ pub mod parallel {
         for lvl in (0..level).rev() {
             let sub_shape = &shape_levels[lvl];
             for &ax in axes {
-                let n_ax = shape[ax];
+                let n_ax = sub_shape[ax];
 
                 let n_d = n_ax / 2;
                 let n_s = n_ax - n_d;
@@ -1017,6 +1017,46 @@ mod tests {
             assert_eq!(v2, v2_ref);
         }
         general_nd_inverse_multilevel(|_, _| {}, v2, v3, &shape, &axes, level);
+        assert_eq!(v1, v3);
+    }
+
+    #[cfg(feature = "rayon")]
+    #[rstest]
+    fn test_par_roundtrip(
+        #[values(16, 17)] n: usize,
+        #[values(1, 2, 3, 4)] dim: usize,
+        #[values(1, 2, 3)] level: usize,
+    ) {
+        let shape = vec![n; dim];
+
+        let axes = HashSet::from_iter(0..dim);
+        let n_total = shape.iter().product();
+        let v1 = (0..n_total).map(|i| i as f64).collect_vec();
+        let mut v2 = vec![0.0; n_total];
+        let mut v3 = vec![0.0; n_total];
+
+        let v1 = v1.as_slice();
+        let v2 = v2.as_mut_slice();
+        let v3 = v3.as_mut_slice();
+
+        parallel::general_nd_forward_multilevel(|_, _| {}, v1, v2, &shape, &axes, level);
+
+        if level == 1 {
+            let mut v2_ref = v1.to_owned();
+
+            for ax in axes.iter().cloned() {
+                let ns = (shape[ax] + 1) / 2;
+                let nd = shape[ax] / 2;
+                let mut work_e = vec![0.0; ns];
+                let mut work_o = vec![0.0; nd];
+                for mut slc in v2_ref.iter_lanes_mut(&shape, ax) {
+                    deinterleave_strided(&slc, &mut work_e, &mut work_o);
+                    stack_to_strided(&work_e, &work_o, &mut slc);
+                }
+            }
+            assert_eq!(v2, v2_ref);
+        }
+        parallel::general_nd_inverse_multilevel(|_, _| {}, v2, v3, &shape, &axes, level);
         assert_eq!(v1, v3);
     }
 }
