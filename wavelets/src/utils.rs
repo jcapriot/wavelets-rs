@@ -512,6 +512,7 @@ pub fn interleave_strided_simd<T: Clone, const N: usize>(
             .for_each(|(x, v)| v.scatter(x));
     }
 }
+
 #[inline]
 pub fn split<T: Clone>(x: &[T], first: &mut [T], second: &mut [T]) {
     assert_eq!(x.len(), first.len() + second.len());

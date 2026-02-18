@@ -10,6 +10,17 @@ classifiers = [
     "Programming Language :: Rust",
 ]
 dependencies = ["numpy"]
+dynamic = [
+    "version",
+    "description",
+    "readme",
+    "urls",
+    "authors",
+    "license",
+    "keywords",
+]
 
 [tool.maturin]
 module-name = "wavelets._wavelets_ext"
+profile = "release"
+editable-profile = "release"

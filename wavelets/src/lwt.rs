@@ -44,12 +44,12 @@ mod tests {
     const ATOL: f64 = 1E-14;
     pub struct TestWavelet;
 
-    implement_lifting_scheme!(
+    implement_lifting_scheme! {
         TestWavelet,
         UpdateD(-1, [1.0, 2.0, 3.0, 4.0]),
         UpdateS(-2, [-1.0, 2.0, -3.0, 4.0, -5.0]),
         Scale(0.5)
-    );
+    }
 
     #[rstest]
     fn test_multisteps_forward_inverse(

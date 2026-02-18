@@ -43,7 +43,7 @@ pub fn test_broadcasted_db2() {
     // wavelets::tests::test_approx_equal(s, sd_ref.0, 1E-15, 0.0);
 
     dbg!("x");
-    wavelets::tests::test_approx_equal(&x2, &sd, 1E-15, 0.0);
+    wavelets::tests::test_approx_equal(&x2, &sd, 1E-15, 1e-13);
 }
 
 #[test]

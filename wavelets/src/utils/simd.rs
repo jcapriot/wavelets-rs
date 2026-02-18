@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use num_traits::{FromPrimitive, NumAssignOps, NumOps, Zero};
+use num_traits::Zero;
 use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
 use std::ops::{AddAssign, DivAssign, MulAssign, RemAssign, SubAssign};
 
@@ -188,24 +188,25 @@ impl_num_assign_ops!(MulAssign, mul_assign, *=);
 impl_num_assign_ops!(DivAssign, div_assign, /=);
 impl_num_assign_ops!(RemAssign, rem_assign, %=);
 
-impl<T, const N: usize> crate::Transformable for Simd<T, N>
-where
-    T: Clone
-        + NumOps
-        + NumAssignOps
-        + std::fmt::Debug
-        + FromPrimitive
-        + Neg<Output = T>
-        + From<f64>
-        + From<isize>,
-{
-    type ScalarType = T;
+// use num_traits::{FromPrimitive, NumAssignOps, NumOps};
+// impl<T, const N: usize> crate::Transformable for Simd<T, N>
+// where
+//     T: Clone
+//         + NumOps
+//         + NumAssignOps
+//         + std::fmt::Debug
+//         + FromPrimitive
+//         + Neg<Output = T>
+//         + From<f64>
+//         + From<isize>,
+// {
+//     type ScalarType = T;
 
-    fn scalar_type_from_f64(x: f64) -> Self::ScalarType {
-        T::from(x)
-    }
+//     fn scalar_type_from_f64(x: f64) -> Self::ScalarType {
+//         T::from(x)
+//     }
 
-    fn scalar_type_from_isize(x: isize) -> Self::ScalarType {
-        T::from(x)
-    }
-}
+//     fn scalar_type_from_isize(x: isize) -> Self::ScalarType {
+//         T::from(x)
+//     }
+// }

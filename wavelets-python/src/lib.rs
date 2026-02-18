@@ -92,8 +92,12 @@ mod _wavelets_ext {
             }
             $py.detach(|| {
                 let bc = $bc.unwrap_or(BoundaryCondition::Symmetric).to_enum();
-                let level = $level.unwrap_or(1);
                 let wvlt = $wavelet.to_enum();
+
+                let level = $level.unwrap_or_else(|| {
+                    let min_n = axes.iter().map(|ax| x.shape()[*ax]).min().unwrap_or(0);
+                    wvlt.max_level(min_n)
+                });
 
                 let trans = driver::parallel::WaveletTransform::new(wvlt, bc);
 

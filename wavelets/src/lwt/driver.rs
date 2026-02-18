@@ -315,73 +315,78 @@ fn general_nd_forward_multilevel<F, T, L, const N: usize>(
             let n_d = n_ax / 2;
             let n_s = n_ax - n_d;
 
-            match first {
-                true => {
-                    let in_chunks = input.iter_lane_chunks_sub::<N>(&shape, &sub_shape, ax);
-                    let in_rem = in_chunks.remainder();
-                    let out_chunks = output.iter_lane_chunks_sub_mut::<N>(&shape, &sub_shape, ax);
-                    let out_rem = out_chunks.remainder();
+            // Note that everything does work for n_s == 1 (or 0 for that matter),
+            // just that there really isn't anything useful to do.
+            if n_s > 1 {
+                match first {
+                    true => {
+                        let in_chunks = input.iter_lane_chunks_sub::<N>(&shape, &sub_shape, ax);
+                        let in_rem = in_chunks.remainder();
+                        let out_chunks =
+                            output.iter_lane_chunks_sub_mut::<N>(&shape, &sub_shape, ax);
+                        let out_rem = out_chunks.remainder();
 
-                    if in_chunks.len() > 0 {
-                        let mut s = vec![T::zero(); n_s * N];
-                        let mut d = vec![T::zero(); n_d * N];
-                        in_chunks
-                            .zip(out_chunks)
-                            .for_each(|(in_chunk, mut out_chunk)| {
+                        if in_chunks.len() > 0 {
+                            let mut s = vec![T::zero(); n_s * N];
+                            let mut d = vec![T::zero(); n_d * N];
+                            in_chunks
+                                .zip(out_chunks)
+                                .for_each(|(in_chunk, mut out_chunk)| {
+                                    // copy (and deinterleave) strided chunks into the local storage
+                                    deinterleave_strided_chunk(&in_chunk, &mut s, &mut d);
+                                    s.chunks_exact_mut(n_s)
+                                        .zip(d.chunks_exact_mut(n_d))
+                                        .for_each(|(s, d)| {
+                                            func(s, d);
+                                        });
+                                    // clone local storage to the output
+                                    stack_to_strided_chunk(&s, &d, &mut out_chunk);
+                                });
+                        }
+                        if in_rem.len() > 0 {
+                            let mut s = vec![T::zero(); n_s];
+                            let mut d = vec![T::zero(); n_d];
+                            in_rem.zip(out_rem).for_each(|(in_slice, mut out_slice)| {
+                                // copy strided slice into local dimension storage
+                                deinterleave_strided(&in_slice, &mut s, &mut d);
+                                func(&mut s, &mut d);
+                                // copy local back to output strided slice
+                                stack_to_strided(&s, &d, &mut out_slice);
+                            });
+                        }
+
+                        first = false;
+                    }
+                    false => {
+                        let chunks = output.iter_lane_chunks_sub_mut::<N>(&shape, &sub_shape, ax);
+                        let rem = chunks.remainder();
+
+                        if chunks.len() > 0 {
+                            let mut s = vec![T::zero(); n_s * N];
+                            let mut d = vec![T::zero(); n_d * N];
+                            chunks.for_each(|mut chunk| {
                                 // copy (and deinterleave) strided chunks into the local storage
-                                deinterleave_strided_chunk(&in_chunk, &mut s, &mut d);
+                                deinterleave_strided_chunk(&chunk, &mut s, &mut d);
                                 s.chunks_exact_mut(n_s)
                                     .zip(d.chunks_exact_mut(n_d))
                                     .for_each(|(s, d)| {
                                         func(s, d);
                                     });
                                 // clone local storage to the output
-                                stack_to_strided_chunk(&s, &d, &mut out_chunk);
+                                stack_to_strided_chunk(&s, &d, &mut chunk);
                             });
-                    }
-                    if in_rem.len() > 0 {
-                        let mut s = vec![T::zero(); n_s];
-                        let mut d = vec![T::zero(); n_d];
-                        in_rem.zip(out_rem).for_each(|(in_slice, mut out_slice)| {
-                            // copy strided slice into local dimension storage
-                            deinterleave_strided(&in_slice, &mut s, &mut d);
-                            func(&mut s, &mut d);
-                            // copy local back to output strided slice
-                            stack_to_strided(&s, &d, &mut out_slice);
-                        });
-                    }
-
-                    first = false;
-                }
-                false => {
-                    let chunks = output.iter_lane_chunks_sub_mut::<N>(&shape, &sub_shape, ax);
-                    let rem = chunks.remainder();
-
-                    if chunks.len() > 0 {
-                        let mut s = vec![T::zero(); n_s * N];
-                        let mut d = vec![T::zero(); n_d * N];
-                        chunks.for_each(|mut chunk| {
-                            // copy (and deinterleave) strided chunks into the local storage
-                            deinterleave_strided_chunk(&chunk, &mut s, &mut d);
-                            s.chunks_exact_mut(n_s)
-                                .zip(d.chunks_exact_mut(n_d))
-                                .for_each(|(s, d)| {
-                                    func(s, d);
-                                });
-                            // clone local storage to the output
-                            stack_to_strided_chunk(&s, &d, &mut chunk);
-                        });
-                    }
-                    if rem.len() > 0 {
-                        let mut s = vec![T::zero(); n_s];
-                        let mut d = vec![T::zero(); n_d];
-                        rem.for_each(|mut slc| {
-                            // copy strided slice into local dimension storage
-                            deinterleave_strided(&slc, &mut s, &mut d);
-                            func(&mut s, &mut d);
-                            // copy local back to output strided slice
-                            stack_to_strided(&s, &d, &mut slc);
-                        });
+                        }
+                        if rem.len() > 0 {
+                            let mut s = vec![T::zero(); n_s];
+                            let mut d = vec![T::zero(); n_d];
+                            rem.for_each(|mut slc| {
+                                // copy strided slice into local dimension storage
+                                deinterleave_strided(&slc, &mut s, &mut d);
+                                func(&mut s, &mut d);
+                                // copy local back to output strided slice
+                                stack_to_strided(&s, &d, &mut slc);
+                            });
+                        }
                     }
                 }
             }
@@ -389,7 +394,9 @@ fn general_nd_forward_multilevel<F, T, L, const N: usize>(
 
         // shrink shape for each axis we used.
         for &ax in axes {
-            sub_shape[ax] = (sub_shape[ax] + 1) / 2;
+            if sub_shape[ax] > 1 {
+                sub_shape[ax] = (sub_shape[ax] + 1) / 2;
+            }
         }
     }
 }
@@ -435,7 +442,9 @@ fn general_nd_inverse_multilevel<F, T, L, const N: usize>(
         .map(|_| {
             let next_shape = sub_shape.clone();
             for &ax in axes {
-                sub_shape[ax] = (sub_shape[ax] + 1) / 2;
+                if sub_shape[ax] > 1 {
+                    sub_shape[ax] = (sub_shape[ax] + 1) / 2;
+                }
             }
             next_shape
         })
@@ -448,31 +457,32 @@ fn general_nd_inverse_multilevel<F, T, L, const N: usize>(
 
             let n_d = n_ax / 2;
             let n_s = n_ax - n_d;
+            if n_s > 1 {
+                let chunks = output.iter_lane_chunks_sub_mut::<N>(shape, &sub_shape, ax);
+                let rem = chunks.remainder();
 
-            let chunks = output.iter_lane_chunks_sub_mut::<N>(shape, &sub_shape, ax);
-            let rem = chunks.remainder();
-
-            if chunks.len() > 0 {
-                let mut s = vec![T::zero(); n_s * N];
-                let mut d = vec![T::zero(); n_d * N];
-                chunks.for_each(|mut chunk| {
-                    split_strided_chunk(&chunk, &mut s, &mut d);
-                    s.chunks_exact_mut(n_s)
-                        .zip(d.chunks_exact_mut(n_d))
-                        .for_each(|(s, d)| {
-                            func(s, d);
-                        });
-                    interleave_strided_chunk(&s, &d, &mut chunk);
-                });
-            }
-            if rem.len() > 0 {
-                let mut s = vec![T::zero(); n_s];
-                let mut d = vec![T::zero(); n_d];
-                rem.for_each(|mut slc| {
-                    split_strided(&slc, &mut s, &mut d);
-                    func(&mut s, &mut d);
-                    interleave_strided(&s, &d, &mut slc);
-                })
+                if chunks.len() > 0 {
+                    let mut s = vec![T::zero(); n_s * N];
+                    let mut d = vec![T::zero(); n_d * N];
+                    chunks.for_each(|mut chunk| {
+                        split_strided_chunk(&chunk, &mut s, &mut d);
+                        s.chunks_exact_mut(n_s)
+                            .zip(d.chunks_exact_mut(n_d))
+                            .for_each(|(s, d)| {
+                                func(s, d);
+                            });
+                        interleave_strided_chunk(&s, &d, &mut chunk);
+                    });
+                }
+                if rem.len() > 0 {
+                    let mut s = vec![T::zero(); n_s];
+                    let mut d = vec![T::zero(); n_d];
+                    rem.for_each(|mut slc| {
+                        split_strided(&slc, &mut s, &mut d);
+                        func(&mut s, &mut d);
+                        interleave_strided(&s, &d, &mut slc);
+                    })
+                }
             }
         }
     }
@@ -793,90 +803,95 @@ pub mod parallel {
                 let n_d = n_ax / 2;
                 let n_s = n_ax - n_d;
 
-                match first {
-                    true => {
-                        let in_chunks = input.iter_lane_chunks_sub::<N>(shape, &sub_shape, ax);
-                        let in_rem = in_chunks.remainder();
-                        let out_chunks =
-                            output.iter_lane_chunks_sub_mut::<N>(shape, &sub_shape, ax);
-                        let out_rem = out_chunks.remainder();
+                if n_s > 1 {
+                    match first {
+                        true => {
+                            let in_chunks = input.iter_lane_chunks_sub::<N>(shape, &sub_shape, ax);
+                            let in_rem = in_chunks.remainder();
+                            let out_chunks =
+                                output.iter_lane_chunks_sub_mut::<N>(shape, &sub_shape, ax);
+                            let out_rem = out_chunks.remainder();
 
-                        in_chunks.zip(out_chunks).for_each_init(
-                            || {
-                                let s = vec![T::zero(); n_s * N];
-                                let d = vec![T::zero(); n_d * N];
-                                (s, d)
-                            },
-                            |(s, d), (in_chunk, mut out_chunk)| {
-                                // copy (and deinterleave) strided chunks into the local storage
-                                deinterleave_strided_chunk(&in_chunk, s, d);
-                                s.chunks_exact_mut(n_s)
-                                    .zip(d.chunks_exact_mut(n_d))
-                                    .for_each(|(s, d)| {
-                                        func(s, d);
-                                    });
-                                // clone local storage to the output
-                                stack_to_strided_chunk(s, d, &mut out_chunk);
-                            },
-                        );
-                        in_rem.zip(out_rem).for_each_init(
-                            || {
-                                let s = vec![T::zero(); n_s];
-                                let d = vec![T::zero(); n_d];
-                                (s, d)
-                            },
-                            |(s, d), (in_slice, mut out_slice)| {
-                                // copy strided slice into local dimension storage
-                                deinterleave_strided(&in_slice, s, d);
-                                func(s, d);
-                                // copy local back to output strided slice
-                                stack_to_strided(s, d, &mut out_slice);
-                            },
-                        );
-                        first = false;
-                    }
-                    false => {
-                        let chunks = output.iter_lane_chunks_sub_mut::<N>(shape, &sub_shape, ax);
-                        let rem = chunks.remainder();
+                            in_chunks.zip(out_chunks).for_each_init(
+                                || {
+                                    let s = vec![T::zero(); n_s * N];
+                                    let d = vec![T::zero(); n_d * N];
+                                    (s, d)
+                                },
+                                |(s, d), (in_chunk, mut out_chunk)| {
+                                    // copy (and deinterleave) strided chunks into the local storage
+                                    deinterleave_strided_chunk(&in_chunk, s, d);
+                                    s.chunks_exact_mut(n_s)
+                                        .zip(d.chunks_exact_mut(n_d))
+                                        .for_each(|(s, d)| {
+                                            func(s, d);
+                                        });
+                                    // clone local storage to the output
+                                    stack_to_strided_chunk(s, d, &mut out_chunk);
+                                },
+                            );
+                            in_rem.zip(out_rem).for_each_init(
+                                || {
+                                    let s = vec![T::zero(); n_s];
+                                    let d = vec![T::zero(); n_d];
+                                    (s, d)
+                                },
+                                |(s, d), (in_slice, mut out_slice)| {
+                                    // copy strided slice into local dimension storage
+                                    deinterleave_strided(&in_slice, s, d);
+                                    func(s, d);
+                                    // copy local back to output strided slice
+                                    stack_to_strided(s, d, &mut out_slice);
+                                },
+                            );
+                            first = false;
+                        }
+                        false => {
+                            let chunks =
+                                output.iter_lane_chunks_sub_mut::<N>(shape, &sub_shape, ax);
+                            let rem = chunks.remainder();
 
-                        chunks.for_each_init(
-                            || {
-                                let s = vec![T::zero(); n_s * N];
-                                let d = vec![T::zero(); n_d * N];
-                                (s, d)
-                            },
-                            |(s, d), mut chunk| {
-                                // copy (and deinterleave) strided chunks into the local storage
-                                deinterleave_strided_chunk(&chunk, s, d);
-                                s.chunks_exact_mut(n_s)
-                                    .zip(d.chunks_exact_mut(n_d))
-                                    .for_each(|(s, d)| {
-                                        func(s, d);
-                                    });
-                                // clone local storage to the output
-                                stack_to_strided_chunk(s, d, &mut chunk);
-                            },
-                        );
-                        rem.for_each_init(
-                            || {
-                                let s = vec![T::zero(); n_s];
-                                let d = vec![T::zero(); n_d];
-                                (s, d)
-                            },
-                            |(s, d), mut slc| {
-                                // copy strided slice into local dimension storage
-                                deinterleave_strided(&slc, s, d);
-                                func(s, d);
-                                // copy local back to output strided slice
-                                stack_to_strided(s, d, &mut slc);
-                            },
-                        );
+                            chunks.for_each_init(
+                                || {
+                                    let s = vec![T::zero(); n_s * N];
+                                    let d = vec![T::zero(); n_d * N];
+                                    (s, d)
+                                },
+                                |(s, d), mut chunk| {
+                                    // copy (and deinterleave) strided chunks into the local storage
+                                    deinterleave_strided_chunk(&chunk, s, d);
+                                    s.chunks_exact_mut(n_s)
+                                        .zip(d.chunks_exact_mut(n_d))
+                                        .for_each(|(s, d)| {
+                                            func(s, d);
+                                        });
+                                    // clone local storage to the output
+                                    stack_to_strided_chunk(s, d, &mut chunk);
+                                },
+                            );
+                            rem.for_each_init(
+                                || {
+                                    let s = vec![T::zero(); n_s];
+                                    let d = vec![T::zero(); n_d];
+                                    (s, d)
+                                },
+                                |(s, d), mut slc| {
+                                    // copy strided slice into local dimension storage
+                                    deinterleave_strided(&slc, s, d);
+                                    func(s, d);
+                                    // copy local back to output strided slice
+                                    stack_to_strided(s, d, &mut slc);
+                                },
+                            );
+                        }
                     }
                 }
             }
             // shrink shape for each axis we used.
             for &ax in axes {
-                sub_shape[ax] = (sub_shape[ax] + 1) / 2;
+                if sub_shape[ax] > 1 {
+                    sub_shape[ax] = (sub_shape[ax] + 1) / 2;
+                }
             }
         }
     }
@@ -922,7 +937,9 @@ pub mod parallel {
             .map(|_| {
                 let next_shape = sub_shape.clone();
                 for &ax in axes {
-                    sub_shape[ax] = (sub_shape[ax] + 1) / 2;
+                    if sub_shape[ax] > 1 {
+                        sub_shape[ax] = (sub_shape[ax] + 1) / 2;
+                    }
                 }
                 next_shape
             })
@@ -936,39 +953,41 @@ pub mod parallel {
                 let n_d = n_ax / 2;
                 let n_s = n_ax - n_d;
 
-                let chunks = output.iter_lane_chunks_sub_mut::<N>(shape, &sub_shape, ax);
-                let rem = chunks.remainder();
-                if chunks.len() > 0 {
-                    chunks.for_each_init(
+                if n_s > 1 {
+                    let chunks = output.iter_lane_chunks_sub_mut::<N>(shape, &sub_shape, ax);
+                    let rem = chunks.remainder();
+                    if chunks.len() > 0 {
+                        chunks.for_each_init(
+                            || {
+                                let s = vec![T::zero(); n_s * N];
+                                let d = vec![T::zero(); n_d * N];
+                                (s, d)
+                            },
+                            |(s, d), mut chunk| {
+                                split_strided_chunk(&chunk, s, d);
+                                s.chunks_exact_mut(n_s)
+                                    .zip(d.chunks_exact_mut(n_d))
+                                    .for_each(|(s, d)| {
+                                        func(s, d);
+                                    });
+                                interleave_strided_chunk(s, d, &mut chunk);
+                            },
+                        );
+                    }
+
+                    rem.for_each_init(
                         || {
-                            let s = vec![T::zero(); n_s * N];
-                            let d = vec![T::zero(); n_d * N];
+                            let s = vec![T::zero(); n_s];
+                            let d = vec![T::zero(); n_d];
                             (s, d)
                         },
-                        |(s, d), mut chunk| {
-                            split_strided_chunk(&chunk, s, d);
-                            s.chunks_exact_mut(n_s)
-                                .zip(d.chunks_exact_mut(n_d))
-                                .for_each(|(s, d)| {
-                                    func(s, d);
-                                });
-                            interleave_strided_chunk(s, d, &mut chunk);
+                        |(s, d), mut slc| {
+                            split_strided(&slc, s, d);
+                            func(s, d);
+                            interleave_strided(s, d, &mut slc);
                         },
                     );
                 }
-
-                rem.for_each_init(
-                    || {
-                        let s = vec![T::zero(); n_s];
-                        let d = vec![T::zero(); n_d];
-                        (s, d)
-                    },
-                    |(s, d), mut slc| {
-                        split_strided(&slc, s, d);
-                        func(s, d);
-                        interleave_strided(s, d, &mut slc);
-                    },
-                );
             }
         }
     }

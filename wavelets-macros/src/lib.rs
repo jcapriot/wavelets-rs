@@ -1,7 +1,7 @@
 extern crate proc_macro;
 
-use proc_macro::TokenStream;
-use proc_macro2::TokenTree;
+//use proc_macro::TokenStream as PMTS;
+use proc_macro2::{TokenStream, TokenTree};
 use quote::{ToTokens, quote};
 use syn::ext::IdentExt;
 use syn::parse::{Parse, ParseStream};
@@ -55,7 +55,7 @@ fn wavelet_idents() -> Vec<Ident> {
 struct WaveletEnum {
     enum_name: Ident,
     derives: Vec<Ident>,
-    extras: Option<proc_macro2::TokenStream>,
+    extras: Option<TokenStream>,
 }
 
 impl Parse for WaveletEnum {
@@ -72,7 +72,7 @@ impl Parse for WaveletEnum {
         let extras = if let Ok(_) = input.parse::<Token![,]>() {
             let extra_content;
             syn::braced!(extra_content in input);
-            let extras: proc_macro2::TokenStream = extra_content.parse()?;
+            let extras: TokenStream = extra_content.parse()?;
             Some(extras)
         } else {
             None
@@ -87,7 +87,7 @@ impl Parse for WaveletEnum {
 }
 
 #[proc_macro]
-pub fn generate_wavelet_enum(input: TokenStream) -> TokenStream {
+pub fn generate_wavelet_enum(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let WaveletEnum {
         enum_name,
         derives,
@@ -114,7 +114,7 @@ pub fn generate_wavelet_enum(input: TokenStream) -> TokenStream {
 struct WaveletMatchArms {
     enum_name: Ident,
     var_name: Ident,
-    template: proc_macro2::TokenStream,
+    template: TokenStream,
 }
 
 impl Parse for WaveletMatchArms {
@@ -125,7 +125,7 @@ impl Parse for WaveletMatchArms {
         input.parse::<Token![,]>()?;
         let content;
         syn::braced!(content in input);
-        let template: proc_macro2::TokenStream = content.parse()?;
+        let template: TokenStream = content.parse()?;
 
         Ok(Self {
             enum_name,
@@ -135,8 +135,8 @@ impl Parse for WaveletMatchArms {
     }
 }
 
-fn substitute(template: &proc_macro2::TokenStream, ident: &Ident) -> proc_macro2::TokenStream {
-    let mut out = proc_macro2::TokenStream::new();
+fn substitute(template: TokenStream, ident: &Ident) -> TokenStream {
+    let mut out = TokenStream::new();
 
     for tt in template.into_token_stream() {
         match tt {
@@ -147,6 +147,14 @@ fn substitute(template: &proc_macro2::TokenStream, ident: &Ident) -> proc_macro2
             TokenTree::Ident(i) if i == "wvlt" => {
                 out.extend(quote!(#ident));
             }
+            TokenTree::Group(g) => {
+                let inner = substitute(g.stream(), ident);
+
+                let mut new_group = proc_macro2::Group::new(g.delimiter(), inner);
+                new_group.set_span(g.span()); // preserve span!
+
+                out.extend(quote! {#new_group});
+            }
             other => out.extend(std::iter::once(other)),
         }
     }
@@ -155,7 +163,7 @@ fn substitute(template: &proc_macro2::TokenStream, ident: &Ident) -> proc_macro2
 }
 
 #[proc_macro]
-pub fn generate_wavelet_match_arms(input: TokenStream) -> TokenStream {
+pub fn generate_wavelet_match_arms(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as WaveletMatchArms);
     let WaveletMatchArms {
         enum_name,
@@ -163,11 +171,11 @@ pub fn generate_wavelet_match_arms(input: TokenStream) -> TokenStream {
         template,
     } = input;
 
-    let mut match_arms = proc_macro2::TokenStream::new();
+    let mut match_arms = TokenStream::new();
 
     for v in WVLTS {
         let ident = Ident::new(v, v.span());
-        let replaced = substitute(&template, &ident);
+        let replaced = substitute(template.clone(), &ident);
         match_arms = quote! {
             #match_arms
             #enum_name::#ident => #replaced
@@ -249,10 +257,7 @@ enum LiftingDirection {
     Inverse,
 }
 
-fn expand_lifting_step(
-    step: &LiftingStep<LitFloat>,
-    direction: LiftingDirection,
-) -> proc_macro2::TokenStream {
+fn expand_lifting_step(step: &LiftingStep<LitFloat>, direction: LiftingDirection) -> TokenStream {
     match step {
         LiftingStep::UpdateD {
             offset,
@@ -326,9 +331,9 @@ fn expand_lifting_step(
 
             let r_iter = if *offset > 0 {
                 let ind = syn::Index::from(*offset as usize);
-                quote! {#r[#ind..]}
+                quote! {#r.get(#ind..)}
             } else {
-                quote! {#r}
+                quote! {#r.get(..)}
             };
 
             let is_back_loop = match is_s {
@@ -355,13 +360,44 @@ fn expand_lifting_step(
                 }
             });
 
+            let mut mul_add_steps = quote! {};
+
+            coefs
+                .iter()
+                .enumerate()
+                .filter_map(|(j, v)| {
+                    if *v == 0.0 {
+                        None
+                    } else {
+                        let j = syn::Index::from(j);
+                        match direction {
+                            LiftingDirection::Forward => Some(quote! {
+                                *#l_i = #r_i[#j].clone().mul_add_op(c.#j.clone(), #l_i.clone());
+                            }),
+                            LiftingDirection::Inverse => Some(quote! {
+                                *#l_i = #r_i[#j].clone().neg_mul_add_op(c.#j.clone(), #l_i.clone());
+                            }),
+                        }
+                    }
+                })
+                .for_each(|line| {
+                    mul_add_steps.extend(line);
+                });
+
             loop_body = quote! {
                 #loop_body
-                #r_iter.windows(#n_coefs)
-                    .zip(#main_loop_l_iter)
-                    .for_each(|(#r_i, (_, #l_i))|{
-                        *#l_i #update_op #(#accumulators)+*;
-                    });
+                if let Some(r_iter) = #r_iter{
+                    r_iter.windows(#n_coefs)
+                        .zip(#main_loop_l_iter)
+                        .for_each(|(#r_i, (_, #l_i))|{
+                            #[cfg(any(target_feature="fma", target_feature="neon"))]{
+                                    #mul_add_steps
+                            }
+                            #[cfg(not(any(target_feature="fma", target_feature="neon")))]{
+                                *#l_i #update_op #(#accumulators)+*;
+                            }
+                        });
+                    }
             };
             if is_back_loop {
                 let accumulators =
@@ -383,7 +419,6 @@ fn expand_lifting_step(
                         if let Some(v) = vs.into_iter().filter_map(|v| v).reduce(|acc, v| acc + v){
                             *#l_i #update_op v;
                         }
-                        //*#l_i #update_op #(#accumulators)+*;
                     }
                 };
             }
@@ -413,7 +448,7 @@ fn expand_lifting_step(
 fn expand_lifting_step_chunk(
     step: &LiftingStep<LitFloat>,
     direction: LiftingDirection,
-) -> proc_macro2::TokenStream {
+) -> TokenStream {
     match step {
         LiftingStep::UpdateD {
             offset,
@@ -655,7 +690,7 @@ fn expand_lifting_step_chunk(
 fn expand_adjoint_lifting_step(
     step: &LiftingStep<LitFloat>,
     direction: LiftingDirection,
-) -> proc_macro2::TokenStream {
+) -> TokenStream {
     match step {
         LiftingStep::UpdateD { offset, coefs } | LiftingStep::UpdateS { offset, coefs } => {
             let (l, r, is_s) = match step {
@@ -733,9 +768,9 @@ fn expand_adjoint_lifting_step(
 
             let r_iter = if offset_r > 0 {
                 let ind = syn::Index::from(offset_r as usize);
-                quote! {#r[#ind..]}
+                quote! {#r.get(#ind..)}
             } else {
-                quote! {#r}
+                quote! {#r.get(..)}
             };
 
             let is_back_loop = match is_s {
@@ -763,11 +798,13 @@ fn expand_adjoint_lifting_step(
 
             loop_body = quote! {
                 #loop_body
-                #r_iter.windows(#n_coefs)
-                    .zip(#main_loop_l_iter)
-                    .for_each(|(#r_i, (_, #l_i))|{
-                        *#l_i #update_op #(#accumulators)+*;
-                    });
+                if let Some(r_iter) = #r_iter{
+                    r_iter.windows(#n_coefs)
+                        .zip(#main_loop_l_iter)
+                        .for_each(|(#r_i, (_, #l_i))|{
+                            *#l_i #update_op #(#accumulators)+*;
+                        });
+                }
             };
             if is_back_loop {
                 let accumulators = coefs
@@ -826,7 +863,7 @@ fn expand_adjoint_lifting_step(
     }
 }
 
-fn generate_forward_op(steps: &[LiftingStep<LitFloat>]) -> proc_macro2::TokenStream {
+fn generate_forward_op(steps: &[LiftingStep<LitFloat>]) -> TokenStream {
     let mut func_body = quote! {
         assert!(d.len() == s.len() || d.len() + 1 == s.len(), "detail and scaling coefficient arrays must have compatible lengths");
     };
@@ -844,10 +881,9 @@ fn generate_forward_op(steps: &[LiftingStep<LitFloat>]) -> proc_macro2::TokenStr
             #func_body
         }
     }
-    .into()
 }
 
-fn generate_forward_chunk_op(steps: &[LiftingStep<LitFloat>]) -> proc_macro2::TokenStream {
+fn generate_forward_chunk_op(steps: &[LiftingStep<LitFloat>]) -> TokenStream {
     let mut func_body = quote! {
         assert_eq!(s.len() % chunk_size, 0, "smooth coefficient slice length must be a multiple of chunk_size.");
         assert_eq!(d.len() % chunk_size, 0, "detail coefficient slice length must be a multiple of chunk_size.");
@@ -860,7 +896,7 @@ fn generate_forward_chunk_op(steps: &[LiftingStep<LitFloat>]) -> proc_macro2::To
         func_body.extend(step_ts);
     }
 
-    let temp = quote! {
+    quote! {
         fn forward_chunk<T, BC>(s: &mut [T], d: &mut [T], chunk_size: usize, bc: &BC)
         where
             T: crate::Transformable,
@@ -869,11 +905,10 @@ fn generate_forward_chunk_op(steps: &[LiftingStep<LitFloat>]) -> proc_macro2::To
             use ::itertools::izip;
             #func_body
         }
-    };
-    temp.into()
+    }
 }
 
-fn generate_inverse_op(steps: &[LiftingStep<LitFloat>]) -> proc_macro2::TokenStream {
+fn generate_inverse_op(steps: &[LiftingStep<LitFloat>]) -> TokenStream {
     let mut func_body = quote! {
         assert!(d.len() == s.len() || d.len() + 1 == s.len(), "detail and scaling coefficient arrays must have compatible lengths");
     };
@@ -891,10 +926,9 @@ fn generate_inverse_op(steps: &[LiftingStep<LitFloat>]) -> proc_macro2::TokenStr
             #func_body
         }
     }
-    .into()
 }
 
-fn generate_adjoint_inverse_op(steps: &[LiftingStep<LitFloat>]) -> proc_macro2::TokenStream {
+fn generate_adjoint_inverse_op(steps: &[LiftingStep<LitFloat>]) -> TokenStream {
     let mut func_body = quote! {
         assert!(d.len() == s.len() || d.len() + 1 == s.len(), "detail and scaling coefficient arrays must have compatible lengths");
     };
@@ -912,10 +946,9 @@ fn generate_adjoint_inverse_op(steps: &[LiftingStep<LitFloat>]) -> proc_macro2::
             #func_body
         }
     }
-    .into()
 }
 
-fn generate_adjoint_forward_op(steps: &[LiftingStep<LitFloat>]) -> proc_macro2::TokenStream {
+fn generate_adjoint_forward_op(steps: &[LiftingStep<LitFloat>]) -> TokenStream {
     let mut func_body = quote! {
         assert!(d.len() == s.len() || d.len() + 1 == s.len(), "detail and scaling coefficient arrays must have compatible lengths");
     };
@@ -924,7 +957,7 @@ fn generate_adjoint_forward_op(steps: &[LiftingStep<LitFloat>]) -> proc_macro2::
         func_body.extend(step_ts);
     }
 
-    let temp = quote! {
+    quote! {
         fn adjoint_forward<T, BC>(s: &mut [T], d: &mut [T], bc: &BC)
         where
             T: crate::Transformable,
@@ -932,13 +965,11 @@ fn generate_adjoint_forward_op(steps: &[LiftingStep<LitFloat>]) -> proc_macro2::
         {
             #func_body
         }
-    };
-
-    temp.into()
+    }
 }
 
 #[proc_macro]
-pub fn implement_lifting_scheme(input: TokenStream) -> TokenStream {
+pub fn implement_lifting_scheme(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let scheme = parse_macro_input!(input with LiftingScheme::<LitFloat>::parse);
     let LiftingScheme::<LitFloat> { name, steps } = scheme;
     //println!("parsed steps: {:?}", steps);
@@ -951,17 +982,29 @@ pub fn implement_lifting_scheme(input: TokenStream) -> TokenStream {
 
     let forward_chunk_func = generate_forward_chunk_op(&steps);
 
-    quote! {
+    //let multivers_line = quote! {#[::multiversion::multiversion(targets("x86_64+avx2+fma", "x86_64+avx", "x86+avx2+fma", "x86+avx"))]};
+    let multivers_line = quote! {};
 
-    impl crate::lwt::LiftingTransform for #name {
-            #forward_func
-            #inverse_func
-            #adj_fwd_func
-            #adj_inv_func
-            #forward_chunk_func
-    }
-    }
-    .into()
+    let temp = quote! {
+        impl crate::lwt::LiftingTransform for #name {
+
+                #multivers_line
+                #forward_func
+
+                #multivers_line
+                #inverse_func
+
+                #multivers_line
+                #adj_fwd_func
+
+                #multivers_line
+                #adj_inv_func
+
+                #multivers_line
+                #forward_chunk_func
+        }
+    };
+    temp.into()
 }
 
 struct OrthogonalDWT<T> {
@@ -986,7 +1029,7 @@ impl Parse for OrthogonalDWT<f64> {
 }
 
 #[proc_macro]
-pub fn implement_dwt_orthogonal(input: TokenStream) -> TokenStream {
+pub fn implement_dwt_orthogonal(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let OrthogonalDWT { name, g } = parse_macro_input!(input as OrthogonalDWT<f64>);
     let gi = g.clone().into_iter().rev().collect::<Vec<_>>();
     let h = gi
@@ -1044,7 +1087,7 @@ impl Parse for BiorthogonalDWT<f64> {
 }
 
 #[proc_macro]
-pub fn implement_dwt_biorthogonal(input: TokenStream) -> TokenStream {
+pub fn implement_dwt_biorthogonal(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let BiorthogonalDWT { name, g, h } = parse_macro_input!(input as BiorthogonalDWT<f64>);
     let hi = g
         .iter()

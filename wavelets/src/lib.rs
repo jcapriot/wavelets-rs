@@ -6,7 +6,7 @@ pub mod utils;
 
 use num_traits::{FromPrimitive, NumAssignOps, NumOps};
 use std::ops::Neg;
-use wavelets_macros::generate_wavelet_enum;
+use wavelets_macros::{generate_wavelet_enum, generate_wavelet_match_arms};
 
 macro_rules! gen_wavelet_struct {
     (
@@ -70,7 +70,49 @@ pub mod bior {
     gen_wavelet_struct!((CDF9_7, 10));
 }
 
+#[inline]
+pub fn max_level<const N: usize>(n: usize) -> usize {
+    if N == 0 {
+        return 0;
+    }
+    if n < N - 1 {
+        return 0;
+    }
+    let mut lvl = 0;
+    let mut n = n;
+    while n >= 2 * (N - 1) {
+        lvl += 1;
+        n = (n + 1) / 2;
+    }
+    lvl
+}
+
 generate_wavelet_enum!(Wavelets, (Clone, Copy, Debug, PartialEq, Eq, Hash));
+
+impl Wavelets {
+    pub fn max_level(&self, n: usize) -> usize {
+        use bior::*;
+        use coiflet::*;
+        use daubechies::*;
+        use symlet::*;
+        generate_wavelet_match_arms! {Self, self, { max_level::<{#wvlt::WIDTH}>(n),}}
+    }
+}
+
+pub trait MulScalarAdd<A = Self, B = Self> {
+    type Output;
+
+    fn mul_add(self, a: A, b: B) -> Self::Output;
+}
+
+impl<T: num_traits::MulAdd<T, T, Output = T>> MulScalarAdd<T, T> for T {
+    type Output = T;
+
+    #[inline(always)]
+    fn mul_add(self, a: Self, b: Self) -> Self::Output {
+        <Self as num_traits::MulAdd>::mul_add(self, a, b)
+    }
+}
 
 pub trait Transformable:
     NumOps
@@ -80,11 +122,22 @@ pub trait Transformable:
     + std::ops::Mul<Self::ScalarType, Output = Self>
     + std::ops::MulAssign<Self::ScalarType>
     + std::ops::DivAssign<Self::ScalarType>
+    + MulScalarAdd<Self::ScalarType, Self, Output = Self>
 {
     type ScalarType: FromPrimitive
         + Clone
         + std::ops::Mul<Self::ScalarType, Output = Self::ScalarType>
         + std::fmt::Debug;
+
+    #[inline(always)]
+    fn mul_add_op(self, b: Self::ScalarType, c: Self) -> Self {
+        self.mul_add(b, c)
+    }
+
+    #[inline(always)]
+    fn neg_mul_add_op(self, b: Self::ScalarType, c: Self) -> Self {
+        (-self).mul_add(b, c)
+    }
 
     #[inline(always)]
     fn scalar_type_from_isize(x: isize) -> Self::ScalarType {
@@ -110,6 +163,30 @@ impl_transformable!(i128);
 impl_transformable!(isize);
 impl_transformable!(f32);
 impl_transformable!(f64);
+
+impl MulScalarAdd<f32, num_complex::Complex32> for num_complex::Complex32 {
+    type Output = num_complex::Complex32;
+
+    #[inline(always)]
+    fn mul_add(self, a: f32, b: Self) -> Self::Output {
+        Self::Output {
+            re: f32::mul_add(self.re, a, b.re),
+            im: f32::mul_add(self.im, a, b.im),
+        }
+    }
+}
+
+impl MulScalarAdd<f64, num_complex::Complex64> for num_complex::Complex64 {
+    type Output = num_complex::Complex64;
+
+    #[inline(always)]
+    fn mul_add(self, a: f64, b: Self) -> Self::Output {
+        Self::Output {
+            re: f64::mul_add(self.re, a, b.re),
+            im: f64::mul_add(self.im, a, b.im),
+        }
+    }
+}
 
 impl Transformable for num_complex::Complex32 {
     type ScalarType = f32;

@@ -6,7 +6,7 @@ use crate::boundarys::{BoundaryExtension, PeriodicBoundary, ZeroBoundary};
 pub mod bior;
 pub mod coiflet;
 pub mod daubechies;
-pub mod driver;
+//pub mod driver;
 pub mod symlet;
 
 pub trait DiscreteTransform<const N: usize> {
