@@ -1,0 +1,17 @@
+[package]
+name = "wavelets-simd"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+criterion = "0.8.2"
+itertools = "0.14.0"
+multiversion = "0.8.0"
+num-complex = "0.4.6"
+num-traits = "0.2.19"
+pulp = { version = "0.22.2", features = ['macro'] }
+
+
+[[bench]]
+name = "simd_bench"
+harness = false
