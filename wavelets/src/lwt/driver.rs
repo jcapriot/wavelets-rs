@@ -15,13 +15,13 @@ use crate::utils::{
 use crate::utils::{
     interleave, interleave_strided, interleave_strided_chunk, split_strided, split_strided_chunk,
 };
-use crate::{ChunkWidth, Transformable};
+use crate::{ChunkWidth, SimdTransformable, Transformable};
 
 use wavelets_macros::generate_wavelet_match_arms;
 
 pub struct WaveletTransform<T, BC, const N: usize>
 where
-    T: Transformable + Zero + ChunkWidth<T, N>,
+    T: SimdTransformable + Zero + ChunkWidth<T, N>,
     BC: BoundaryExtension + LiftedAdjointBoundary,
 {
     lwt_forward: fn(&mut [T], &mut [T], &BC),
@@ -33,7 +33,7 @@ where
 
 impl<T, BC, const N: usize> WaveletTransform<T, BC, N>
 where
-    T: Transformable + Zero + ChunkWidth<T, N>,
+    T: SimdTransformable + Zero + ChunkWidth<T, N>,
     BC: BoundaryExtension + LiftedAdjointBoundary,
 {
     pub fn new(wvlt: Wavelets, bc: BC) -> Self {
@@ -188,7 +188,7 @@ where
 #[cfg(feature = "ndarray")]
 impl<T, BC, const N: usize> WaveletTransform<T, BC, N>
 where
-    T: Transformable + Zero + ChunkWidth<T, N>,
+    T: SimdTransformable + Zero + ChunkWidth<T, N>,
     BC: BoundaryExtension + LiftedAdjointBoundary,
 {
     pub fn forward_ndarray_multilevel<D: Dimension>(
@@ -509,7 +509,7 @@ pub mod parallel {
 
     impl<T, BC, const N: usize> WaveletTransform<T, BC, N>
     where
-        T: Transformable + Zero + ChunkWidth<T, N> + Sync + Send,
+        T: SimdTransformable + Zero + ChunkWidth<T, N> + Sync + Send,
         BC: BoundaryExtension + LiftedAdjointBoundary,
     {
         pub fn new(wvlt: Wavelets, bc: BC) -> Self {

@@ -4,19 +4,19 @@ pub mod daubechies;
 pub mod driver;
 pub mod symlet;
 
-use crate::Transformable;
 use crate::boundarys::BoundaryExtension;
 use crate::boundarys::LiftedAdjointBoundary;
+use crate::{SimdTransformable, Transformable};
 
 pub trait LiftingTransform {
-    fn forward<T: Transformable, BC: BoundaryExtension>(s: &mut [T], d: &mut [T], bc: &BC);
+    fn forward<T: SimdTransformable, BC: BoundaryExtension>(s: &mut [T], d: &mut [T], bc: &BC);
     fn forward_chunk<T: Transformable, BC: BoundaryExtension>(
         s: &mut [T],
         d: &mut [T],
         chunk_size: usize,
         bc: &BC,
     );
-    fn inverse<T: Transformable, BC: BoundaryExtension>(s: &mut [T], d: &mut [T], bc: &BC);
+    fn inverse<T: SimdTransformable, BC: BoundaryExtension>(s: &mut [T], d: &mut [T], bc: &BC);
     fn adjoint_forward<T: Transformable, BC: LiftedAdjointBoundary>(
         s: &mut [T],
         d: &mut [T],

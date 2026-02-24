@@ -2,11 +2,7 @@ use crate::Transformable;
 
 pub trait BoundaryExtension: Sync {
     fn get_bc<T: Transformable>(&self, data: &[T], i: isize) -> Option<T>;
-    fn get_parts<T: Transformable>(
-        &self,
-        n: usize,
-        i: isize,
-    ) -> Vec<(Option<T::ScalarType>, usize)>;
+    fn get_parts<T: Transformable>(&self, n: usize, i: isize) -> Vec<(Option<T::Scalar>, usize)>;
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -158,11 +154,7 @@ impl BoundaryExtension for BoundaryCondition {
         }
     }
 
-    fn get_parts<T: Transformable>(
-        &self,
-        n: usize,
-        i: isize,
-    ) -> Vec<(Option<T::ScalarType>, usize)> {
+    fn get_parts<T: Transformable>(&self, n: usize, i: isize) -> Vec<(Option<T::Scalar>, usize)> {
         match self {
             Self::Zero => {
                 if i >= 0 && i < n as isize {
@@ -294,7 +286,7 @@ pub trait LiftedAdjointBoundary {
         left: &mut [T],
         right: &mut [T],
         rev_offset: isize,
-        rev_c: &[T::ScalarType; N],
+        rev_c: &[T::Scalar; N],
         i_left: isize,
     );
 }
@@ -306,7 +298,7 @@ impl LiftedAdjointBoundary for BoundaryCondition {
         left: &mut [T],
         right: &mut [T],
         rev_offset: isize,
-        rev_c: &[T::ScalarType; N],
+        rev_c: &[T::Scalar; N],
         i_left: isize,
     ) {
         let i_right = i_left + rev_offset;
@@ -350,11 +342,7 @@ impl BoundaryExtension for ZeroBoundary {
         data.get(i as usize).cloned()
     }
 
-    fn get_parts<T: Transformable>(
-        &self,
-        n: usize,
-        i: isize,
-    ) -> Vec<(Option<T::ScalarType>, usize)> {
+    fn get_parts<T: Transformable>(&self, n: usize, i: isize) -> Vec<(Option<T::Scalar>, usize)> {
         if i >= 0 && i < n as isize {
             vec![(None, i as usize)]
         } else {
@@ -370,7 +358,7 @@ impl LiftedAdjointBoundary for ZeroBoundary {
         _left: &mut [T],
         _right: &mut [T],
         _rev_offset: isize,
-        _rev_c: &[T::ScalarType; N],
+        _rev_c: &[T::Scalar; N],
         _i_left: isize,
     ) {
         // Do nothing
@@ -386,11 +374,7 @@ impl BoundaryExtension for PeriodicBoundary {
         data.get(i).cloned()
     }
 
-    fn get_parts<T: Transformable>(
-        &self,
-        n: usize,
-        i: isize,
-    ) -> Vec<(Option<T::ScalarType>, usize)> {
+    fn get_parts<T: Transformable>(&self, n: usize, i: isize) -> Vec<(Option<T::Scalar>, usize)> {
         let i = i.rem_euclid(n as isize) as usize;
         vec![(None, i)]
     }
@@ -407,7 +391,7 @@ impl LiftedAdjointBoundary for PeriodicBoundary {
         left: &mut [T],
         right: &mut [T],
         rev_offset: isize,
-        rev_c: &[T::ScalarType; N],
+        rev_c: &[T::Scalar; N],
         i_left: isize,
     ) {
         let i_right = i_left + rev_offset;

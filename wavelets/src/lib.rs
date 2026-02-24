@@ -4,8 +4,9 @@ pub mod iter;
 pub mod lwt;
 pub mod utils;
 
-use num_traits::{FromPrimitive, NumAssignOps, NumOps};
-use std::ops::Neg;
+use num_traits::{Float, FromPrimitive, MulAdd, Num, NumAssignOps, NumAssignRef, NumOps, NumRef};
+use pulp::{Simd, cast};
+use std::{fmt::Debug, ops::Neg, sync::LazyLock};
 use wavelets_macros::{generate_wavelet_enum, generate_wavelet_match_arms};
 
 macro_rules! gen_wavelet_struct {
@@ -89,6 +90,9 @@ pub fn max_level<const N: usize>(n: usize) -> usize {
 
 generate_wavelet_enum!(Wavelets, (Clone, Copy, Debug, PartialEq, Eq, Hash));
 
+pub trait FloatOps: Float + NumAssignRef + NumRef + MulAdd {}
+impl<T: Float + NumAssignRef + NumRef + MulAdd> FloatOps for T {}
+
 impl Wavelets {
     pub fn max_level(&self, n: usize) -> usize {
         use bior::*;
@@ -116,42 +120,39 @@ impl<T: num_traits::MulAdd<T, T, Output = T>> MulScalarAdd<T, T> for T {
 
 pub trait Transformable:
     NumOps
+    + NumOps<Self::Scalar>
     + Clone
     + Neg<Output = Self>
     + NumAssignOps
-    + std::ops::Mul<Self::ScalarType, Output = Self>
-    + std::ops::MulAssign<Self::ScalarType>
-    + std::ops::DivAssign<Self::ScalarType>
-    + MulScalarAdd<Self::ScalarType, Self, Output = Self>
+    + NumAssignOps<Self::Scalar>
+    + MulScalarAdd<Self::Scalar, Self, Output = Self>
 {
-    type ScalarType: FromPrimitive
-        + Clone
-        + std::ops::Mul<Self::ScalarType, Output = Self::ScalarType>
-        + std::fmt::Debug;
+    type Scalar: FromPrimitive + Copy + NumOps + std::fmt::Debug;
 
     #[inline(always)]
-    fn mul_add_op(self, b: Self::ScalarType, c: Self) -> Self {
+    fn mul_add_op(self, b: Self::Scalar, c: Self) -> Self {
         self.mul_add(b, c)
     }
 
     #[inline(always)]
-    fn neg_mul_add_op(self, b: Self::ScalarType, c: Self) -> Self {
+    fn neg_mul_add_op(self, b: Self::Scalar, c: Self) -> Self {
         (-self).mul_add(b, c)
     }
 
     #[inline(always)]
-    fn scalar_type_from_isize(x: isize) -> Self::ScalarType {
-        Self::ScalarType::from_isize(x).unwrap()
+    fn scalar_type_from_isize(x: isize) -> Self::Scalar {
+        Self::Scalar::from_isize(x).unwrap()
     }
-    fn scalar_type_from_f64(x: f64) -> Self::ScalarType {
-        Self::ScalarType::from_f64(x).unwrap()
+    #[inline(always)]
+    fn scalar_type_from_f64(x: f64) -> Self::Scalar {
+        Self::Scalar::from_f64(x).unwrap()
     }
 }
 
 macro_rules! impl_transformable {
     ($T:ty) => {
         impl Transformable for $T {
-            type ScalarType = Self;
+            type Scalar = Self;
         }
     };
 }
@@ -164,36 +165,322 @@ impl_transformable!(isize);
 impl_transformable!(f32);
 impl_transformable!(f64);
 
-impl MulScalarAdd<f32, num_complex::Complex32> for num_complex::Complex32 {
-    type Output = num_complex::Complex32;
+impl<T: MulAdd<Output = T> + Clone> MulScalarAdd<T, num_complex::Complex<T>>
+    for num_complex::Complex<T>
+{
+    type Output = Self;
 
     #[inline(always)]
-    fn mul_add(self, a: f32, b: Self) -> Self::Output {
+    fn mul_add(self, a: T, b: Self) -> Self::Output {
         Self::Output {
-            re: f32::mul_add(self.re, a, b.re),
-            im: f32::mul_add(self.im, a, b.im),
+            re: T::mul_add(self.re, a.clone(), b.re),
+            im: T::mul_add(self.im, a, b.im),
         }
     }
 }
 
-impl MulScalarAdd<f64, num_complex::Complex64> for num_complex::Complex64 {
-    type Output = num_complex::Complex64;
+impl<T: Num + Copy + Debug + FromPrimitive + MulAdd<Output = T> + Neg<Output = T> + NumAssignOps>
+    Transformable for num_complex::Complex<T>
+{
+    type Scalar = T;
+}
+
+pub trait SimdTransformable: Sized + Transformable {
+    type Vector<S: Simd>: Copy + std::fmt::Debug;
+    type SplatVector<S: Simd>: Copy + std::fmt::Debug;
+    //type SplatScalar: FromPrimitive + Transformable;
+
+    fn simd_lanes<S: Simd>(simd: S) -> usize;
+
+    fn as_simd<S: Simd>(simd: S, x: &[Self]) -> (&[Self::Vector<S>], &[Self]);
+
+    fn as_mut_simd<S: Simd>(simd: S, x: &mut [Self]) -> (&mut [Self::Vector<S>], &mut [Self]);
+
+    fn simd_splat<S: Simd>(simd: S, v: Self::Scalar) -> Self::SplatVector<S>;
+
+    fn simd_mul_add<S: Simd>(
+        simd: S,
+        a: Self::Vector<S>,
+        b: Self::SplatVector<S>,
+        c: Self::Vector<S>,
+    ) -> Self::Vector<S>;
+    fn simd_negate_mul_add<S: Simd>(
+        simd: S,
+        a: Self::Vector<S>,
+        b: Self::SplatVector<S>,
+        c: Self::Vector<S>,
+    ) -> Self::Vector<S>;
+    fn simd_add<S: Simd>(simd: S, a: Self::Vector<S>, b: Self::Vector<S>) -> Self::Vector<S>;
+    fn simd_sub<S: Simd>(simd: S, a: Self::Vector<S>, b: Self::Vector<S>) -> Self::Vector<S>;
+    fn simd_mul<S: Simd>(simd: S, a: Self::Vector<S>, b: Self::SplatVector<S>) -> Self::Vector<S>;
+    fn simd_div<S: Simd>(simd: S, a: Self::Vector<S>, b: Self::SplatVector<S>) -> Self::Vector<S>;
+}
+
+impl SimdTransformable for f32 {
+    type Vector<S: Simd> = S::f32s;
+    type SplatVector<S: Simd> = Self::Vector<S>;
 
     #[inline(always)]
-    fn mul_add(self, a: f64, b: Self) -> Self::Output {
-        Self::Output {
-            re: f64::mul_add(self.re, a, b.re),
-            im: f64::mul_add(self.im, a, b.im),
-        }
+    fn simd_lanes<S: Simd>(_: S) -> usize {
+        S::F32_LANES
+    }
+
+    #[inline(always)]
+    fn as_simd<S: Simd>(_: S, slice: &[Self]) -> (&[Self::Vector<S>], &[Self]) {
+        S::as_simd_f32s(slice)
+    }
+
+    #[inline(always)]
+    fn as_mut_simd<S: Simd>(_: S, slice: &mut [Self]) -> (&mut [Self::Vector<S>], &mut [Self]) {
+        S::as_mut_simd_f32s(slice)
+    }
+
+    #[inline(always)]
+    fn simd_splat<S: Simd>(simd: S, v: Self) -> Self::SplatVector<S> {
+        simd.splat_f32s(v)
+    }
+
+    #[inline(always)]
+    fn simd_mul_add<S: Simd>(
+        simd: S,
+        a: Self::Vector<S>,
+        b: Self::Vector<S>,
+        c: Self::Vector<S>,
+    ) -> Self::Vector<S> {
+        simd.mul_add_f32s(a, b, c)
+    }
+
+    #[inline(always)]
+    fn simd_negate_mul_add<S: Simd>(
+        simd: S,
+        a: Self::Vector<S>,
+        b: Self::Vector<S>,
+        c: Self::Vector<S>,
+    ) -> Self::Vector<S> {
+        let neg_a = simd.neg_f32s(a);
+        simd.mul_add_f32s(neg_a, b, c)
+    }
+
+    #[inline(always)]
+    fn simd_add<S: Simd>(simd: S, a: Self::Vector<S>, b: Self::Vector<S>) -> Self::Vector<S> {
+        simd.add_f32s(a, b)
+    }
+
+    #[inline(always)]
+    fn simd_sub<S: Simd>(simd: S, a: Self::Vector<S>, b: Self::Vector<S>) -> Self::Vector<S> {
+        simd.sub_f32s(a, b)
+    }
+
+    #[inline(always)]
+    fn simd_mul<S: Simd>(simd: S, a: Self::Vector<S>, b: Self::Vector<S>) -> Self::Vector<S> {
+        simd.mul_f32s(a, b)
+    }
+
+    #[inline(always)]
+    fn simd_div<S: Simd>(simd: S, a: Self::Vector<S>, b: Self::Vector<S>) -> Self::Vector<S> {
+        simd.div_f32s(a, b)
     }
 }
 
-impl Transformable for num_complex::Complex32 {
-    type ScalarType = f32;
+impl SimdTransformable for f64 {
+    type Vector<S: Simd> = S::f64s;
+    type SplatVector<S: Simd> = Self::Vector<S>;
+
+    #[inline(always)]
+    fn simd_lanes<S: Simd>(_: S) -> usize {
+        S::F64_LANES
+    }
+
+    #[inline(always)]
+    fn as_simd<S: Simd>(_: S, slice: &[Self]) -> (&[Self::Vector<S>], &[Self]) {
+        S::as_simd_f64s(slice)
+    }
+
+    #[inline(always)]
+    fn as_mut_simd<S: Simd>(_: S, slice: &mut [Self]) -> (&mut [Self::Vector<S>], &mut [Self]) {
+        S::as_mut_simd_f64s(slice)
+    }
+
+    #[inline(always)]
+    fn simd_splat<S: Simd>(simd: S, v: Self) -> Self::Vector<S> {
+        simd.splat_f64s(v)
+    }
+
+    #[inline(always)]
+    fn simd_mul_add<S: Simd>(
+        simd: S,
+        a: Self::Vector<S>,
+        b: Self::Vector<S>,
+        c: Self::Vector<S>,
+    ) -> Self::Vector<S> {
+        simd.mul_add_f64s(a, b, c)
+    }
+
+    #[inline(always)]
+    fn simd_negate_mul_add<S: Simd>(
+        simd: S,
+        a: Self::Vector<S>,
+        b: Self::Vector<S>,
+        c: Self::Vector<S>,
+    ) -> Self::Vector<S> {
+        let neg_a = simd.neg_f64s(a);
+        simd.mul_add_f64s(neg_a, b, c)
+    }
+
+    #[inline(always)]
+    fn simd_add<S: Simd>(simd: S, a: Self::Vector<S>, b: Self::Vector<S>) -> Self::Vector<S> {
+        simd.add_f64s(a, b)
+    }
+
+    #[inline(always)]
+    fn simd_sub<S: Simd>(simd: S, a: Self::Vector<S>, b: Self::Vector<S>) -> Self::Vector<S> {
+        simd.sub_f64s(a, b)
+    }
+
+    #[inline(always)]
+    fn simd_mul<S: Simd>(simd: S, a: Self::Vector<S>, b: Self::Vector<S>) -> Self::Vector<S> {
+        simd.mul_f64s(a, b)
+    }
+
+    #[inline(always)]
+    fn simd_div<S: Simd>(simd: S, a: Self::Vector<S>, b: Self::Vector<S>) -> Self::Vector<S> {
+        simd.div_f64s(a, b)
+    }
 }
-impl Transformable for num_complex::Complex64 {
-    type ScalarType = f64;
+
+impl SimdTransformable for num_complex::Complex32 {
+    type Vector<S: Simd> = S::c32s;
+    type SplatVector<S: Simd> = S::f32s;
+
+    #[inline(always)]
+    fn simd_lanes<S: Simd>(_: S) -> usize {
+        S::C32_LANES
+    }
+
+    #[inline(always)]
+    fn as_simd<S: Simd>(_: S, slice: &[Self]) -> (&[Self::Vector<S>], &[Self]) {
+        S::as_simd_c32s(slice)
+    }
+
+    #[inline(always)]
+    fn as_mut_simd<S: Simd>(_: S, slice: &mut [Self]) -> (&mut [Self::Vector<S>], &mut [Self]) {
+        S::as_mut_simd_c32s(slice)
+    }
+
+    #[inline(always)]
+    fn simd_splat<S: Simd>(simd: S, v: Self::Scalar) -> Self::SplatVector<S> {
+        simd.splat_f32s(v)
+    }
+
+    #[inline(always)]
+    fn simd_mul_add<S: Simd>(
+        simd: S,
+        a: Self::Vector<S>,
+        b: Self::SplatVector<S>,
+        c: Self::Vector<S>,
+    ) -> Self::Vector<S> {
+        cast(simd.mul_add_f32s(cast(a), b, cast(c)))
+    }
+
+    #[inline(always)]
+    fn simd_negate_mul_add<S: Simd>(
+        simd: S,
+        a: Self::Vector<S>,
+        b: Self::SplatVector<S>,
+        c: Self::Vector<S>,
+    ) -> Self::Vector<S> {
+        let neg_a = simd.neg_c32s(a);
+        cast(simd.mul_add_f32s(cast(neg_a), b, cast(c)))
+    }
+
+    #[inline(always)]
+    fn simd_add<S: Simd>(simd: S, a: Self::Vector<S>, b: Self::Vector<S>) -> Self::Vector<S> {
+        simd.add_c32s(a, b)
+    }
+
+    #[inline(always)]
+    fn simd_sub<S: Simd>(simd: S, a: Self::Vector<S>, b: Self::Vector<S>) -> Self::Vector<S> {
+        simd.sub_c32s(a, b)
+    }
+
+    #[inline(always)]
+    fn simd_mul<S: Simd>(simd: S, a: Self::Vector<S>, b: Self::SplatVector<S>) -> Self::Vector<S> {
+        cast(simd.mul_f32s(cast(a), b))
+    }
+
+    #[inline(always)]
+    fn simd_div<S: Simd>(simd: S, a: Self::Vector<S>, b: Self::SplatVector<S>) -> Self::Vector<S> {
+        cast(simd.div_f32s(cast(a), b))
+    }
 }
+
+impl SimdTransformable for num_complex::Complex64 {
+    type Vector<S: Simd> = S::c64s;
+    type SplatVector<S: Simd> = S::f64s;
+
+    #[inline(always)]
+    fn simd_lanes<S: Simd>(_: S) -> usize {
+        S::C64_LANES
+    }
+
+    #[inline(always)]
+    fn as_simd<S: Simd>(_: S, slice: &[Self]) -> (&[Self::Vector<S>], &[Self]) {
+        S::as_simd_c64s(slice)
+    }
+
+    #[inline(always)]
+    fn as_mut_simd<S: Simd>(_: S, slice: &mut [Self]) -> (&mut [Self::Vector<S>], &mut [Self]) {
+        S::as_mut_simd_c64s(slice)
+    }
+
+    #[inline(always)]
+    fn simd_splat<S: Simd>(simd: S, v: Self::Scalar) -> Self::SplatVector<S> {
+        simd.splat_f64s(v)
+    }
+
+    #[inline(always)]
+    fn simd_mul_add<S: Simd>(
+        simd: S,
+        a: Self::Vector<S>,
+        b: Self::SplatVector<S>,
+        c: Self::Vector<S>,
+    ) -> Self::Vector<S> {
+        cast(simd.mul_add_f64s(cast(a), b, cast(c)))
+    }
+
+    #[inline(always)]
+    fn simd_negate_mul_add<S: Simd>(
+        simd: S,
+        a: Self::Vector<S>,
+        b: Self::SplatVector<S>,
+        c: Self::Vector<S>,
+    ) -> Self::Vector<S> {
+        let neg_a = simd.neg_c64s(a);
+        cast(simd.mul_add_f64s(cast(neg_a), b, cast(c)))
+    }
+
+    #[inline(always)]
+    fn simd_add<S: Simd>(simd: S, a: Self::Vector<S>, b: Self::Vector<S>) -> Self::Vector<S> {
+        simd.add_c64s(a, b)
+    }
+
+    #[inline(always)]
+    fn simd_sub<S: Simd>(simd: S, a: Self::Vector<S>, b: Self::Vector<S>) -> Self::Vector<S> {
+        simd.sub_c64s(a, b)
+    }
+
+    #[inline(always)]
+    fn simd_mul<S: Simd>(simd: S, a: Self::Vector<S>, b: Self::SplatVector<S>) -> Self::Vector<S> {
+        cast(simd.mul_f64s(cast(a), b))
+    }
+
+    #[inline(always)]
+    fn simd_div<S: Simd>(simd: S, a: Self::Vector<S>, b: Self::SplatVector<S>) -> Self::Vector<S> {
+        cast(simd.div_f64s(cast(a), b))
+    }
+}
+
+pub static ARCH: LazyLock<pulp::Arch> = LazyLock::new(|| pulp::Arch::new());
 
 const N_BITS: usize = 512;
 const N_I8: usize = N_BITS / 8;

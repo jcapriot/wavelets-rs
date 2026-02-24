@@ -107,13 +107,13 @@ pub fn dwt_forward<T: Transformable, const N: usize, BC: BoundaryExtension>(
     );
 
     let offset = (N as isize - 2) / 2;
-    let g: [T::ScalarType; N] = g
+    let g: [T::Scalar; N] = g
         .iter()
         .rev()
         .map(|v| T::scalar_type_from_f64(*v))
         .collect_array()
         .expect("N=N");
-    let h: [T::ScalarType; N] = h
+    let h: [T::Scalar; N] = h
         .iter()
         .rev()
         .map(|v| T::scalar_type_from_f64(*v))
@@ -194,13 +194,13 @@ pub fn dwt_inverse<T: Transformable, const N: usize>(
     let n_bcs = N as isize / 4;
     // TODO: Remove enumeratiion part of the sd_iter after more testing.
     let mut sd_iter = (-n_bcs..(ns as isize - n_bcs)).zip(s.windows(N / 2).zip(d.windows(N / 2)));
-    let g: [T::ScalarType; N] = gi
+    let g: [T::Scalar; N] = gi
         .iter()
         .rev()
         .map(|v| T::scalar_type_from_f64(*v))
         .collect_array()
         .expect("N=N");
-    let h: [T::ScalarType; N] = hi
+    let h: [T::Scalar; N] = hi
         .iter()
         .rev()
         .map(|v| T::scalar_type_from_f64(*v))
@@ -286,13 +286,13 @@ pub fn dwt_per_forward<T: Transformable, const N: usize>(
     };
 
     let offset = (N as isize - 2) / 2;
-    let g: [T::ScalarType; N] = g
+    let g: [T::Scalar; N] = g
         .iter()
         .rev()
         .map(|v| T::scalar_type_from_f64(*v))
         .collect_array()
         .expect("N=N");
-    let h: [T::ScalarType; N] = h
+    let h: [T::Scalar; N] = h
         .iter()
         .rev()
         .map(|v| T::scalar_type_from_f64(*v))
@@ -385,13 +385,13 @@ pub fn dwt_per_inverse<T: Transformable, const N: usize>(
     let offset = (N as isize - 2) / 2;
     let n_bcs = N as isize / 4;
     // TODO: Remove enumeratiion part of the sd_iter after more testing.
-    let g: [T::ScalarType; N] = gi
+    let g: [T::Scalar; N] = gi
         .iter()
         .rev()
         .map(|v| T::scalar_type_from_f64(*v))
         .collect_array()
         .expect("N=N");
-    let h: [T::ScalarType; N] = hi
+    let h: [T::Scalar; N] = hi
         .iter()
         .rev()
         .map(|v| T::scalar_type_from_f64(*v))

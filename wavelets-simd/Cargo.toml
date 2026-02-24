@@ -10,6 +10,8 @@ multiversion = "0.8.0"
 num-complex = "0.4.6"
 num-traits = "0.2.19"
 pulp = { version = "0.22.2", features = ['macro'] }
+wavelets-macros = { path = "../wavelets-macros" }
+wavelets = { path = "../wavelets" }
 
 
 [[bench]]
