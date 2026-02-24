@@ -23,6 +23,9 @@ unsafe impl Send for BoundaryCondition {}
 impl BoundaryExtension for BoundaryCondition {
     #[inline(always)]
     fn get_bc<T: Transformable>(&self, data: &[T], i: isize) -> Option<T> {
+        if data.len() == 0 {
+            return None;
+        }
         match self {
             Self::Zero => data.get(i as usize).cloned(),
             Self::Periodic => {
@@ -46,6 +49,9 @@ impl BoundaryExtension for BoundaryCondition {
                 data.get(io as usize).cloned()
             }
             Self::Reflect => {
+                if data.len() == 1 {
+                    return data.get(0).cloned();
+                }
                 let mut io = i;
                 let n = data.len() as isize;
                 while io >= n || io < 0 {
@@ -76,9 +82,6 @@ impl BoundaryExtension for BoundaryCondition {
                 }
             }
             Self::Smooth => {
-                if data.len() == 0 {
-                    return None;
-                }
                 if data.len() == 1 {
                     return data.get(0).cloned();
                 }
@@ -97,9 +100,6 @@ impl BoundaryExtension for BoundaryCondition {
                 }
             }
             Self::Antireflect => {
-                if data.len() == 0 {
-                    return None;
-                }
                 if data.len() == 1 {
                     return data.get(0).cloned();
                 }
@@ -155,6 +155,9 @@ impl BoundaryExtension for BoundaryCondition {
     }
 
     fn get_parts<T: Transformable>(&self, n: usize, i: isize) -> Vec<(Option<T::Scalar>, usize)> {
+        if n == 0 {
+            return vec![];
+        }
         match self {
             Self::Zero => {
                 if i >= 0 && i < n as isize {
@@ -184,6 +187,9 @@ impl BoundaryExtension for BoundaryCondition {
                 vec![(None, io as usize)]
             }
             Self::Reflect => {
+                if n == 1 {
+                    return vec![(None, 0)];
+                }
                 let mut io = i;
                 let n = n as isize;
                 while io >= n || io < 0 {
@@ -213,9 +219,6 @@ impl BoundaryExtension for BoundaryCondition {
                 }
             }
             Self::Smooth => {
-                if n == 0 {
-                    return vec![];
-                }
                 if n == 1 {
                     return vec![(None, 0)];
                 }
@@ -237,9 +240,6 @@ impl BoundaryExtension for BoundaryCondition {
                 }
             }
             Self::Antireflect => {
-                if n == 0 {
-                    return vec![];
-                }
                 if n == 1 {
                     return vec![(None, 0)];
                 }
@@ -326,7 +326,6 @@ impl LiftedAdjointBoundary for BoundaryCondition {
                 }
             }
         }
-        return;
     }
 }
 

@@ -17,12 +17,12 @@ pub trait LiftingTransform {
         bc: &BC,
     );
     fn inverse<T: SimdTransformable, BC: BoundaryExtension>(s: &mut [T], d: &mut [T], bc: &BC);
-    fn adjoint_forward<T: Transformable, BC: LiftedAdjointBoundary>(
+    fn adjoint_forward<T: SimdTransformable, BC: BoundaryExtension>(
         s: &mut [T],
         d: &mut [T],
         bc: &BC,
     );
-    fn adjoint_inverse<T: Transformable, BC: LiftedAdjointBoundary>(
+    fn adjoint_inverse<T: SimdTransformable, BC: BoundaryExtension>(
         s: &mut [T],
         d: &mut [T],
         bc: &BC,
@@ -46,6 +46,7 @@ mod tests {
 
     implement_lifting_scheme! {
         TestWavelet,
+        //UpdateS(-2, [2.0, 3.0]),
         UpdateD(-1, [1.0, 2.0, 3.0, 4.0]),
         UpdateS(-2, [-1.0, 2.0, -3.0, 4.0, -5.0]),
         Scale(0.5)
@@ -64,7 +65,7 @@ mod tests {
             BoundaryCondition::Antireflect
         )]
         bc: BoundaryCondition,
-        #[values(32, 31)] n: usize,
+        #[values(1, 2, 3, 4, 31, 32, 1000, 1001)] n: usize, // testing for very small sizes to ensure the code doesn't crash or panic.
     ) {
         let ns = (n + 1) / 2;
         let input = (0..n).map(|i| (i + 1) as f64).collect_vec();
@@ -94,7 +95,7 @@ mod tests {
             BoundaryCondition::Antireflect
         )]
         bc: BoundaryCondition,
-        #[values(32, 31)] n: usize,
+        #[values(1, 2, 3, 4, 31, 32, 1000, 1001)] n: usize, // testing for very small sizes to ensure the code doesn't crash or panic.
     ) {
         let ns = (n + 1) / 2;
         let input = (0..n).map(|i| (i + 1) as f64).collect_vec();
@@ -111,6 +112,40 @@ mod tests {
         test_approx_equal(&output, &input, RTOL, ATOL);
     }
 
+    // #[rstest]
+    // fn test_multisteps_adjoint_inverse_simd_check(
+    //     #[values(
+    //         BoundaryCondition::Zero,
+    //         BoundaryCondition::Periodic,
+    //         BoundaryCondition::Constant,
+    //         BoundaryCondition::Reflect,
+    //         BoundaryCondition::Symmetric,
+    //         BoundaryCondition::Antisymmetric,
+    //         BoundaryCondition::Smooth,
+    //         BoundaryCondition::Antireflect
+    //     )]
+    //     bc: BoundaryCondition,
+    //     #[values(1, 2, 3, 4, 5, 31, 32)] n: usize,
+    // ) {
+    //     let ns = (n + 1) / 2;
+    //     // let mut refer = vec![0.0; n];
+    //     // let i = std::cmp::min(1, n - 1);
+    //     // refer[i] = 1.0;
+    //     let mut refer = (0..n).map(|v| v as f64).collect::<Vec<_>>();
+
+    //     let (s, d) = refer.split_at_mut(ns);
+
+    //     TestWavelet::adjoint_inverse(s, d, &bc);
+
+    //     let mut actual = (0..n).map(|v| v as f64).collect::<Vec<_>>();
+
+    //     let (s, d) = actual.split_at_mut(ns);
+    //     TestWavelet::adjoint_inverse_simd(s, d, &bc);
+    //     //adjoint_inverse_simd(s, d, &bc);
+
+    //     test_approx_equal(&actual, &refer, RTOL, ATOL);
+    // }
+
     #[rstest]
     fn test_multisteps_forward_adjoint(
         #[values(
@@ -124,7 +159,7 @@ mod tests {
             BoundaryCondition::Antireflect
         )]
         bc: BoundaryCondition,
-        #[values(32, 31)] n: usize,
+        #[values(1, 2, 3, 4, 31, 32, 1000, 1001)] n: usize, // testing for very small sizes to ensure the code doesn't crash or panic.
     ) {
         let ns = (n + 1) / 2;
         let u = (0..n).map(|v| v as f64).collect::<Vec<_>>();
@@ -170,7 +205,7 @@ mod tests {
             BoundaryCondition::Antireflect
         )]
         bc: BoundaryCondition,
-        #[values(32, 31)] n: usize,
+        #[values(1, 2, 3, 4, 31, 32, 1000, 1001)] n: usize, // testing for very small sizes to ensure the code doesn't crash or panic.
     ) {
         let ns = (n + 1) / 2;
         let u = (0..n).map(|v| v as f64).collect::<Vec<_>>();

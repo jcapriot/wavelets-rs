@@ -507,6 +507,8 @@ impl ChunkWidth<num_complex::Complex32, N_C32> for num_complex::Complex32 {}
 impl ChunkWidth<num_complex::Complex64, N_C64> for num_complex::Complex64 {}
 
 pub mod tests {
+
+    #[track_caller]
     pub fn test_approx_equal<T>(actual: &[T], desired: &[T], rtol: T, atol: T)
     where
         T: num_traits::Float + std::fmt::Debug,
@@ -533,6 +535,7 @@ pub mod tests {
         }
     }
 
+    #[track_caller]
     pub fn test_approx_adjoint<F, FA, T>(f: F, f_adj: FA, u: &[T], v: &[T], rtol: T, atol: T)
     where
         F: Fn(&[T], &mut [T]),
