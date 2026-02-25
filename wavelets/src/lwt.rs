@@ -5,7 +5,6 @@ pub mod driver;
 pub mod symlet;
 
 use crate::boundarys::BoundaryExtension;
-use crate::boundarys::LiftedAdjointBoundary;
 use crate::{SimdTransformable, Transformable};
 
 pub trait LiftingTransform {
@@ -111,40 +110,6 @@ mod tests {
 
         test_approx_equal(&output, &input, RTOL, ATOL);
     }
-
-    // #[rstest]
-    // fn test_multisteps_adjoint_inverse_simd_check(
-    //     #[values(
-    //         BoundaryCondition::Zero,
-    //         BoundaryCondition::Periodic,
-    //         BoundaryCondition::Constant,
-    //         BoundaryCondition::Reflect,
-    //         BoundaryCondition::Symmetric,
-    //         BoundaryCondition::Antisymmetric,
-    //         BoundaryCondition::Smooth,
-    //         BoundaryCondition::Antireflect
-    //     )]
-    //     bc: BoundaryCondition,
-    //     #[values(1, 2, 3, 4, 5, 31, 32)] n: usize,
-    // ) {
-    //     let ns = (n + 1) / 2;
-    //     // let mut refer = vec![0.0; n];
-    //     // let i = std::cmp::min(1, n - 1);
-    //     // refer[i] = 1.0;
-    //     let mut refer = (0..n).map(|v| v as f64).collect::<Vec<_>>();
-
-    //     let (s, d) = refer.split_at_mut(ns);
-
-    //     TestWavelet::adjoint_inverse(s, d, &bc);
-
-    //     let mut actual = (0..n).map(|v| v as f64).collect::<Vec<_>>();
-
-    //     let (s, d) = actual.split_at_mut(ns);
-    //     TestWavelet::adjoint_inverse_simd(s, d, &bc);
-    //     //adjoint_inverse_simd(s, d, &bc);
-
-    //     test_approx_equal(&actual, &refer, RTOL, ATOL);
-    // }
 
     #[rstest]
     fn test_multisteps_forward_adjoint(

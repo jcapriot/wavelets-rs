@@ -5,7 +5,6 @@ use std::collections::HashSet;
 
 use crate::Wavelets;
 use crate::boundarys::BoundaryExtension;
-use crate::boundarys::LiftedAdjointBoundary;
 use crate::iter::LanesIterator;
 
 use crate::utils::{
@@ -15,14 +14,14 @@ use crate::utils::{
 use crate::utils::{
     interleave, interleave_strided, interleave_strided_chunk, split_strided, split_strided_chunk,
 };
-use crate::{ChunkWidth, SimdTransformable, Transformable};
+use crate::{ChunkWidth, SimdTransformable};
 
 use wavelets_macros::generate_wavelet_match_arms;
 
 pub struct WaveletTransform<T, BC, const N: usize>
 where
     T: SimdTransformable + Zero + ChunkWidth<T, N>,
-    BC: BoundaryExtension + LiftedAdjointBoundary,
+    BC: BoundaryExtension,
 {
     lwt_forward: fn(&mut [T], &mut [T], &BC),
     lwt_inverse: fn(&mut [T], &mut [T], &BC),
@@ -34,7 +33,7 @@ where
 impl<T, BC, const N: usize> WaveletTransform<T, BC, N>
 where
     T: SimdTransformable + Zero + ChunkWidth<T, N>,
-    BC: BoundaryExtension + LiftedAdjointBoundary,
+    BC: BoundaryExtension,
 {
     pub fn new(wvlt: Wavelets, bc: BC) -> Self {
         use crate::lwt::bior::*;
@@ -189,7 +188,7 @@ where
 impl<T, BC, const N: usize> WaveletTransform<T, BC, N>
 where
     T: SimdTransformable + Zero + ChunkWidth<T, N>,
-    BC: BoundaryExtension + LiftedAdjointBoundary,
+    BC: BoundaryExtension,
 {
     pub fn forward_ndarray_multilevel<D: Dimension>(
         &self,
@@ -299,7 +298,7 @@ fn general_nd_forward_multilevel<F, T, L, const N: usize>(
 ) where
     F: Fn(&mut [T], &mut [T]),
     L: LanesIterator<Item = T> + ?Sized,
-    T: Transformable + Zero + ChunkWidth<T, N>,
+    T: Clone + Zero + ChunkWidth<T, N>,
 {
     let ndim = shape.len();
     assert!(axes.iter().all(|i| *i < ndim));
@@ -411,7 +410,7 @@ fn general_nd_inverse_multilevel<F, T, L, const N: usize>(
 ) where
     F: Fn(&mut [T], &mut [T]),
     L: LanesIterator<Item = T> + ?Sized,
-    T: Transformable + Zero + ChunkWidth<T, N>,
+    T: Clone + Zero + ChunkWidth<T, N>,
 {
     let ndim = shape.len();
     assert!(axes.iter().all(|i| *i < ndim));
@@ -497,8 +496,8 @@ pub mod parallel {
 
     pub struct WaveletTransform<T, BC, const N: usize>
     where
-        T: Transformable + Zero + ChunkWidth<T, N> + Sync + Send,
-        BC: BoundaryExtension + LiftedAdjointBoundary,
+        T: SimdTransformable + Zero + ChunkWidth<T, N> + Sync + Send,
+        BC: BoundaryExtension,
     {
         lwt_forward: fn(&mut [T], &mut [T], &BC),
         lwt_inverse: fn(&mut [T], &mut [T], &BC),
@@ -510,7 +509,7 @@ pub mod parallel {
     impl<T, BC, const N: usize> WaveletTransform<T, BC, N>
     where
         T: SimdTransformable + Zero + ChunkWidth<T, N> + Sync + Send,
-        BC: BoundaryExtension + LiftedAdjointBoundary,
+        BC: BoundaryExtension,
     {
         pub fn new(wvlt: Wavelets, bc: BC) -> Self {
             use crate::lwt::bior::*;
@@ -676,8 +675,8 @@ pub mod parallel {
     #[cfg(feature = "ndarray")]
     impl<T, BC, const N: usize> WaveletTransform<T, BC, N>
     where
-        T: Transformable + Zero + ChunkWidth<T, N> + Sync + Send,
-        BC: BoundaryExtension + LiftedAdjointBoundary,
+        T: SimdTransformable + Zero + ChunkWidth<T, N> + Sync + Send,
+        BC: BoundaryExtension,
     {
         pub fn forward_ndarray_multilevel<D: Dimension>(
             &self,
@@ -787,7 +786,7 @@ pub mod parallel {
     ) where
         F: Fn(&mut [T], &mut [T]) + Sync,
         L: LanesParallelIterator<Item = T> + ?Sized,
-        T: Transformable + Zero + ChunkWidth<T, N> + Sync + Send,
+        T: Clone + Zero + ChunkWidth<T, N> + Send + Sync,
     {
         let ndim = shape.len();
         assert!(axes.iter().all(|i| *i < ndim));
@@ -906,7 +905,7 @@ pub mod parallel {
     ) where
         F: Fn(&mut [T], &mut [T]) + Sync,
         L: LanesParallelIterator<Item = T> + ?Sized,
-        T: Transformable + Zero + ChunkWidth<T, N> + Send + Sync,
+        T: Clone + Zero + ChunkWidth<T, N> + Send + Sync,
     {
         let ndim = shape.len();
         assert!(axes.iter().all(|i| *i < ndim));

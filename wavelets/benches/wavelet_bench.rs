@@ -328,10 +328,10 @@ fn broadcasted_vs_strided_db2(c: &mut Criterion) {
             deinterleave_nd(&x, &mut x2, &shape);
             let (s, d) = x2.split_at_mut(ne * shape[1]);
             wavelets::lwt::daubechies::Daubechies2::forward_chunk(s, d, shape[1], &bc);
-            for slc in x2.chunks_exact_mut(shape[1]) {
+            x2.chunks_exact_mut(shape[1]).for_each(|slc| {
                 let (s, d) = slc.split_at_mut(ne);
                 wavelets::lwt::daubechies::Daubechies2::forward(s, d, &bc);
-            }
+            });
         })
     });
 
@@ -375,10 +375,10 @@ fn broadcasted_vs_strided_db4(c: &mut Criterion) {
             let (s, d) = x2.split_at_mut(ne * shape[1]);
             wavelets::lwt::daubechies::Daubechies4::forward_chunk(s, d, shape[1], &bc);
 
-            for slc in x2.chunks_exact_mut(shape[1]) {
+            x2.chunks_exact_mut(shape[1]).for_each(|slc| {
                 let (s, d) = slc.split_at_mut(ne);
                 wavelets::lwt::daubechies::Daubechies4::forward(s, d, &bc);
-            }
+            });
         })
     });
 
@@ -422,10 +422,10 @@ fn broadcasted_vs_strided_db6(c: &mut Criterion) {
             let (s, d) = x2.split_at_mut(ne * shape[1]);
             wavelets::lwt::daubechies::Daubechies6::forward_chunk(s, d, shape[1], &bc);
 
-            for slc in x2.chunks_exact_mut(shape[1]) {
+            x2.chunks_exact_mut(shape[1]).for_each(|slc| {
                 let (s, d) = slc.split_at_mut(ne);
                 wavelets::lwt::daubechies::Daubechies6::forward(s, d, &bc);
-            }
+            });
         })
     });
 

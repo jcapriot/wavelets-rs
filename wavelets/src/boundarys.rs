@@ -279,56 +279,6 @@ impl BoundaryExtension for BoundaryCondition {
     }
 }
 
-pub trait LiftedAdjointBoundary {
-    fn adjoint_op<F: Fn(&mut T, T), T: Transformable, const N: usize>(
-        &self,
-        op: F,
-        left: &mut [T],
-        right: &mut [T],
-        rev_offset: isize,
-        rev_c: &[T::Scalar; N],
-        i_left: isize,
-    );
-}
-impl LiftedAdjointBoundary for BoundaryCondition {
-    #[inline(always)]
-    fn adjoint_op<F: Fn(&mut T, T), T: Transformable, const N: usize>(
-        &self,
-        op: F,
-        left: &mut [T],
-        right: &mut [T],
-        rev_offset: isize,
-        rev_c: &[T::Scalar; N],
-        i_left: isize,
-    ) {
-        let i_right = i_left + rev_offset;
-
-        let parts = self.get_parts::<T>(left.len(), i_left);
-
-        for (scale, io) in parts {
-            if let Some(yi) = left.get_mut(io) {
-                let right = (i_right..i_right + N as isize)
-                    .zip(rev_c.iter())
-                    .filter_map(|(j, c)| {
-                        right
-                            .get(j as usize)
-                            .and_then(|v| Some(v.clone() * c.clone()))
-                    })
-                    .reduce(|acc, v| acc + v);
-
-                if let Some(right) = right {
-                    let right = if let Some(v) = scale {
-                        right * v
-                    } else {
-                        right
-                    };
-                    op(yi, right);
-                }
-            }
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug)]
 pub struct ZeroBoundary;
 
@@ -349,20 +299,6 @@ impl BoundaryExtension for ZeroBoundary {
         }
     }
 }
-impl LiftedAdjointBoundary for ZeroBoundary {
-    #[inline(always)]
-    fn adjoint_op<F: Fn(&mut T, T), T: Transformable, const N: usize>(
-        &self,
-        _op: F,
-        _left: &mut [T],
-        _right: &mut [T],
-        _rev_offset: isize,
-        _rev_c: &[T::Scalar; N],
-        _i_left: isize,
-    ) {
-        // Do nothing
-    }
-}
 
 #[derive(Clone, Copy, Debug)]
 pub struct PeriodicBoundary;
@@ -381,36 +317,6 @@ impl BoundaryExtension for PeriodicBoundary {
 
 unsafe impl Sync for PeriodicBoundary {}
 unsafe impl Send for PeriodicBoundary {}
-
-impl LiftedAdjointBoundary for PeriodicBoundary {
-    #[inline(always)]
-    fn adjoint_op<F: Fn(&mut T, T), T: Transformable, const N: usize>(
-        &self,
-        op: F,
-        left: &mut [T],
-        right: &mut [T],
-        rev_offset: isize,
-        rev_c: &[T::Scalar; N],
-        i_left: isize,
-    ) {
-        let i_right = i_left + rev_offset;
-        let io = i_left.rem_euclid(left.len() as isize) as usize;
-
-        if let Some(yi) = left.get_mut(io) {
-            if let Some(right) = (i_right..i_right + N as isize)
-                .zip(rev_c.iter())
-                .filter_map(|(j, c)| {
-                    right
-                        .get(j as usize)
-                        .and_then(|v| Some(v.clone() * c.clone()))
-                })
-                .reduce(|acc, v| acc + v)
-            {
-                op(yi, right);
-            }
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {
