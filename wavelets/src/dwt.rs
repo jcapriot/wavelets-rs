@@ -88,6 +88,22 @@ pub fn get_outlen<const N: usize>(n: usize) -> usize {
     }
 }
 
+pub struct CheckEven<const N: usize>();
+impl<const N: usize> CheckEven<N> {
+    pub const VALID: () = {
+        assert!(N >= 2);
+        assert!(N % 2 == 0);
+    };
+}
+
+#[macro_export]
+macro_rules! static_assert_even {
+    ($N: ty) => {
+        let _ = $crate::dwt::CheckEven::<$N>::VALID;
+    };
+}
+
+
 pub fn dwt_forward<T: Transformable, const N: usize, BC: BoundaryExtension>(
     g: &[f64; N],
     h: &[f64; N],
@@ -96,6 +112,7 @@ pub fn dwt_forward<T: Transformable, const N: usize, BC: BoundaryExtension>(
     d: &mut [T],
     bc: &BC,
 ) {
+    static_assert_even!(N);
     let (nx, ns, nd) = (x.len(), s.len(), d.len());
 
     assert_eq!(ns, nd, "'d.len()' must be equal to 's.len()'");
