@@ -103,6 +103,9 @@ macro_rules! static_assert_even {
     };
 }
 
+pub const fn get_offset(n: usize) -> usize {
+    (n - 2) / 2
+}
 
 pub fn dwt_forward<T: Transformable, const N: usize, BC: BoundaryExtension>(
     g: &[f64; N],
@@ -123,7 +126,7 @@ pub fn dwt_forward<T: Transformable, const N: usize, BC: BoundaryExtension>(
         "'s.len()` and `d.len()' are inconsistent with 'x.len()'"
     );
 
-    let offset = (N as isize - 2) / 2;
+    let offset = const { get_offset(N) as isize };
     let g: [T::Scalar; N] = g
         .iter()
         .rev()
@@ -140,7 +143,7 @@ pub fn dwt_forward<T: Transformable, const N: usize, BC: BoundaryExtension>(
     let gh_iter = g.iter().zip(h.iter());
 
     // front boundary:
-    let n_bcs = N as isize / 4;
+    let n_bcs = const { N as isize / 4 };
     let mut sd_iter = (-n_bcs..(ns as isize - n_bcs)).zip(s.iter_mut().zip(d.iter_mut()));
 
     sd_iter
@@ -160,7 +163,7 @@ pub fn dwt_forward<T: Transformable, const N: usize, BC: BoundaryExtension>(
             }
         });
 
-    let first_x = offset as usize % 2;
+    let first_x = const { get_offset(N) % 2 };
 
     sd_iter
         .by_ref()
@@ -171,7 +174,7 @@ pub fn dwt_forward<T: Transformable, const N: usize, BC: BoundaryExtension>(
                 .zip(x)
                 .map(|((g, h), xi)| (xi.clone() * g.clone(), xi.clone() * h.clone()))
                 .reduce(|(s_s, d_s), (s, d)| (s + s_s, d + d_s));
-            // only undefined if N==0, but windows(N) would've already paniced if that was the case.
+            // only undefined if N==0, but our static assert made that not happen.
             (*s, *d) = unsafe { v.unwrap_unchecked() };
         });
 
@@ -197,6 +200,7 @@ pub fn dwt_inverse<T: Transformable, const N: usize>(
     d: &[T],
     x: &mut [T],
 ) {
+    static_assert_even!(N);
     let (nx, ns, nd) = (x.len(), s.len(), d.len());
 
     assert_eq!(ns, nd, "'d.len()' must be equal to 's.len()'");
@@ -277,6 +281,7 @@ pub fn dwt_per_forward<T: Transformable, const N: usize>(
     s: &mut [T],
     d: &mut [T],
 ) {
+    static_assert_even!(N);
     let (nx, ns, nd) = (x.len(), s.len(), d.len());
 
     assert!(
@@ -374,6 +379,7 @@ pub fn dwt_per_inverse<T: Transformable, const N: usize>(
     d: &[T],
     x: &mut [T],
 ) {
+    static_assert_even!(N);
     let (nx, ns, nd) = (x.len(), s.len(), d.len());
 
     assert!(
