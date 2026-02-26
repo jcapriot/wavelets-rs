@@ -318,6 +318,10 @@ pub fn dwt_per_forward<T: Transformable + Zero, const N: usize>(
         {
             *sl = xl.clone();
         }
+        // if ns == 1 (or 0), there is nothing to do.
+        if nd == 0 {
+            return;
+        }
         (&x[0..nx - 1], &mut s[0..nd])
     } else {
         (x, s)
@@ -343,8 +347,6 @@ pub fn dwt_per_forward<T: Transformable + Zero, const N: usize>(
     // N - 2 is safe because N >= 2;
     let nx_steps = x.len().checked_sub(N - 2 + first_x).unwrap_or(0) / 2;
     let n2 = std::cmp::min(n1 + nx_steps, nd);
-
-    dbg!(n1, n2, nd);
 
     // split s and d into the front, main, and back loops (*_f, *_m, *_b)
     // split off the back parts
@@ -434,6 +436,10 @@ pub fn dwt_per_inverse<T: Transformable + Zero, const N: usize>(
         {
             *xl = sl.clone();
         }
+        // if ns == 1 (or 0), there is nothing to do.
+        if nd == 0 {
+            return;
+        }
         (&mut x[0..nx - 1], &s[0..nd])
     } else {
         (x, s)
@@ -484,8 +490,9 @@ pub fn dwt_per_inverse<T: Transformable + Zero, const N: usize>(
     // now count how many x_chunks we need to handle at the front boundary:
 
     // n_bcs - pair_shift (if there was one)
+    let nx_chunks = x_chunks.len();
     let n_wrap = const { N / 4 - get_offset(N) % 2 };
-    let n1 = std::cmp::min(n_wrap, nd);
+    let n1 = std::cmp::min(n_wrap, nx_chunks);
 
     // then the number of steps we can completely do to the x_chunks
     let nx_steps = s.len().checked_sub(N / 2 - 1).unwrap_or(0);
@@ -494,8 +501,7 @@ pub fn dwt_per_inverse<T: Transformable + Zero, const N: usize>(
     debug_assert_eq!(nx_steps, d.windows(N / 2).len());
 
     // added to the first boundary...
-    let nx_chunks = x_chunks.len();
-    let n2 = std::cmp::min(n1 + nx_steps, x_chunks.len());
+    let n2 = std::cmp::min(n1 + nx_steps, nx_chunks);
 
     let (x_chunks, x_chunks_b) = x_chunks.split_at_mut(n2);
     let (x_chunks_f, x_chunks) = x_chunks.split_at_mut(n1);

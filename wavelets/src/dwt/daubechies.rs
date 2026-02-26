@@ -199,7 +199,7 @@ mod test {
                     BoundaryCondition::Antireflect
                 )]
                 bc: BoundaryCondition,
-                #[values(64, 65)] n: usize,
+                #[values(1, 2, 4, 5, 20, 64, 65)] n: usize,
             ) {
                 let x: Vec<f64> = (0..n).map(|i| (i + 1) as f64).collect();
                 let mut x2 = vec![0.0; n];
@@ -216,7 +216,7 @@ mod test {
             }
 
             #[rstest]
-            fn $per_test_name(#[values(64, 65)] n: usize) {
+            fn $per_test_name(#[values(1, 2, 4, 5, 20, 64, 65)] n: usize) {
                 let x: Vec<f64> = (0..n).map(|i| (i + 1) as f64).collect();
                 let mut x2 = vec![0.0; n];
                 let nd = n / 2;
@@ -232,7 +232,7 @@ mod test {
             }
 
             #[rstest]
-            fn $adj_test_name(#[values(64, 65)] n: usize) {
+            fn $adj_test_name(#[values(1, 2, 4, 5, 20, 64, 65)] n: usize) {
                 let x: Vec<f64> = (0..n).map(|i| (i + 1) as f64).collect();
                 let mut x2 = vec![0.0; n];
                 let nd = n / 2;
@@ -317,20 +317,20 @@ mod test {
             RTOL,
             ATOL,
         );
-
-        // test_approx_adjoint(
-        //     |u, out| {
-        //         let (s, d) = out.split_at_mut(nsd);
-        //         Wvlt::forward(u, s, d, &bc);
-        //     },
-        //     |v, out| {
-        //         let (s, d) = v.split_at(nsd);
-        //         Wvlt::adjoint_forward(s, d, out, &bc);
-        //     },
-        //     &u,
-        //     &v,
-        //     RTOL,
-        //     ATOL,
-        // );
     }
+
+    // test_approx_adjoint(
+    //     |u, out| {
+    //         let (s, d) = out.split_at_mut(nsd);
+    //         Wvlt::forward(u, s, d, &bc);
+    //     },
+    //     |v, out| {
+    //         let (s, d) = v.split_at(nsd);
+    //         Wvlt::adjoint_forward(s, d, out, &bc);
+    //     },
+    //     &u,
+    //     &v,
+    //     RTOL,
+    //     ATOL,
+    // );
 }
