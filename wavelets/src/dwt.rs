@@ -53,6 +53,11 @@ pub trait DiscreteTransform<const N: usize> {
         dwt_per_forward(&Self::G, &Self::H, x, s, d);
     }
 
+    // #[inline]
+    // fn forward_per_new<T: Transformable + Zero>(x: &[T], s: &mut [T], d: &mut [T]) {
+    //     dwt_per_forward_new(&Self::G, &Self::H, x, s, d);
+    // }
+
     #[inline]
     fn adjoint_forward_per<T: Transformable + Zero>(s: &[T], d: &[T], x: &mut [T]) {
         let ga: [_; N] = Self::G.clone().into_iter().rev().collect_array().unwrap();
@@ -285,7 +290,7 @@ pub fn dwt_inverse<T: Transformable + Zero, const N: usize>(
     }
 }
 
-pub fn dwt_per_forward<T: Transformable, const N: usize>(
+pub fn dwt_per_forward<T: Transformable + Zero, const N: usize>(
     g: &[f64; N],
     h: &[f64; N],
     x: &[T],
@@ -318,69 +323,87 @@ pub fn dwt_per_forward<T: Transformable, const N: usize>(
         (x, s)
     };
 
-    let offset = (N as isize - 2) / 2;
-    let g: [T::Scalar; N] = g
-        .iter()
-        .rev()
-        .map(|v| T::scalar_type_from_f64(*v))
-        .collect_array()
-        .expect("N=N");
-    let h: [T::Scalar; N] = h
-        .iter()
-        .rev()
-        .map(|v| T::scalar_type_from_f64(*v))
-        .collect_array()
-        .expect("N=N");
-    let gh_iter = g.iter().zip(h.iter());
+    let offset = const { get_offset(N) };
+    let gh: [_; N] = std::array::from_fn(|i| {
+        [
+            T::scalar_type_from_f64(g[N - (i + 1)]),
+            T::scalar_type_from_f64(h[N - (i + 1)]),
+        ]
+    });
 
     // front boundary:
-    let n_bcs = N / 4;
-    let mut sd_iter = (0..nd as isize).zip(s.iter_mut().zip(d.iter_mut()));
+    let n_bcs = const { N / 4 };
 
     let per_bc = PeriodicBoundary {};
 
-    sd_iter.by_ref().take(n_bcs).for_each(|(i, (s, d))| {
-        let ix = 2 * i - offset;
-        if let Some((v1, v2)) = (0..N as isize)
-            .zip(gh_iter.clone())
-            .filter_map(|(j, (g, h))| {
-                let xo = per_bc.get_bc(x, ix + j)?;
-                Some((xo.clone() * g.clone(), xo * h.clone()))
-            })
-            .reduce(|(s_s, d_s), (s, d)| (s + s_s, d + d_s))
-        {
-            (*s, *d) = (v1, v2)
-        }
-    });
+    let first_x = const { get_offset(N) % 2 };
 
-    let first_x = offset as usize % 2;
+    // calculate the break points of the front, main, and back loops.
+    let n1 = std::cmp::min(n_bcs, nd);
+    // N - 2 is safe because N >= 2;
+    let nx_steps = x.len().checked_sub(N - 2 + first_x).unwrap_or(0) / 2;
+    let n2 = std::cmp::min(n1 + nx_steps, nd);
 
-    sd_iter
-        .by_ref()
-        .zip(x[first_x..].windows(N).step_by(2))
-        .for_each(|((_i, (s, d)), x)| {
-            let v = gh_iter
-                .clone()
-                .zip(x)
-                .map(|((g, h), xi)| (xi.clone() * g.clone(), xi.clone() * h.clone()))
-                .reduce(|(s_s, d_s), (s, d)| (s + s_s, d + d_s));
-            // only undefined if N == 0, but would've paniced at windows() before this.
-            (*s, *d) = unsafe { v.unwrap_unchecked() };
+    dbg!(n1, n2, nd);
+
+    // split s and d into the front, main, and back loops (*_f, *_m, *_b)
+    // split off the back parts
+    let (s, s_b) = s.split_at_mut(n2);
+    let (d, d_b) = d.split_at_mut(n2);
+    // split off the front parts
+    let (s_f, s_m) = s.split_at_mut(n1);
+    let (d_f, d_m) = d.split_at_mut(n1);
+
+    (0..n1 as isize)
+        .zip(s_f.iter_mut().zip(d_f))
+        .for_each(|(i, (s, d))| {
+            let ix = 2 * i - offset as isize;
+            dbg!(i, ix);
+            *s = T::zero();
+            *d = T::zero();
+            (ix..ix + N as isize)
+                .zip(gh.iter())
+                .for_each(|(j, [g, h])| {
+                    if let Some(xo) = per_bc.get_bc(x, j) {
+                        *s += xo.clone() * g.clone();
+                        *d += xo * h.clone();
+                    }
+                })
+        });
+    // x[first_x..].array_windows::<N>().step_by(2);
+    let x_iter = x[first_x..].windows(N).step_by(2);
+
+    debug_assert_eq!(x_iter.len(), nx_steps); // double check in debug that nx_steps is correct
+    debug_assert_eq!(x_iter.len(), s_m.len());
+    debug_assert_eq!(x_iter.len(), d_m.len());
+
+    x_iter
+        .zip(s_m.iter_mut().zip(d_m))
+        .for_each(|(xs, (s, d))| {
+            *s = T::zero();
+            *d = T::zero();
+            gh.iter().zip(xs).for_each(|([g, h], x)| {
+                *s += x.clone() * g.clone();
+                *d += x.clone() * h.clone();
+            });
         });
 
-    sd_iter.for_each(|(i, (s, d))| {
-        let ix = 2 * i - offset;
-        if let Some((v1, v2)) = (0..N as isize)
-            .zip(gh_iter.clone())
-            .filter_map(|(j, (g, h))| {
-                let xo = per_bc.get_bc(x, ix + j)?;
-                Some((xo.clone() * g.clone(), xo * h.clone()))
-            })
-            .reduce(|(s_s, d_s), (s, d)| (s + s_s, d + d_s))
-        {
-            (*s, *d) = (v1, v2)
-        }
-    });
+    (n2 as isize..nd as isize)
+        .zip(s_b.iter_mut().zip(d_b))
+        .for_each(|(i, (s, d))| {
+            *s = T::zero();
+            *d = T::zero();
+            let ix = 2 * i - offset as isize;
+            dbg!(i, ix);
+            (ix..ix + N as isize)
+                .zip(gh.iter())
+                .for_each(|(j, [g, h])| {
+                    if let Some(xo) = per_bc.get_bc(x, j) {
+                        *s += xo.clone() * g.clone();
+                        *d += xo * h.clone();
+                    }
+                })
+        });
 }
 
 pub fn dwt_per_inverse<T: Transformable, const N: usize>(
