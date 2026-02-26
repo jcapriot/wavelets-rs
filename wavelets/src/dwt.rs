@@ -406,7 +406,7 @@ pub fn dwt_per_forward<T: Transformable + Zero, const N: usize>(
         });
 }
 
-pub fn dwt_per_inverse<T: Transformable, const N: usize>(
+pub fn dwt_per_inverse<T: Transformable + Zero, const N: usize>(
     gi: &[f64; N],
     hi: &[f64; N],
     s: &[T],
@@ -439,168 +439,131 @@ pub fn dwt_per_inverse<T: Transformable, const N: usize>(
         (x, s)
     };
 
-    let offset = (N as isize - 2) / 2;
-    let n_bcs = N as isize / 4;
-    // TODO: Remove enumeratiion part of the sd_iter after more testing.
-    let g: [T::Scalar; N] = gi
-        .iter()
-        .rev()
-        .map(|v| T::scalar_type_from_f64(*v))
-        .collect_array()
-        .expect("N=N");
-    let h: [T::Scalar; N] = hi
-        .iter()
-        .rev()
-        .map(|v| T::scalar_type_from_f64(*v))
-        .collect_array()
-        .expect("N=N");
+    let gh: [_; N] = std::array::from_fn(|i| {
+        [
+            T::scalar_type_from_f64(gi[N - (i + 1)]),
+            T::scalar_type_from_f64(hi[N - (i + 1)]),
+        ]
+    });
+    let gh_chunks = gh.as_chunks::<2>().0; // no remainder as N is even.
 
-    let gh_iter = g.chunks_exact(2).zip(h.chunks_exact(2));
-    let pair_shift = offset as usize % 2;
+    let pair_shift = const { get_offset(N) % 2 };
 
+    let n_bcs = { N as isize / 4 };
+
+    let (x_f, x) = x.split_at_mut(pair_shift);
+
+    let per_bc = PeriodicBoundary {};
+    if pair_shift > 0
+        && let Some(x1) = x_f.get_mut(0)
+    {
+        let i_sd = -n_bcs;
+
+        *x1 = T::zero();
+        (i_sd..i_sd + N as isize / 2)
+            .zip(gh_chunks)
+            .for_each(|(j, [[g0, h0], _])| {
+                if let Some(s) = per_bc.get_bc(s, j)
+                    && let Some(d) = per_bc.get_bc(d, j)
+                {
+                    *x1 += s * g0.clone() + d * h0.clone()
+                }
+            });
+    }
     // s and d have lengths equal to N / 2
     // gh_iter is an N/2 length iterator that produces items of length 2
     // need to do for each x0 =
 
-    let per_bc = PeriodicBoundary {};
-
-    if pair_shift > 0
-        && let Some(x) = x.first_mut()
-    {
-        let i_sd = -n_bcs;
-        if let Some(v) = (0..N as isize / 2)
-            .zip(gh_iter.clone())
-            .filter_map(|(j, (g, h))| {
-                let sg = per_bc
-                    .get_bc(s, i_sd + j)
-                    .and_then(|s| Some(s * g[0].clone()));
-                let dh = per_bc
-                    .get_bc(d, i_sd + j)
-                    .and_then(|d| Some(d * h[0].clone()));
-                if let Some(sg) = sg {
-                    if let Some(dh) = dh {
-                        Some(sg + dh)
-                    } else {
-                        Some(sg)
-                    }
-                } else {
-                    dh
-                }
-            })
-            .reduce(|acc, v| acc + v)
-        {
-            *x = v
-        }
-    }
-    let mut x_iter =
-        (pair_shift as isize - n_bcs..nd as isize - n_bcs).zip(x[pair_shift..].chunks_exact_mut(2));
-
     // front boundarys
-    x_iter
-        .by_ref()
-        .take(n_bcs as usize - pair_shift)
-        .for_each(|(i_sd, x)| {
-            if let Some((v1, v2)) = (0..N as isize / 2)
-                .zip(gh_iter.clone())
-                .filter_map(|(j, (g, h))| {
-                    let sg = per_bc
-                        .get_bc(s, i_sd + j)
-                        .and_then(|s| Some((s.clone() * g[1].clone(), s * g[0].clone())));
-                    let dh = per_bc
-                        .get_bc(d, i_sd + j)
-                        .and_then(|d| Some((d.clone() * h[1].clone(), d * h[0].clone())));
-                    if let Some(sg) = sg {
-                        if let Some(dh) = dh {
-                            Some((sg.0 + dh.0, sg.1 + dh.1))
-                        } else {
-                            Some(sg)
-                        }
-                    } else {
-                        dh
+
+    // note here that x_b will only have an entry if pair_shift == 1;
+    // as at this point x would start with an even length, and the first
+    // would only be pealed off if there was a pair_shift.
+    let (x_chunks, x_b) = x.as_chunks_mut::<2>();
+
+    // now count how many x_chunks we need to handle at the front boundary:
+
+    // n_bcs - pair_shift (if there was one)
+    let n_wrap = const { N / 4 - get_offset(N) % 2 };
+    let n1 = std::cmp::min(n_wrap, nd);
+
+    // then the number of steps we can completely do to the x_chunks
+    let nx_steps = s.len().checked_sub(N / 2 - 1).unwrap_or(0);
+
+    debug_assert_eq!(nx_steps, s.windows(N / 2).len());
+    debug_assert_eq!(nx_steps, d.windows(N / 2).len());
+
+    // added to the first boundary...
+    let nx_chunks = x_chunks.len();
+    let n2 = std::cmp::min(n1 + nx_steps, x_chunks.len());
+
+    let (x_chunks, x_chunks_b) = x_chunks.split_at_mut(n2);
+    let (x_chunks_f, x_chunks) = x_chunks.split_at_mut(n1);
+
+    // let mut x_iter =
+    //     (pair_shift as isize - n_bcs..nd as isize - n_bcs).zip(x[pair_shift..].chunks_exact_mut(2));
+
+    (-(n_wrap as isize)..0)
+        .zip(x_chunks_f)
+        .for_each(|(i_sd, [x0, x1])| {
+            *x0 = T::zero();
+            *x1 = T::zero();
+            (i_sd..i_sd + N as isize / 2)
+                .zip(gh_chunks)
+                .for_each(|(j, [[g0, h0], [g1, h1]])| {
+                    if let Some(s) = per_bc.get_bc(s, j)
+                        && let Some(d) = per_bc.get_bc(d, j)
+                    {
+                        *x0 += s.clone() * g1.clone() + d.clone() * h1.clone();
+                        *x1 += s * g0.clone() + d * h0.clone();
                     }
-                })
-                .reduce(|(x0_acc, x1_acc), (x0, x1)| (x0_acc + x0, x1_acc + x1))
-            {
-                (x[0], x[1]) = (v1, v2)
-            }
+                });
         });
 
-    // main loop
-    x_iter
-        .by_ref()
+    x_chunks
+        .iter_mut()
         .zip(s.windows(N / 2).zip(d.windows(N / 2)))
-        .for_each(|((_i_sd, x), (s, d))| {
-            (x[0], x[1]) = gh_iter
-                .clone()
-                .zip(s.iter().zip(d.iter()))
-                .map(|((g, h), (s, d))| {
-                    (
-                        s.clone() * g[1].clone() + d.clone() * h[1].clone(),
-                        s.clone() * g[0].clone() + d.clone() * h[0].clone(),
-                    )
-                })
-                .reduce(|(x0_acc, x1_acc), (x0, x1)| (x0_acc + x0, x1_acc + x1))
-                .unwrap();
+        .for_each(|([x0, x1], (s, d))| {
+            *x0 = T::zero();
+            *x1 = T::zero();
+            gh_chunks.iter().zip(s.iter().zip(d.iter())).for_each(
+                |([[g0, h0], [g1, h1]], (s, d))| {
+                    *x0 += s.clone() * g1.clone() + d.clone() * h1.clone();
+                    *x1 += s.clone() * g0.clone() + d.clone() * h0.clone();
+                },
+            );
         });
 
-    // back bc loop until the x chunks run out
-    x_iter
-        .by_ref()
-        .take(n_bcs as usize - pair_shift)
-        .for_each(|(i_sd, x)| {
-            if let Some((v1, v2)) = (0..N as isize / 2)
-                .zip(gh_iter.clone())
-                .filter_map(|(j, (g, h))| {
-                    let sg = per_bc
-                        .get_bc(s, i_sd + j)
-                        .and_then(|s| Some((s.clone() * g[1].clone(), s * g[0].clone())));
-                    let dh = per_bc
-                        .get_bc(d, i_sd + j)
-                        .and_then(|d| Some((d.clone() * h[1].clone(), d * h[0].clone())));
-                    if let Some(sg) = sg {
-                        if let Some(dh) = dh {
-                            Some((sg.0 + dh.0, sg.1 + dh.1))
-                        } else {
-                            Some(sg)
-                        }
-                    } else {
-                        dh
+    (n2 as isize - n_wrap as isize..nx_chunks as isize - n_wrap as isize)
+        .zip(x_chunks_b)
+        .for_each(|(i_sd, [x0, x1])| {
+            *x0 = T::zero();
+            *x1 = T::zero();
+            (i_sd..i_sd + N as isize / 2)
+                .zip(gh_chunks)
+                .for_each(|(j, [[g0, h0], [g1, h1]])| {
+                    if let Some(s) = per_bc.get_bc(s, j)
+                        && let Some(d) = per_bc.get_bc(d, j)
+                    {
+                        *x0 += s.clone() * g1.clone() + d.clone() * h1.clone();
+                        *x1 += s * g0.clone() + d * h0.clone();
                     }
-                })
-                .reduce(|(x0_acc, x1_acc), (x0, x1)| (x0_acc + x0, x1_acc + x1))
-            {
-                (x[0], x[1]) = (v1, v2)
-            }
+                });
         });
-
     if pair_shift > 0
-        && let Some(x) = x.last_mut()
+        && let Some(x0) = x_b.get_mut(0)
     {
         let i_sd = nd as isize - n_bcs;
-
-        if let Some(v) = (0..N as isize / 2)
-            .zip(gh_iter.clone())
-            .filter_map(|(j, (g, h))| {
-                let sg = per_bc
-                    .get_bc(s, i_sd + j)
-                    .and_then(|s| Some(s * g[1].clone()));
-                let dh = per_bc
-                    .get_bc(d, i_sd + j)
-                    .and_then(|d| Some(d * h[1].clone()));
-                if let Some(sg) = sg {
-                    if let Some(dh) = dh {
-                        Some(sg + dh)
-                    } else {
-                        Some(sg)
-                    }
-                } else {
-                    dh
+        *x0 = T::zero();
+        (i_sd..i_sd + N as isize / 2)
+            .zip(gh_chunks)
+            .for_each(|(j, [_, [g1, h1]])| {
+                if let Some(s) = per_bc.get_bc(s, j)
+                    && let Some(d) = per_bc.get_bc(d, j)
+                {
+                    *x0 += s * g1.clone() + d * h1.clone()
                 }
-            })
-            .reduce(|acc, v| acc + v)
-        {
-            *x = v
-        }
+            });
     }
 }
 
