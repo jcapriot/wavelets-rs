@@ -1,21 +1,22 @@
 use criterion::{Criterion, criterion_group, criterion_main};
 use itertools::Itertools;
 use wavelets::utils::{
-    interleave_strided, interleave_strided_chunk, interleave_strided_simd, simd::Simd,
-    split_strided, split_strided_chunk, split_strided_simd, stack_to_strided,
+    AlignedVec, interleave_strided, interleave_strided_chunk, split_strided, split_strided_chunk,
+    stack_to_strided,
 };
-
-use num_traits::Zero;
 
 fn db2_benchmark(c: &mut Criterion) {
     use wavelets::boundarys::BoundaryCondition;
     use wavelets::daubechies;
     type WVLT = daubechies::Daubechies2;
     let n = 1000;
-    let x = (0..n).map(|i| i as f64).collect_vec();
-    //let (mut s, mut d) = x.split_at_mut((n + 1) / 2);
-    let mut s = vec![0.0; (n + 1) / 2];
-    let mut d = vec![0.0; n / 2];
+    let ns = (n + 1) / 2;
+    let nd = n / 2;
+
+    let x = AlignedVec::from_fn(n, |i| i as f64);
+
+    let mut s = AlignedVec::from_fn(ns, |i| i as f64);
+    let mut d = AlignedVec::from_fn(nd, |i| (i + ns) as f64);
 
     let bc = BoundaryCondition::Zero;
 
@@ -39,8 +40,8 @@ fn db2_benchmark(c: &mut Criterion) {
 
     let x2 = (0..n).map(|i| i as f64).collect_vec();
     let nsd = wavelets::dwt::get_outlen::<{ WVLT::WIDTH }>(n);
-    let mut s2 = vec![0.0; nsd];
-    let mut d2 = vec![0.0; nsd];
+    let mut s2 = AlignedVec::default_init_with_alignment(nsd, 4);
+    let mut d2 = AlignedVec::default_init_with_alignment(nsd, 4);
 
     group.bench_function("filtered", |b| {
         b.iter(|| {
@@ -57,10 +58,13 @@ fn db6_benchmark(c: &mut Criterion) {
     use wavelets::daubechies;
     type WVLT = daubechies::Daubechies6;
     let n = 1000;
-    let x = (0..n).map(|i| i as f64).collect_vec();
-    //let (mut s, mut d) = x.split_at_mut((n + 1) / 2);
-    let mut s = vec![0.0; (n + 1) / 2];
-    let mut d = vec![0.0; n / 2];
+    let ns = (n + 1) / 2;
+    let nd = n / 2;
+
+    let x = AlignedVec::from_fn(n, |i| i as f64);
+
+    let mut s = AlignedVec::from_fn(ns, |i| i as f64);
+    let mut d = AlignedVec::from_fn(nd, |i| (i + ns) as f64);
 
     let bc = BoundaryCondition::Zero;
 
@@ -222,28 +226,6 @@ fn interleave_strided_benchmark(c: &mut Criterion) {
                     .iter_mut()
                     .zip(last_chunk.iter().cloned())
                     .for_each(|(e, f)| *e = f);
-            }
-        })
-    });
-    let mut work_f = vec![Simd::<usize, N>::zero(); nf];
-    let mut work_s = vec![Simd::<usize, N>::zero(); ns];
-
-    let mut work_f2 = vec![0; nf];
-    let mut work_s2 = vec![0; ns];
-    group.bench_function("simd(chunk) - out of place", |b| {
-        b.iter(|| {
-            let in_chunk = x1.iter_lane_chunks::<N>(&shape, 0);
-            let in_rem = in_chunk.remainder();
-            let out_chunk = x2.iter_lane_chunks_mut::<N>(&shape, 0);
-            let out_rem = out_chunk.remainder();
-
-            for (in_chunk, mut out_chunk) in in_chunk.zip(out_chunk) {
-                split_strided_simd(&in_chunk, &mut work_f, &mut work_s);
-                interleave_strided_simd(&work_f, &work_s, &mut out_chunk);
-            }
-            for (in_rem, mut out_rem) in in_rem.zip(out_rem) {
-                split_strided(&in_rem, &mut work_f2, &mut work_s2);
-                interleave_strided(&work_f2, &work_s2, &mut out_rem);
             }
         })
     });

@@ -4,9 +4,9 @@ pub mod iter;
 pub mod lwt;
 pub mod utils;
 
-use num_traits::{Float, FromPrimitive, MulAdd, Num, NumAssignOps, NumAssignRef, NumOps, NumRef};
+use num_traits::{FromPrimitive, MulAdd, Num, NumAssignOps, NumOps};
 use pulp::{Simd, cast};
-use std::{fmt::Debug, ops::Neg, sync::LazyLock};
+use std::{fmt::Debug, marker::PhantomData, ops::Neg, sync::LazyLock};
 use wavelets_macros::{generate_wavelet_enum, generate_wavelet_match_arms};
 
 macro_rules! gen_wavelet_struct {
@@ -89,9 +89,6 @@ pub fn max_level<const N: usize>(n: usize) -> usize {
 }
 
 generate_wavelet_enum!(Wavelets, (Clone, Copy, Debug, PartialEq, Eq, Hash));
-
-pub trait FloatOps: Float + NumAssignRef + NumRef + MulAdd {}
-impl<T: Float + NumAssignRef + NumRef + MulAdd> FloatOps for T {}
 
 impl Wavelets {
     pub fn max_level(&self, n: usize) -> usize {
@@ -185,12 +182,49 @@ impl<T: Num + Copy + Debug + FromPrimitive + MulAdd<Output = T> + Neg<Output = T
     type Scalar = T;
 }
 
-pub trait SimdTransformable: Sized + Transformable {
+pub trait Alignable {
+    fn simd_lanes<S: Simd>(_: S) -> usize;
+
+    fn lanes() -> usize {
+        struct Impl<T: ?Sized>(PhantomData<T>);
+        impl<T> pulp::WithSimd for Impl<T>
+        where
+            T: Alignable + ?Sized,
+        {
+            type Output = usize;
+
+            #[inline(always)]
+            fn with_simd<S: Simd>(self, simd: S) -> Self::Output {
+                T::simd_lanes(simd)
+            }
+        }
+        crate::ARCH.dispatch(Impl(PhantomData::<Self>))
+    }
+}
+
+macro_rules! impl_alignable {
+    ($t:ty, $n:tt) => {
+        impl Alignable for $t {
+            fn simd_lanes<S: Simd>(_: S) -> usize {
+                S::$n
+            }
+        }
+    };
+}
+
+impl_alignable!(i8, I8_LANES);
+impl_alignable!(i16, I16_LANES);
+impl_alignable!(i32, I32_LANES);
+impl_alignable!(i64, I64_LANES);
+impl_alignable!(f32, F32_LANES);
+impl_alignable!(f64, F64_LANES);
+impl_alignable!(num_complex::Complex32, C32_LANES);
+impl_alignable!(num_complex::Complex64, C64_LANES);
+
+pub trait SimdTransformable: Sized + Transformable + Alignable {
     type Vector<S: Simd>: Copy + std::fmt::Debug;
     type SplatVector<S: Simd>: Copy + std::fmt::Debug;
     //type SplatScalar: FromPrimitive + Transformable;
-
-    fn simd_lanes<S: Simd>(simd: S) -> usize;
 
     fn as_simd<S: Simd>(simd: S, x: &[Self]) -> (&[Self::Vector<S>], &[Self]);
 
@@ -219,11 +253,6 @@ pub trait SimdTransformable: Sized + Transformable {
 impl SimdTransformable for f32 {
     type Vector<S: Simd> = S::f32s;
     type SplatVector<S: Simd> = Self::Vector<S>;
-
-    #[inline(always)]
-    fn simd_lanes<S: Simd>(_: S) -> usize {
-        S::F32_LANES
-    }
 
     #[inline(always)]
     fn as_simd<S: Simd>(_: S, slice: &[Self]) -> (&[Self::Vector<S>], &[Self]) {
@@ -287,11 +316,6 @@ impl SimdTransformable for f64 {
     type SplatVector<S: Simd> = Self::Vector<S>;
 
     #[inline(always)]
-    fn simd_lanes<S: Simd>(_: S) -> usize {
-        S::F64_LANES
-    }
-
-    #[inline(always)]
     fn as_simd<S: Simd>(_: S, slice: &[Self]) -> (&[Self::Vector<S>], &[Self]) {
         S::as_simd_f64s(slice)
     }
@@ -353,11 +377,6 @@ impl SimdTransformable for num_complex::Complex32 {
     type SplatVector<S: Simd> = S::f32s;
 
     #[inline(always)]
-    fn simd_lanes<S: Simd>(_: S) -> usize {
-        S::C32_LANES
-    }
-
-    #[inline(always)]
     fn as_simd<S: Simd>(_: S, slice: &[Self]) -> (&[Self::Vector<S>], &[Self]) {
         S::as_simd_c32s(slice)
     }
@@ -417,11 +436,6 @@ impl SimdTransformable for num_complex::Complex32 {
 impl SimdTransformable for num_complex::Complex64 {
     type Vector<S: Simd> = S::c64s;
     type SplatVector<S: Simd> = S::f64s;
-
-    #[inline(always)]
-    fn simd_lanes<S: Simd>(_: S) -> usize {
-        S::C64_LANES
-    }
 
     #[inline(always)]
     fn as_simd<S: Simd>(_: S, slice: &[Self]) -> (&[Self::Vector<S>], &[Self]) {

@@ -1,10 +1,13 @@
+use std::{
+    // marker::PhantomData,
+    ops::{Deref, DerefMut},
+};
+
 use crate::{
+    Alignable,
     iter::slice::{ChunkStridedSliceRef, StridedSliceRef},
-    utils::simd::Simd,
 };
 use itertools::{Itertools, izip};
-
-pub mod simd;
 
 #[inline]
 pub fn stride_from_shape(shape: &[usize]) -> Vec<usize> {
@@ -246,35 +249,71 @@ pub fn deinterleave_strided_chunk<T: Clone, const N: usize>(
     }
 }
 
-#[inline]
-pub fn deinterleave_strided_simd<T: Clone, const N: usize>(
-    x: &ChunkStridedSliceRef<T, N>,
-    evens: &mut [Simd<T, N>],
-    odds: &mut [Simd<T, N>],
-) {
-    assert_ne!(N, 0);
+// #[inline]
+// pub(crate) fn deinterleave_strided_aligned_chunk<T: Clone + Alignable, const N: usize>(
+//     x: &ChunkStridedSliceRef<T, N>,
+//     evens: &mut [T],
+//     odds: &mut [T],
+// ) {
+//     assert_ne!(N, 0);
 
-    let nx = x.len();
-    let n_o = nx / 2;
-    let n_e = nx - n_o;
+//     let nx = x.len();
+//     let n_o = nx / 2;
+//     let n_e = nx - n_o;
 
-    assert_eq!(evens.len(), n_e);
-    assert_eq!(odds.len(), n_o);
+//     // below should validate the evens and odds were a sufficient length;
+//     let mut e_chunks: [_; N] = evens.aligned_chunks_exact_mut(n_e).collect_array().unwrap();
+//     let mut o_chunks: [_; N] = odds.aligned_chunks_exact_mut(n_o).collect_array().unwrap();
 
-    if let Some(x_iter) = x.chunks() {
-        x_iter
-            .zip(evens.iter_mut().interleave(odds))
-            .for_each(|(x, out)| {
-                out.load(x);
-            });
-    } else {
-        x.iter()
-            .zip(evens.iter_mut().interleave(odds))
-            .for_each(|(x, out)| {
-                out.gather(x);
-            });
-    }
-}
+//     let mut do_even = true;
+//     let mut ind_io = 0;
+
+//     if let Some(x_iter) = x.chunks() {
+//         x_iter.for_each(|x| {
+//             match do_even {
+//                 true => x
+//                     .iter()
+//                     .cloned()
+//                     .zip(e_chunks.iter_mut())
+//                     .for_each(|(x, v)| {
+//                         unsafe { *v.get_unchecked_mut(ind_io) = x };
+//                     }),
+//                 false => {
+//                     x.iter()
+//                         .cloned()
+//                         .zip(o_chunks.iter_mut())
+//                         .for_each(|(x, v)| {
+//                             unsafe { *v.get_unchecked_mut(ind_io) = x };
+//                         });
+//                     ind_io += 1;
+//                 }
+//             }
+//             do_even = !do_even;
+//         })
+//     } else {
+//         x.iter().for_each(|x| {
+//             match do_even {
+//                 true => x
+//                     .into_iter()
+//                     .cloned()
+//                     .zip(e_chunks.iter_mut())
+//                     .for_each(|(x, v)| {
+//                         unsafe { *v.get_unchecked_mut(ind_io) = x };
+//                     }),
+//                 false => {
+//                     x.into_iter()
+//                         .cloned()
+//                         .zip(o_chunks.iter_mut())
+//                         .for_each(|(x, v)| {
+//                             unsafe { *v.get_unchecked_mut(ind_io) = x };
+//                         });
+//                     ind_io += 1;
+//                 }
+//             }
+//             do_even = !do_even;
+//         });
+//     }
+// }
 
 #[inline]
 pub fn stack<T: Clone>(first: &[T], second: &[T], out: &mut [T]) {
@@ -365,34 +404,54 @@ pub fn stack_to_strided_chunk<T: Clone, const N: usize>(
     }
 }
 
-#[inline]
-pub fn stack_to_strided_simd<T: Clone, const N: usize>(
-    first: &[Simd<T, N>],
-    second: &[Simd<T, N>],
-    out: &mut ChunkStridedSliceRef<T, N>,
-) {
-    assert_ne!(N, 0);
+// #[inline]
+// pub(crate) fn stack_to_strided_aligned_chunk<T: Clone + Alignable, const N: usize>(
+//     first: &[T],
+//     second: &[T],
+//     out: &mut ChunkStridedSliceRef<T, N>,
+// ) {
+//     assert_ne!(N, 0);
 
-    let nx = out.len();
+//     let nx = out.len();
+//     let n_s = (nx + 1) / 2;
+//     let n_d = nx / 2;
 
-    let n_first = first.len();
-    let n_second = second.len();
-    assert_eq!(nx, n_first + n_second);
+//     let f_chunks: [_; N] = first.aligned_chunks_exact(n_s).collect_array().unwrap();
+//     let s_chunks: [_; N] = second.aligned_chunks_exact(n_d).collect_array().unwrap();
 
-    if let Some(out_iter) = out.chunks_mut() {
-        out_iter
-            .zip(first.iter().chain(second))
-            .for_each(|(out, v)| {
-                v.store(out);
-            })
-    } else {
-        out.iter_mut()
-            .zip(first.iter().chain(second))
-            .for_each(|(out, v)| {
-                v.scatter(out);
-            })
-    }
-}
+//     if let Some(mut out_iter) = out.chunks_mut() {
+//         out_iter
+//             .by_ref()
+//             .take(n_s)
+//             .enumerate()
+//             .for_each(|(i, out)| {
+//                 out.iter_mut().zip(f_chunks.iter()).for_each(|(out, v)| {
+//                     *out = unsafe { v.get_unchecked(i) }.clone();
+//                 })
+//             });
+//         out_iter.enumerate().for_each(|(i, out)| {
+//             out.iter_mut().zip(s_chunks.iter()).for_each(|(out, v)| {
+//                 *out = unsafe { v.get_unchecked(i) }.clone();
+//             })
+//         });
+//     } else {
+//         let mut out_iter = out.iter_mut();
+//         out_iter
+//             .by_ref()
+//             .take(n_s)
+//             .enumerate()
+//             .for_each(|(i, out)| {
+//                 out.into_iter().zip(f_chunks.iter()).for_each(|(out, v)| {
+//                     *out = unsafe { v.get_unchecked(i) }.clone();
+//                 })
+//             });
+//         out_iter.enumerate().for_each(|(i, out)| {
+//             out.into_iter().zip(s_chunks.iter()).for_each(|(out, v)| {
+//                 *out = unsafe { v.get_unchecked(i) }.clone();
+//             })
+//         });
+//     }
+// }
 
 #[inline]
 pub fn interleave<T: Clone>(evens: &[T], odds: &[T], x: &mut [T]) {
@@ -489,31 +548,6 @@ pub fn interleave_strided_chunk<T: Clone, const N: usize>(
 }
 
 #[inline]
-pub fn interleave_strided_simd<T: Clone, const N: usize>(
-    evens: &[Simd<T, N>],
-    odds: &[Simd<T, N>],
-    x: &mut ChunkStridedSliceRef<T, N>,
-) {
-    assert_ne!(N, 0);
-
-    let nx = x.len();
-    let n_o = nx / 2;
-    let n_e = nx - n_o;
-
-    assert_eq!(evens.len(), n_e);
-    assert_eq!(odds.len(), n_o);
-    if let Some(x_iter) = x.chunks_mut() {
-        x_iter
-            .zip(evens.iter().interleave(odds.iter()))
-            .for_each(|(x, v)| v.store(x));
-    } else {
-        x.iter_mut()
-            .zip(evens.iter().interleave(odds.iter()))
-            .for_each(|(x, v)| v.scatter(x));
-    }
-}
-
-#[inline]
 pub fn split<T: Clone>(x: &[T], first: &mut [T], second: &mut [T]) {
     assert_eq!(x.len(), first.len() + second.len());
 
@@ -601,31 +635,6 @@ pub fn split_strided_chunk<T: Clone, const N: usize>(
 }
 
 #[inline]
-pub fn split_strided_simd<T: Clone, const N: usize>(
-    x: &ChunkStridedSliceRef<T, N>,
-    first: &mut [Simd<T, N>],
-    second: &mut [Simd<T, N>],
-) {
-    assert_ne!(N, 0);
-
-    let nx = x.len();
-
-    let n_first = first.len();
-    let n_second = second.len();
-    assert_eq!(nx, n_first + n_second);
-
-    if let Some(x_iter) = x.chunks() {
-        x_iter
-            .zip(first.iter_mut().chain(second))
-            .for_each(|(x, o)| o.load(x));
-    } else {
-        x.iter()
-            .zip(first.iter_mut().chain(second))
-            .for_each(|(x, o)| o.gather(x));
-    }
-}
-
-#[inline]
 pub fn interleave_inplace<T: Clone>(x: &mut [T]) {
     let n = x.len();
     if n < 2 {
@@ -703,6 +712,235 @@ fn perfect_shuffle<T: Clone>(x: &mut [T]) {
         }
     }
 }
+
+pub struct AlignedVec<T> {
+    data: Vec<T>,
+    offset: usize,
+    end: usize,
+}
+
+impl<T: Clone> AlignedVec<T> {
+    // alignment is number of elements (so units of size_of::<T>()).
+    pub fn init_with_alignment(v: T, n: usize, alignment: usize) -> Self {
+        // check the maximum number of extra values:
+        let t_size = const { size_of::<T>() };
+        assert_ne!(alignment, 0, "Alignment cannot be 0.");
+
+        let data = vec![v; n + alignment - 1];
+
+        let ptr = data.as_ptr() as usize;
+        let byte_offset = ptr % (alignment * t_size);
+        let offset = byte_offset / t_size;
+        let end = offset + n;
+
+        assert!(offset < alignment, "Failed to allocate aligned vector.");
+
+        assert_eq!(
+            (ptr + byte_offset) % (alignment * t_size),
+            0,
+            "Failed to allocated aligned vector."
+        );
+
+        Self { data, offset, end }
+    }
+
+    pub fn from_fn_with_alignment<F>(init: T, n: usize, alignment: usize, mut f: F) -> Self
+    where
+        F: FnMut(usize) -> T,
+    {
+        let mut out = Self::init_with_alignment(init, n, alignment);
+        out.iter_mut().enumerate().for_each(|(i, v)| *v = f(i));
+        out
+    }
+}
+
+impl<T: Alignable + Clone> AlignedVec<T> {
+    pub fn init(v: T, n: usize) -> Self {
+        Self::init_with_alignment(v, n, T::lanes())
+    }
+}
+
+impl<T: Alignable + Clone + Default> AlignedVec<T> {
+    pub fn from_fn<F>(n: usize, f: F) -> Self
+    where
+        F: FnMut(usize) -> T,
+    {
+        Self::from_fn_with_alignment(T::default(), n, T::lanes(), f)
+    }
+}
+
+impl<T: Default + Clone> AlignedVec<T> {
+    // alignment in units of bytes
+    pub fn default_init_with_alignment(n: usize, alignment: usize) -> Self {
+        Self::init_with_alignment(T::default(), n, alignment)
+    }
+}
+
+impl<T> AlignedVec<T> {
+    pub fn as_slice(&self) -> &[T] {
+        &self.data[self.offset..self.end]
+    }
+
+    pub fn as_mut_slice(&mut self) -> &mut [T] {
+        &mut self.data[self.offset..self.end]
+    }
+}
+
+impl<T> Deref for AlignedVec<T> {
+    type Target = [T];
+
+    #[inline]
+    fn deref(&self) -> &[T] {
+        self.as_slice()
+    }
+}
+
+impl<T> DerefMut for AlignedVec<T> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut [T] {
+        self.as_mut_slice()
+    }
+}
+
+// pub trait AlignedExactChunkable {
+//     fn aligned_chunks_exact(&self, chunk_size: usize) -> impl ExactSizeIterator<Item = &Self>;
+
+//     fn aligned_chunks_exact_mut(
+//         &mut self,
+//         chunk_size: usize,
+//     ) -> impl ExactSizeIterator<Item = &mut Self>;
+// }
+
+// struct AlignedChunksExact<'a, T: 'a> {
+//     v: &'a [T],
+//     chunk_size: usize,
+//     extra_per_chunk: usize,
+// }
+
+// impl<'a, T: Alignable> AlignedChunksExact<'a, T> {
+//     #[inline]
+//     pub(crate) fn new(slice: &'a [T], chunk_size: usize) -> Self {
+//         let lanes = T::lanes();
+//         let extra_per_chunk = chunk_size % lanes;
+
+//         let n = (slice.len() + extra_per_chunk) / (chunk_size + extra_per_chunk);
+//         let n_first = n
+//             .checked_sub(1)
+//             .and_then(|v| Some(v * (chunk_size + extra_per_chunk) + chunk_size))
+//             .unwrap_or(0);
+
+//         let (fst, _) = slice.split_at(n_first);
+//         Self {
+//             v: fst,
+//             chunk_size,
+//             extra_per_chunk,
+//         }
+//     }
+// }
+
+// impl<'a, T> Iterator for AlignedChunksExact<'a, T> {
+//     type Item = &'a [T];
+
+//     #[inline]
+//     fn next(&mut self) -> Option<&'a [T]> {
+//         self.v
+//             .split_at_checked(self.chunk_size)
+//             .and_then(|(chunk, rest)| {
+//                 if let Some((_, rest)) = rest.split_at_checked(self.extra_per_chunk) {
+//                     self.v = rest;
+//                 } else {
+//                     self.v = rest
+//                 }
+//                 Some(chunk)
+//             })
+//     }
+
+//     #[inline]
+//     fn size_hint(&self) -> (usize, Option<usize>) {
+//         let n = (self.v.len() + self.extra_per_chunk) / (self.chunk_size + self.extra_per_chunk);
+//         (n, Some(n))
+//     }
+
+//     #[inline]
+//     fn count(self) -> usize {
+//         self.len()
+//     }
+// }
+
+// impl<'a, T> ExactSizeIterator for AlignedChunksExact<'a, T> {}
+
+// struct AlignedChunksExactMut<'a, T: 'a> {
+//     v: *mut [T],
+//     chunk_size: usize,
+//     extra_per_chunk: usize,
+//     _marker: PhantomData<&'a mut T>,
+// }
+
+// impl<'a, T: Alignable> AlignedChunksExactMut<'a, T> {
+//     #[inline]
+//     pub(crate) fn new(slice: &'a mut [T], chunk_size: usize) -> Self {
+//         let lanes = T::lanes();
+//         let extra_per_chunk = chunk_size % lanes;
+
+//         let n = (slice.len() + extra_per_chunk) / (chunk_size + extra_per_chunk);
+//         let n_first = n
+//             .checked_sub(1)
+//             .and_then(|v| Some(v * (chunk_size + extra_per_chunk) + chunk_size))
+//             .unwrap_or(0);
+
+//         let (fst, _) = slice.split_at_mut(n_first);
+//         Self {
+//             v: fst,
+//             chunk_size,
+//             extra_per_chunk,
+//             _marker: PhantomData,
+//         }
+//     }
+// }
+
+// impl<'a, T> Iterator for AlignedChunksExactMut<'a, T> {
+//     type Item = &'a mut [T];
+
+//     #[inline]
+//     fn next(&mut self) -> Option<&'a mut [T]> {
+//         unsafe { &mut *self.v }
+//             .split_at_mut_checked(self.chunk_size)
+//             .and_then(|(chunk, rest)| {
+//                 if let Some((_, rest)) = rest.split_at_mut_checked(self.extra_per_chunk) {
+//                     self.v = rest;
+//                 } else {
+//                     self.v = rest
+//                 }
+//                 Some(chunk)
+//             })
+//     }
+
+//     #[inline]
+//     fn size_hint(&self) -> (usize, Option<usize>) {
+//         let n = (self.v.len() + self.extra_per_chunk) / (self.chunk_size + self.extra_per_chunk);
+//         (n, Some(n))
+//     }
+
+//     #[inline]
+//     fn count(self) -> usize {
+//         self.len()
+//     }
+// }
+
+// impl<'a, T> ExactSizeIterator for AlignedChunksExactMut<'a, T> {}
+
+// impl<T: Alignable> AlignedExactChunkable for [T] {
+//     fn aligned_chunks_exact(&self, chunk_size: usize) -> impl ExactSizeIterator<Item = &Self> {
+//         AlignedChunksExact::new(self, chunk_size)
+//     }
+
+//     fn aligned_chunks_exact_mut(
+//         &mut self,
+//         chunk_size: usize,
+//     ) -> impl ExactSizeIterator<Item = &mut Self> {
+//         AlignedChunksExactMut::new(self, chunk_size)
+//     }
+// }
 
 #[cfg(test)]
 mod tests {
@@ -975,5 +1213,18 @@ mod tests {
         });
 
         assert_eq!(out, out2);
+    }
+
+    #[test]
+    fn test_aligned_vec() {
+        let n = 12;
+        let mut v = AlignedVec::init_with_alignment(0.0, n, 4);
+
+        v.iter_mut().enumerate().for_each(|(i, v)| {
+            *v = i as f64;
+        });
+
+        assert_eq!(v[n - 1], (n - 1) as f64);
+        assert_eq!(v.len(), n);
     }
 }
