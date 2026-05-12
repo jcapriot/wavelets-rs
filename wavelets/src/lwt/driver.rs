@@ -7,10 +7,7 @@ use crate::Wavelets;
 use crate::boundarys::BoundaryExtension;
 use crate::iter::LanesIterator;
 
-use aligned_vec::avec;
-
-// use crate::Alignable;
-// use crate::utils::{AlignedExactChunkable, AlignedVec, deinterleave_strided_aligned_chunk, stack_to_strided_aligned_chunk};
+use aligned_vec::{AVec, avec};
 
 use crate::utils::{
     deinterleave, deinterleave_strided, deinterleave_strided_chunk, stack_to_strided,
@@ -331,18 +328,18 @@ fn general_nd_forward_multilevel<F, T, L, const N: usize>(
                         let out_rem = out_chunks.remainder();
 
                         if in_chunks.len() > 0 {
-                            let mut s = avec![T::zero(); n_s * N];
-                            let mut d = avec![T::zero(); n_d * N];
+                            let mut s: [AVec<T>; N] =
+                                core::array::from_fn(|_| avec![T::zero(); n_s]);
+                            let mut d: [AVec<T>; N] =
+                                core::array::from_fn(|_| avec![T::zero(); n_d]);
                             in_chunks
                                 .zip(out_chunks)
                                 .for_each(|(in_chunk, mut out_chunk)| {
                                     // copy (and deinterleave) strided chunks into the local storage
                                     deinterleave_strided_chunk(&in_chunk, &mut s, &mut d);
-                                    s.chunks_exact_mut(n_s)
-                                        .zip(d.chunks_exact_mut(n_d))
-                                        .for_each(|(s, d)| {
-                                            func(s, d);
-                                        });
+                                    s.iter_mut().zip(d.iter_mut()).for_each(|(s, d)| {
+                                        func(s, d);
+                                    });
                                     // clone local storage to the output
                                     stack_to_strided_chunk(&s, &d, &mut out_chunk);
                                 });
@@ -366,16 +363,16 @@ fn general_nd_forward_multilevel<F, T, L, const N: usize>(
                         let rem = chunks.remainder();
 
                         if chunks.len() > 0 {
-                            let mut s = avec![T::zero(); n_s * N];
-                            let mut d = avec![T::zero(); n_d * N];
+                            let mut s: [AVec<T>; N] =
+                                core::array::from_fn(|_| avec![T::zero(); n_s]);
+                            let mut d: [AVec<T>; N] =
+                                core::array::from_fn(|_| avec![T::zero(); n_d]);
                             chunks.for_each(|mut chunk| {
                                 // copy (and deinterleave) strided chunks into the local storage
                                 deinterleave_strided_chunk(&chunk, &mut s, &mut d);
-                                s.chunks_exact_mut(n_s)
-                                    .zip(d.chunks_exact_mut(n_d))
-                                    .for_each(|(s, d)| {
-                                        func(s, d);
-                                    });
+                                s.iter_mut().zip(d.iter_mut()).for_each(|(s, d)| {
+                                    func(s, d);
+                                });
                                 // clone local storage to the output
                                 stack_to_strided_chunk(&s, &d, &mut chunk);
                             });
@@ -466,15 +463,13 @@ fn general_nd_inverse_multilevel<F, T, L, const N: usize>(
                 let rem = chunks.remainder();
 
                 if chunks.len() > 0 {
-                    let mut s = avec![T::zero(); n_s * N];
-                    let mut d = avec![T::zero(); n_d * N];
+                    let mut s: [AVec<T>; N] = core::array::from_fn(|_| avec![T::zero(); n_s]);
+                    let mut d: [AVec<T>; N] = core::array::from_fn(|_| avec![T::zero(); n_d]);
                     chunks.for_each(|mut chunk| {
                         split_strided_chunk(&chunk, &mut s, &mut d);
-                        s.chunks_exact_mut(n_s)
-                            .zip(d.chunks_exact_mut(n_d))
-                            .for_each(|(s, d)| {
-                                func(s, d);
-                            });
+                        s.iter_mut().zip(d.iter_mut()).for_each(|(s, d)| {
+                            func(s, d);
+                        });
                         interleave_strided_chunk(&s, &d, &mut chunk);
                     });
                 }
@@ -818,18 +813,18 @@ pub mod parallel {
 
                             in_chunks.zip(out_chunks).for_each_init(
                                 || {
-                                    let s = avec![T::zero(); n_s * N];
-                                    let d = avec![T::zero(); n_d * N];
+                                    let s: [AVec<T>; N] =
+                                        core::array::from_fn(|_| avec![T::zero(); n_s]);
+                                    let d: [AVec<T>; N] =
+                                        core::array::from_fn(|_| avec![T::zero(); n_d]);
                                     (s, d)
                                 },
                                 |(s, d), (in_chunk, mut out_chunk)| {
                                     // copy (and deinterleave) strided chunks into the local storage
                                     deinterleave_strided_chunk(&in_chunk, s, d);
-                                    s.chunks_exact_mut(n_s)
-                                        .zip(d.chunks_exact_mut(n_d))
-                                        .for_each(|(s, d)| {
-                                            func(s, d);
-                                        });
+                                    s.iter_mut().zip(d.iter_mut()).for_each(|(s, d)| {
+                                        func(s, d);
+                                    });
                                     // clone local storage to the output
                                     stack_to_strided_chunk(s, d, &mut out_chunk);
                                 },
@@ -857,18 +852,18 @@ pub mod parallel {
 
                             chunks.for_each_init(
                                 || {
-                                    let s = avec![T::zero(); n_s * N];
-                                    let d = avec![T::zero(); n_d * N];
+                                    let s: [AVec<T>; N] =
+                                        core::array::from_fn(|_| avec![T::zero(); n_s]);
+                                    let d: [AVec<T>; N] =
+                                        core::array::from_fn(|_| avec![T::zero(); n_d]);
                                     (s, d)
                                 },
                                 |(s, d), mut chunk| {
                                     // copy (and deinterleave) strided chunks into the local storage
                                     deinterleave_strided_chunk(&chunk, s, d);
-                                    s.chunks_exact_mut(n_s)
-                                        .zip(d.chunks_exact_mut(n_d))
-                                        .for_each(|(s, d)| {
-                                            func(s, d);
-                                        });
+                                    s.iter_mut().zip(d.iter_mut()).for_each(|(s, d)| {
+                                        func(s, d);
+                                    });
                                     // clone local storage to the output
                                     stack_to_strided_chunk(s, d, &mut chunk);
                                 },
@@ -963,17 +958,17 @@ pub mod parallel {
                     if chunks.len() > 0 {
                         chunks.for_each_init(
                             || {
-                                let s = avec![T::zero(); n_s * N];
-                                let d = avec![T::zero(); n_d * N];
+                                let s: [AVec<T>; N] =
+                                    core::array::from_fn(|_| avec![T::zero(); n_s]);
+                                let d: [AVec<T>; N] =
+                                    core::array::from_fn(|_| avec![T::zero(); n_d]);
                                 (s, d)
                             },
                             |(s, d), mut chunk| {
                                 split_strided_chunk(&chunk, s, d);
-                                s.chunks_exact_mut(n_s)
-                                    .zip(d.chunks_exact_mut(n_d))
-                                    .for_each(|(s, d)| {
-                                        func(s, d);
-                                    });
+                                s.iter_mut().zip(d.iter_mut()).for_each(|(s, d)| {
+                                    func(s, d);
+                                });
                                 interleave_strided_chunk(s, d, &mut chunk);
                             },
                         );

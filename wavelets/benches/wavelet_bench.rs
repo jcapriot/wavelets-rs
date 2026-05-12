@@ -1,7 +1,8 @@
+use aligned_vec::{AVec, avec};
 use criterion::{Criterion, criterion_group, criterion_main};
 use itertools::Itertools;
 use wavelets::utils::{
-    AlignedVec, interleave_strided, interleave_strided_chunk, split_strided, split_strided_chunk,
+    interleave_strided, interleave_strided_chunk, split_strided, split_strided_chunk,
     stack_to_strided,
 };
 
@@ -13,10 +14,10 @@ fn db2_benchmark(c: &mut Criterion) {
     let ns = (n + 1) / 2;
     let nd = n / 2;
 
-    let x = AlignedVec::from_fn(n, |i| i as f64);
+    let x = AVec::<_>::from_iter(128, (0..n).map(|i| i as f64));
 
-    let mut s = AlignedVec::from_fn(ns, |i| i as f64);
-    let mut d = AlignedVec::from_fn(nd, |i| (i + ns) as f64);
+    let mut s = AVec::<_>::from_iter(128, (0..ns).map(|i| i as f64));
+    let mut d = AVec::<_>::from_iter(128, (0..nd).map(|i| (i + ns) as f64));
 
     let bc = BoundaryCondition::Zero;
 
@@ -40,8 +41,8 @@ fn db2_benchmark(c: &mut Criterion) {
 
     let x2 = (0..n).map(|i| i as f64).collect_vec();
     let nsd = wavelets::dwt::get_outlen::<{ WVLT::WIDTH }>(n);
-    let mut s2 = AlignedVec::default_init_with_alignment(nsd, 4);
-    let mut d2 = AlignedVec::default_init_with_alignment(nsd, 4);
+    let mut s2 = avec![0.0; nsd];
+    let mut d2 = avec![0.0; nsd];
 
     group.bench_function("filtered", |b| {
         b.iter(|| {
@@ -61,10 +62,10 @@ fn db6_benchmark(c: &mut Criterion) {
     let ns = (n + 1) / 2;
     let nd = n / 2;
 
-    let x = AlignedVec::from_fn(n, |i| i as f64);
+    let x = AVec::<_>::from_iter(128, (0..n).map(|i| i as f64));
 
-    let mut s = AlignedVec::from_fn(ns, |i| i as f64);
-    let mut d = AlignedVec::from_fn(nd, |i| (i + ns) as f64);
+    let mut s = AVec::<_>::from_iter(128, (0..ns).map(|i| i as f64));
+    let mut d = AVec::<_>::from_iter(128, (0..nd).map(|i| (i + ns) as f64));
 
     let bc = BoundaryCondition::Zero;
 
@@ -168,11 +169,11 @@ fn interleave_strided_benchmark(c: &mut Criterion) {
     });
     const N: usize = 8;
 
-    let mut work_f = vec![0; N * nf];
-    let mut work_s = vec![0; N * ns];
+    let mut work_f: [_; N] = core::array::from_fn(|_| avec![0; nf]);
+    let mut work_s: [_; N] = core::array::from_fn(|_| avec![0; nf]);
 
-    let mut work_f2 = vec![0; nf];
-    let mut work_s2 = vec![0; ns];
+    let mut work_f2 = avec![0; nf];
+    let mut work_s2 = avec![0; ns];
 
     group.bench_function("lane chunks - out of place", |b| {
         b.iter(|| {

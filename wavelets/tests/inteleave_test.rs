@@ -1,3 +1,4 @@
+use aligned_vec::{AVec, avec};
 use itertools::Itertools;
 use wavelets::iter::LanesIterator;
 use wavelets::utils::{
@@ -37,8 +38,8 @@ fn ref_deinterleave_chunk_nd<T: Clone + num_traits::Zero>(x: &[T], shape: &[usiz
         let chunks = out.iter_lane_chunks_mut::<4>(shape, ax);
         let rem = chunks.remainder();
 
-        let mut work_e = vec![T::zero(); ne * N];
-        let mut work_o = vec![T::zero(); no * N];
+        let mut work_e: [AVec<T>; N] = core::array::from_fn(|_| avec![T::zero(); ne]);
+        let mut work_o: [AVec<T>; N] = core::array::from_fn(|_| avec![T::zero(); no]);
 
         for mut chunk in chunks {
             deinterleave_strided_chunk(&chunk, &mut work_e, &mut work_o);
