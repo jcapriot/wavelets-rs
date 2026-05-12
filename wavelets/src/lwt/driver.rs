@@ -7,6 +7,11 @@ use crate::Wavelets;
 use crate::boundarys::BoundaryExtension;
 use crate::iter::LanesIterator;
 
+use aligned_vec::avec;
+
+// use crate::Alignable;
+// use crate::utils::{AlignedExactChunkable, AlignedVec, deinterleave_strided_aligned_chunk, stack_to_strided_aligned_chunk};
+
 use crate::utils::{
     deinterleave, deinterleave_strided, deinterleave_strided_chunk, stack_to_strided,
     stack_to_strided_chunk,
@@ -326,8 +331,8 @@ fn general_nd_forward_multilevel<F, T, L, const N: usize>(
                         let out_rem = out_chunks.remainder();
 
                         if in_chunks.len() > 0 {
-                            let mut s = vec![T::zero(); n_s * N];
-                            let mut d = vec![T::zero(); n_d * N];
+                            let mut s = avec![T::zero(); n_s * N];
+                            let mut d = avec![T::zero(); n_d * N];
                             in_chunks
                                 .zip(out_chunks)
                                 .for_each(|(in_chunk, mut out_chunk)| {
@@ -343,8 +348,8 @@ fn general_nd_forward_multilevel<F, T, L, const N: usize>(
                                 });
                         }
                         if in_rem.len() > 0 {
-                            let mut s = vec![T::zero(); n_s];
-                            let mut d = vec![T::zero(); n_d];
+                            let mut s = avec![T::zero(); n_s];
+                            let mut d = avec![T::zero(); n_d];
                             in_rem.zip(out_rem).for_each(|(in_slice, mut out_slice)| {
                                 // copy strided slice into local dimension storage
                                 deinterleave_strided(&in_slice, &mut s, &mut d);
@@ -361,8 +366,8 @@ fn general_nd_forward_multilevel<F, T, L, const N: usize>(
                         let rem = chunks.remainder();
 
                         if chunks.len() > 0 {
-                            let mut s = vec![T::zero(); n_s * N];
-                            let mut d = vec![T::zero(); n_d * N];
+                            let mut s = avec![T::zero(); n_s * N];
+                            let mut d = avec![T::zero(); n_d * N];
                             chunks.for_each(|mut chunk| {
                                 // copy (and deinterleave) strided chunks into the local storage
                                 deinterleave_strided_chunk(&chunk, &mut s, &mut d);
@@ -376,8 +381,8 @@ fn general_nd_forward_multilevel<F, T, L, const N: usize>(
                             });
                         }
                         if rem.len() > 0 {
-                            let mut s = vec![T::zero(); n_s];
-                            let mut d = vec![T::zero(); n_d];
+                            let mut s = avec![T::zero(); n_s];
+                            let mut d = avec![T::zero(); n_d];
                             rem.for_each(|mut slc| {
                                 // copy strided slice into local dimension storage
                                 deinterleave_strided(&slc, &mut s, &mut d);
@@ -461,8 +466,8 @@ fn general_nd_inverse_multilevel<F, T, L, const N: usize>(
                 let rem = chunks.remainder();
 
                 if chunks.len() > 0 {
-                    let mut s = vec![T::zero(); n_s * N];
-                    let mut d = vec![T::zero(); n_d * N];
+                    let mut s = avec![T::zero(); n_s * N];
+                    let mut d = avec![T::zero(); n_d * N];
                     chunks.for_each(|mut chunk| {
                         split_strided_chunk(&chunk, &mut s, &mut d);
                         s.chunks_exact_mut(n_s)
@@ -474,8 +479,8 @@ fn general_nd_inverse_multilevel<F, T, L, const N: usize>(
                     });
                 }
                 if rem.len() > 0 {
-                    let mut s = vec![T::zero(); n_s];
-                    let mut d = vec![T::zero(); n_d];
+                    let mut s = avec![T::zero(); n_s];
+                    let mut d = avec![T::zero(); n_d];
                     rem.for_each(|mut slc| {
                         split_strided(&slc, &mut s, &mut d);
                         func(&mut s, &mut d);
@@ -813,8 +818,8 @@ pub mod parallel {
 
                             in_chunks.zip(out_chunks).for_each_init(
                                 || {
-                                    let s = vec![T::zero(); n_s * N];
-                                    let d = vec![T::zero(); n_d * N];
+                                    let s = avec![T::zero(); n_s * N];
+                                    let d = avec![T::zero(); n_d * N];
                                     (s, d)
                                 },
                                 |(s, d), (in_chunk, mut out_chunk)| {
@@ -831,8 +836,8 @@ pub mod parallel {
                             );
                             in_rem.zip(out_rem).for_each_init(
                                 || {
-                                    let s = vec![T::zero(); n_s];
-                                    let d = vec![T::zero(); n_d];
+                                    let s = avec![T::zero(); n_s];
+                                    let d = avec![T::zero(); n_d];
                                     (s, d)
                                 },
                                 |(s, d), (in_slice, mut out_slice)| {
@@ -852,8 +857,8 @@ pub mod parallel {
 
                             chunks.for_each_init(
                                 || {
-                                    let s = vec![T::zero(); n_s * N];
-                                    let d = vec![T::zero(); n_d * N];
+                                    let s = avec![T::zero(); n_s * N];
+                                    let d = avec![T::zero(); n_d * N];
                                     (s, d)
                                 },
                                 |(s, d), mut chunk| {
@@ -870,8 +875,8 @@ pub mod parallel {
                             );
                             rem.for_each_init(
                                 || {
-                                    let s = vec![T::zero(); n_s];
-                                    let d = vec![T::zero(); n_d];
+                                    let s = avec![T::zero(); n_s];
+                                    let d = avec![T::zero(); n_d];
                                     (s, d)
                                 },
                                 |(s, d), mut slc| {
@@ -958,8 +963,8 @@ pub mod parallel {
                     if chunks.len() > 0 {
                         chunks.for_each_init(
                             || {
-                                let s = vec![T::zero(); n_s * N];
-                                let d = vec![T::zero(); n_d * N];
+                                let s = avec![T::zero(); n_s * N];
+                                let d = avec![T::zero(); n_d * N];
                                 (s, d)
                             },
                             |(s, d), mut chunk| {
@@ -976,8 +981,8 @@ pub mod parallel {
 
                     rem.for_each_init(
                         || {
-                            let s = vec![T::zero(); n_s];
-                            let d = vec![T::zero(); n_d];
+                            let s = avec![T::zero(); n_s];
+                            let d = avec![T::zero(); n_d];
                             (s, d)
                         },
                         |(s, d), mut slc| {
