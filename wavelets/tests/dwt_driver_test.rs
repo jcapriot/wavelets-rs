@@ -1,6 +1,6 @@
 use wavelets::Wavelets;
 use wavelets::boundarys::{PeriodicBoundary, ZeroBoundary};
-use wavelets::dwt::driver::{WaveletTransform, get_outshape};
+use wavelets::dwt::driver::{WaveletTransform, WaveletTransformPer, get_transform_shape};
 use wavelets::dwt::{DiscreteTransform, get_outlen};
 use wavelets::iter::LanesIterator;
 use wavelets::utils::{clone_strided_to_slice, stack_to_strided};
@@ -15,7 +15,7 @@ pub fn test_dwt_driver_db2_single_level_1d_along() {
     let n_ax: usize = shape[axes[0]];
     let n_sd = get_outlen(wvlt.width(), n_ax);
 
-    let out_shape = get_outshape(&shape, &axes, level, wvlt.width(), false);
+    let out_shape = get_transform_shape(&shape, &axes, level, wvlt.width(), false);
 
     assert_eq!(out_shape[axes[0]], 2 * n_sd);
 
@@ -55,7 +55,7 @@ pub fn test_dwt_driver_db2_single_level_1d_across() {
     let n_ax: usize = shape[axes[0]];
     let n_sd = get_outlen(wvlt.width(), n_ax);
 
-    let out_shape = get_outshape(&shape, &axes, level, wvlt.width(), false);
+    let out_shape = get_transform_shape(&shape, &axes, level, wvlt.width(), false);
 
     assert_eq!(out_shape[axes[0]], 2 * n_sd);
 
@@ -96,8 +96,8 @@ pub fn test_dwt_driver_db2_single_2d() {
     let wvlt = Wavelets::Daubechies2;
     let bc = ZeroBoundary {};
 
-    let inter_shape = get_outshape(&shape, &[axes[0]], level, wvlt.width(), false);
-    let out_shape = get_outshape(&shape, &axes, level, wvlt.width(), false);
+    let inter_shape = get_transform_shape(&shape, &[axes[0]], level, wvlt.width(), false);
+    let out_shape = get_transform_shape(&shape, &axes, level, wvlt.width(), false);
 
     for &ax in axes.iter() {
         let n_ax: usize = shape[ax];
@@ -142,7 +142,7 @@ pub fn test_dwt_driver_db2_multi_level_1d() {
 
     let n_sd_total = n_sd_2 * 2 + n_sd_1 + n_sd_0;
 
-    let out_shape = get_outshape(&shape, &axes, level, wvlt.width(), false);
+    let out_shape = get_transform_shape(&shape, &axes, level, wvlt.width(), false);
     dbg!(&out_shape);
 
     assert_eq!(out_shape[axes[0]], n_sd_total);
@@ -189,7 +189,13 @@ pub fn test_dwt_driver_db2_multi_level_2d() {
     let level = 3;
     let wvlt = Wavelets::Daubechies2;
 
-    let out_shape = dbg!(get_outshape(&shape, &axes, level, wvlt.width(), false));
+    let out_shape = dbg!(get_transform_shape(
+        &shape,
+        &axes,
+        level,
+        wvlt.width(),
+        false
+    ));
 
     for ax in axes {
         let n_ax = shape[ax];
@@ -215,7 +221,7 @@ pub fn test_dwt_driver_db2_multi_level_2d() {
 
     trans.forward_multilevel_nd(&x, &mut sd, &shape, &axes, level);
 
-    let shape_inter1 = dbg!(get_outshape(&shape, &axes, 1, wvlt.width(), false));
+    let shape_inter1 = dbg!(get_transform_shape(&shape, &axes, 1, wvlt.width(), false));
     let n_inter1 = shape_inter1.iter().product();
 
     let mut sd2 = vec![0.0; n_out_total];
@@ -225,7 +231,7 @@ pub fn test_dwt_driver_db2_multi_level_2d() {
 
     let shape2 = dbg!(shape_inter1.iter().map(|v| *v / 2).collect::<Vec<_>>());
     let n_total2 = shape2.iter().product();
-    let shape_inter2 = dbg!(get_outshape(&shape2, &axes, 1, wvlt.width(), false));
+    let shape_inter2 = dbg!(get_transform_shape(&shape2, &axes, 1, wvlt.width(), false));
     let n_inter2 = shape_inter2.iter().product();
 
     let mut s = vec![0.0; n_total2];
@@ -241,7 +247,7 @@ pub fn test_dwt_driver_db2_multi_level_2d() {
 
     let shape3 = dbg!(shape_inter2.iter().map(|v| *v / 2).collect::<Vec<_>>());
     let n_total3 = shape3.iter().product();
-    let shape_inter3 = dbg!(get_outshape(&shape3, &axes, 1, wvlt.width(), false));
+    let shape_inter3 = dbg!(get_transform_shape(&shape3, &axes, 1, wvlt.width(), false));
     let n_inter3 = shape_inter3.iter().product();
 
     let mut s = vec![0.0; n_total3];
@@ -319,7 +325,7 @@ pub fn test_dwt_driver_inv_db2_single_level_1d_along() {
     let n_ax: usize = shape[axes[0]];
     let n_sd = get_outlen(wvlt.width(), n_ax);
 
-    let out_shape = get_outshape(&shape, &axes, level, wvlt.width(), false);
+    let out_shape = get_transform_shape(&shape, &axes, level, wvlt.width(), false);
 
     assert_eq!(out_shape[axes[0]], 2 * n_sd);
 
@@ -352,7 +358,7 @@ pub fn test_dwt_driver_inv_db2_single_level_1d_across() {
     let n_ax: usize = shape[axes[0]];
     let n_sd = get_outlen(wvlt.width(), n_ax);
 
-    let out_shape = get_outshape(&shape, &axes, level, wvlt.width(), false);
+    let out_shape = get_transform_shape(&shape, &axes, level, wvlt.width(), false);
 
     assert_eq!(out_shape[axes[0]], 2 * n_sd);
 
@@ -382,7 +388,7 @@ pub fn test_dwt_driver_inv_db2_single_level_2d() {
     let level = 1;
     let wvlt = Wavelets::Daubechies2;
 
-    let out_shape = get_outshape(&shape, &axes, level, wvlt.width(), false);
+    let out_shape = get_transform_shape(&shape, &axes, level, wvlt.width(), false);
 
     let n_in_total = shape.iter().product();
 
@@ -410,7 +416,7 @@ pub fn test_dwt_driver_inv_db2_multi_level_1d() {
     let level = 3;
     let wvlt = Wavelets::Daubechies2;
 
-    let out_shape = get_outshape(&shape, &axes, level, wvlt.width(), false);
+    let out_shape = get_transform_shape(&shape, &axes, level, wvlt.width(), false);
 
     let n_in_total = shape.iter().product();
 
@@ -438,7 +444,7 @@ pub fn test_dwt_driver_inv_db2_multi_level_2d() {
     let level = 3;
     let wvlt = Wavelets::Daubechies2;
 
-    let out_shape = get_outshape(&shape, &axes, level, wvlt.width(), false);
+    let out_shape = get_transform_shape(&shape, &axes, level, wvlt.width(), false);
 
     let n_in_total = shape.iter().product();
 
@@ -466,12 +472,13 @@ pub fn test_dwt_driver_db2_per_single_level_1d_along() {
     let level = 1;
     let wvlt = Wavelets::Daubechies2;
 
-    let out_shape = get_outshape(&shape, &axes, level, wvlt.width(), false);
+    let out_shape = get_transform_shape(&shape, &axes, level, wvlt.width(), false);
 
     let n_in_total = shape.iter().product();
 
     let bc = PeriodicBoundary {};
     let trans = WaveletTransform::new(wvlt, bc);
+    let trans_per = WaveletTransformPer::new(wvlt);
 
     let n_out_total = out_shape.iter().product();
 
@@ -479,7 +486,7 @@ pub fn test_dwt_driver_db2_per_single_level_1d_along() {
     let mut sd_per = vec![0.0; n_in_total];
     let mut sd_bc = vec![0.0; n_out_total];
 
-    trans.per_forward_nd(&x, &mut sd_per, &shape, &axes);
+    trans_per.forward_nd(&x, &mut sd_per, &shape, &axes);
     trans.forward_nd(&x, &mut sd_bc, &shape, &axes);
 
     let n_ax: usize = shape[axes[0]];
@@ -506,12 +513,13 @@ pub fn test_dwt_driver_db2_per_single_level_1d_across() {
     let level = 1;
     let wvlt = Wavelets::Daubechies2;
 
-    let out_shape = get_outshape(&shape, &axes, level, wvlt.width(), false);
+    let out_shape = get_transform_shape(&shape, &axes, level, wvlt.width(), false);
 
     let n_in_total = shape.iter().product();
 
     let bc = PeriodicBoundary {};
     let trans = WaveletTransform::new(wvlt, bc);
+    let trans_per = WaveletTransformPer::new(wvlt);
 
     let n_out_total = out_shape.iter().product();
 
@@ -519,7 +527,7 @@ pub fn test_dwt_driver_db2_per_single_level_1d_across() {
     let mut sd_per = vec![0.0; n_in_total];
     let mut sd_bc = vec![0.0; n_out_total];
 
-    trans.per_forward_nd(&x, &mut sd_per, &shape, &axes);
+    trans_per.forward_nd(&x, &mut sd_per, &shape, &axes);
     trans.forward_nd(&x, &mut sd_bc, &shape, &axes);
 
     let n_ax: usize = shape[axes[0]];
@@ -551,19 +559,19 @@ pub fn test_dwt_driver_db2_per_single_2d() {
 
     let n_total = shape.iter().product();
 
-    let trans = WaveletTransform::new(wvlt, ZeroBoundary);
+    let trans = WaveletTransformPer::new(wvlt);
 
     let x = (0..n_total)
         .map(|i| ((i + 1) * (i + 1)) as f64 / 3.0)
         .collect::<Vec<_>>();
     let mut x_w = vec![0.0; n_total];
 
-    trans.per_forward_nd(&x, &mut x_w, &shape, &axes);
+    trans.forward_nd(&x, &mut x_w, &shape, &axes);
 
     let mut x_inter = vec![0.0; n_total];
     let mut x_w2 = vec![0.0; n_total];
-    trans.per_forward_nd(&x, &mut x_inter, &shape, &[axes[0]]);
-    trans.per_forward_nd(&x_inter, &mut x_w2, &shape, &[axes[1]]);
+    trans.forward_nd(&x, &mut x_inter, &shape, &[axes[0]]);
+    trans.forward_nd(&x_inter, &mut x_w2, &shape, &[axes[1]]);
 
     wavelets::tests::test_approx_equal(&x_w, &x_w2, 1E-15, 1E-10);
 }
@@ -577,12 +585,12 @@ pub fn test_dwt_driver_db2_per_multi_level_1d() {
 
     let n_total = shape.iter().product();
 
-    let trans = WaveletTransform::new(wvlt, ZeroBoundary);
+    let trans = WaveletTransformPer::new(wvlt);
 
     let x = (1..n_total + 1).map(|i| (i * i) as f64).collect::<Vec<_>>();
     let mut sd = vec![0.0; n_total];
 
-    trans.per_forward_multilevel_nd(&x, &mut sd, &shape, &axes, level);
+    trans.forward_multilevel_nd(&x, &mut sd, &shape, &axes, level);
 
     let mut sd2 = vec![0.0; n_total];
 
@@ -629,7 +637,7 @@ pub fn test_dwt_driver_db2_per_multi_level_2d() {
     let wvlt = Wavelets::Daubechies2;
 
     let n_total = shape.iter().product();
-    let trans = WaveletTransform::new(wvlt, ZeroBoundary);
+    let trans = WaveletTransformPer::new(wvlt);
 
     let x = (0..n_total)
         .map(|i| ((i + 1) * (i + 1)) as f64)
@@ -637,10 +645,10 @@ pub fn test_dwt_driver_db2_per_multi_level_2d() {
 
     let mut sd = vec![0.0; n_total];
 
-    trans.per_forward_multilevel_nd(&x, &mut sd, &shape, &axes, level);
+    trans.forward_multilevel_nd(&x, &mut sd, &shape, &axes, level);
 
     let mut sd_p1 = vec![0.0; n_total];
-    trans.per_forward_nd(&x, &mut sd_p1, &shape, &axes);
+    trans.forward_nd(&x, &mut sd_p1, &shape, &axes);
 
     let ns0 = (shape[0] + 1) / 2;
     let ns1 = (shape[1] + 1) / 2;
@@ -656,7 +664,7 @@ pub fn test_dwt_driver_db2_per_multi_level_2d() {
     let n_total2 = shape2.iter().product();
     let mut sd_p2 = vec![0.0; n_total2];
 
-    trans.per_forward_nd(&s, &mut sd_p2, &shape2, &axes);
+    trans.forward_nd(&s, &mut sd_p2, &shape2, &axes);
 
     let ns0 = (shape2[0] + 1) / 2;
     let ns1 = (shape2[1] + 1) / 2;
@@ -672,7 +680,7 @@ pub fn test_dwt_driver_db2_per_multi_level_2d() {
     let n_total3 = shape3.iter().product();
     let mut sd_p3 = vec![0.0; n_total3];
 
-    trans.per_forward_nd(&s, &mut sd_p3, &shape3, &axes);
+    trans.forward_nd(&s, &mut sd_p3, &shape3, &axes);
 
     let mut sd2 = sd_p1.clone();
 
@@ -699,16 +707,16 @@ pub fn test_dwt_driver_inv_db2_per_single_level_1d_along() {
 
     let n_total = shape.iter().product();
 
-    let trans = WaveletTransform::new(wvlt, ZeroBoundary);
+    let trans = WaveletTransformPer::new(wvlt);
 
     let x = (0..n_total).map(|i| (i + 1) as f64).collect::<Vec<_>>();
     let mut sd = vec![0.0; n_total];
 
-    trans.per_forward_nd(&x, &mut sd, &shape, &axes);
+    trans.forward_nd(&x, &mut sd, &shape, &axes);
 
     let mut x2 = vec![0.0; n_total];
 
-    trans.per_inverse_nd(&mut sd, &mut x2, &shape, &axes);
+    trans.inverse_nd(&mut sd, &mut x2, &shape, &axes);
 
     wavelets::tests::test_approx_equal(&x2, &x, 1E-15, 0.0);
 }
@@ -721,17 +729,16 @@ pub fn test_dwt_driver_inv_db2_per_single_level_1d_across() {
 
     let n_total = shape.iter().product();
 
-    let bc = ZeroBoundary {};
-    let trans = WaveletTransform::new(wvlt, bc);
+    let trans = WaveletTransformPer::new(wvlt);
 
     let x = (0..n_total).map(|i| (i + 1) as f64).collect::<Vec<_>>();
     let mut sd = vec![0.0; n_total];
 
-    trans.per_forward_nd(&x, &mut sd, &shape, &axes);
+    trans.forward_nd(&x, &mut sd, &shape, &axes);
 
     let mut x2 = vec![0.0; n_total];
 
-    trans.per_inverse_nd(&mut sd, &mut x2, &shape, &axes);
+    trans.inverse_nd(&mut sd, &mut x2, &shape, &axes);
 
     wavelets::tests::test_approx_equal(&x2, &x, 1E-12, 1E-13);
 }
@@ -744,17 +751,16 @@ pub fn test_dwt_driver_inv_db2_per_single_level_2d() {
 
     let n_total = shape.iter().product();
 
-    let bc = ZeroBoundary {};
-    let trans = WaveletTransform::new(wvlt, bc);
+    let trans = WaveletTransformPer::new(wvlt);
 
     let x = (0..n_total).map(|i| (i + 1) as f64).collect::<Vec<_>>();
     let mut sd = vec![0.0; n_total];
 
-    trans.per_forward_nd(&x, &mut sd, &shape, &axes);
+    trans.forward_nd(&x, &mut sd, &shape, &axes);
 
     let mut x2 = vec![0.0; n_total];
 
-    trans.per_inverse_nd(&mut sd, &mut x2, &shape, &axes);
+    trans.inverse_nd(&mut sd, &mut x2, &shape, &axes);
 
     wavelets::tests::test_approx_equal(&x2, &x, 1E-13, 1E-14);
 }
@@ -768,17 +774,16 @@ pub fn test_dwt_driver_inv_db2_per_multi_level_1d() {
 
     let n_total = shape.iter().product();
 
-    let bc = ZeroBoundary {};
-    let trans = WaveletTransform::new(wvlt, bc);
+    let trans = WaveletTransformPer::new(wvlt);
 
     let x = (0..n_total).map(|i| (i + 1) as f64).collect::<Vec<_>>();
     let mut sd = vec![0.0; n_total];
 
-    trans.per_forward_multilevel_nd(&x, &mut sd, &shape, &axes, level);
+    trans.forward_multilevel_nd(&x, &mut sd, &shape, &axes, level);
 
     let mut x2 = vec![0.0; n_total];
 
-    trans.per_inverse_multilevel_nd(&mut sd, &mut x2, &shape, &axes, level);
+    trans.inverse_multilevel_nd(&mut sd, &mut x2, &shape, &axes, level);
 
     wavelets::tests::test_approx_equal(&x2, &x, 1E-15, 0.0);
 }
@@ -792,17 +797,16 @@ pub fn test_dwt_driver_inv_db2_per_multi_level_2d() {
 
     let n_total = shape.iter().product();
 
-    let bc = ZeroBoundary {};
-    let trans = WaveletTransform::new(wvlt, bc);
+    let trans = WaveletTransformPer::new(wvlt);
 
     let x = (0..n_total).map(|i| (i + 1) as f64).collect::<Vec<_>>();
     let mut sd = vec![0.0; n_total];
 
-    trans.per_forward_multilevel_nd(&x, &mut sd, &shape, &axes, level);
+    trans.forward_multilevel_nd(&x, &mut sd, &shape, &axes, level);
 
     let mut x2 = vec![0.0; n_total];
 
-    trans.per_inverse_multilevel_nd(&mut sd, &mut x2, &shape, &axes, level);
+    trans.inverse_multilevel_nd(&mut sd, &mut x2, &shape, &axes, level);
 
     wavelets::tests::test_approx_equal(&x2, &x, 1E-12, 1E-10);
 }
