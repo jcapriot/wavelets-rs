@@ -24,3 +24,7 @@ rstest = "0.26.1"
 [[bench]]
 name = "wavelet_bench"
 harness = false
+
+[[bench]]
+name = "simd_along_vs_across"
+harness = false

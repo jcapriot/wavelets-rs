@@ -471,7 +471,7 @@ mod test {
     use crate::tests::{test_approx_adjoint, test_approx_equal};
 
     use super::*;
-    use crate::dwt::DiscreteTransform;
+    use crate::dwt::{DiscreteTransform, get_outlen};
     use rstest::rstest;
 
     const RTOL: f64 = 1E-13;
@@ -497,7 +497,7 @@ mod test {
                 let x: Vec<f64> = (0..n).map(|i| (i + 1) as f64).collect();
                 let mut x2 = vec![0.0; n];
 
-                let nsd = $wvlt::get_outlen(n);
+                let nsd = get_outlen($wvlt::WIDTH, n);
 
                 let mut s = vec![0.0; nsd];
                 let mut d = vec![0.0; nsd];

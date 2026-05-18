@@ -443,7 +443,7 @@ impl<'a, T, const N: usize> ChunkStridedSlice<'a, T, N> {
         // gauranteed that maximum linear index will not go past the leftover shapes.
         assert!(ind + N <= shape.iter().product());
 
-        let offsets = std::array::from_fn(|i| {
+        let offsets = core::array::from_fn(|i| {
             let dim_inds = unravel(ind + i, &shape);
             dim_inds
                 .into_iter()
@@ -480,7 +480,7 @@ impl<'a, T, const N: usize> ChunkStridedSliceMut<'a, T, N> {
         // gauranteed that maximum linear index will not go past the leftover shapes.
         assert!(ind + N <= shape.iter().cloned().product());
 
-        let offsets = std::array::from_fn(|i| {
+        let offsets = core::array::from_fn(|i| {
             let dim_inds = unravel(ind + i, &shape);
             dim_inds
                 .into_iter()
@@ -902,7 +902,7 @@ macro_rules! implement_chunk_strided_iter {
         impl<'a, T, const N: usize> $name<'a, T, N> {
             #[inline(always)]
             unsafe fn get_items(&self, ptr: NonNull<T>) -> $elem {
-                std::array::from_fn(|i| unsafe { ptr.offset(self.offsets[i]).$into_ref() })
+                core::array::from_fn(|i| unsafe { ptr.offset(self.offsets[i]).$into_ref() })
             }
 
             #[inline]
@@ -949,6 +949,16 @@ macro_rules! implement_chunk_strided_iter {
             #[inline(always)]
             pub fn is_iter_empty(&self) -> bool {
                 unsafe { self.ptr == std::mem::transmute::<$ptr, NonNull<T>>(self.end) }
+            }
+
+            #[inline(always)]
+            pub fn next_chunk<const M: usize>(&mut self) -> Option<[$elem; M]> {
+                if M > self.len() {
+                    None
+                } else {
+                    // SAFETY: We just checked that there are at least M chunks remaining, so this is in bounds.
+                    Some(core::array::from_fn(|_| unsafe { self.next_unchecked() }))
+                }
             }
         }
 
@@ -1102,6 +1112,16 @@ macro_rules! implement_continuous_chunk_strided_iter {
             #[inline(always)]
             pub fn is_iter_empty(&self) -> bool {
                 unsafe { self.ptr == std::mem::transmute::<$ptr, NonNull<T>>(self.end) }
+            }
+
+            #[inline(always)]
+            pub fn next_chunk<const M: usize>(&mut self) -> Option<[$elem; M]> {
+                if M > self.len() {
+                    None
+                } else {
+                    // SAFETY: We just checked that there are at least M chunks remaining, so this is in bounds.
+                    Some(core::array::from_fn(|_| unsafe { self.next_unchecked() }))
+                }
             }
         }
 
@@ -1314,7 +1334,7 @@ impl<T, const N: usize> ChunkStridedSliceRef<T, N> {
     }
 
     #[inline]
-    pub fn chunks(&self) -> Option<ContiguousChunkStridedIter<'_, T, N>> {
+    pub fn slices(&self) -> Option<ContiguousChunkStridedIter<'_, T, N>> {
         if self.is_chunk_contiguous() {
             let start = unsafe { self.0.base.offset(self.0.offsets[0]) };
             let end = unsafe {
@@ -1351,7 +1371,7 @@ impl<T, const N: usize> ChunkStridedSliceRef<T, N> {
     }
 
     #[inline]
-    pub fn chunks_mut(&mut self) -> Option<ContiguousChunkStridedIterMut<'_, T, N>> {
+    pub fn slices_mut(&mut self) -> Option<ContiguousChunkStridedIterMut<'_, T, N>> {
         if self.is_chunk_contiguous() {
             let start = unsafe { self.0.base.offset(self.0.offsets[0]) };
             let end = unsafe {
@@ -1537,7 +1557,7 @@ macro_rules! implement_lane_chunk_iter {
                     return None
                 }
                 // already checked to ensure there are at least N remaining items.
-                let offsets = std::array::from_fn(|_|{
+                let offsets = core::array::from_fn(|_|{
                     let off = self.front_offset;
                     let _ptr = unsafe{self.post_inc_start(1)};
                     off
@@ -1609,7 +1629,7 @@ macro_rules! implement_lane_chunk_iter {
                     return None;
                 }
                 // already checked to ensure there are at least N remaining items.
-                let offsets = std::array::from_fn(|_|{
+                let offsets = core::array::from_fn(|_|{
                     let off = self.rear_offset;
                     let _ptr = unsafe{self.pre_dec_end(1)};
                     off
@@ -2412,7 +2432,7 @@ mod tests {
 
         assert_eq!(slice.len(), n);
 
-        let chunks = slice.chunks();
+        let chunks = slice.slices();
         if let Some(chunks) = chunks {
             let actual = chunks
                 .map(|row| row.iter())
@@ -2456,7 +2476,7 @@ mod tests {
 
         assert_eq!(slice.len(), n);
 
-        let chunks = slice.chunks_mut();
+        let chunks = slice.slices_mut();
         if let Some(chunks) = chunks {
             chunks
                 .map(|row| row.iter_mut())

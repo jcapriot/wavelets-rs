@@ -98,6 +98,14 @@ impl Wavelets {
         use symlet::*;
         generate_wavelet_match_arms! {Self, self, { max_level::<{#wvlt::WIDTH}>(n),}}
     }
+
+    pub fn width(&self) -> usize {
+        use bior::*;
+        use coiflet::*;
+        use daubechies::*;
+        use symlet::*;
+        generate_wavelet_match_arms! {Self, self, { #wvlt::WIDTH,}}
+    }
 }
 
 pub trait MulScalarAdd<A = Self, B = Self> {
@@ -534,17 +542,27 @@ pub mod tests {
             "Slice length mismatch:\n actual: {n_a}\n desired: {n_d}"
         );
         let mut mismatch = None;
+        let mut max_adiff = None;
+        let mut max_rdiff = None;
         actual.iter().zip(desired.iter()).for_each(|(a, d)| {
             let abs_diff = (*a - *d).abs();
             if abs_diff > rtol * d.abs() + atol {
                 mismatch = Some(mismatch.unwrap_or(0) + 1);
+                max_adiff = Some(max_adiff.unwrap_or(T::zero()).max(abs_diff));
+                let r_diff = if d.abs() == T::zero() {
+                    T::infinity()
+                } else {
+                    abs_diff / d.abs()
+                };
+                max_rdiff = Some(max_rdiff.unwrap_or(T::zero()).max(r_diff));
             }
         });
 
-        if let Some(mismatch) = mismatch {
+        if let (Some(mismatch), Some(max_adiff), Some(max_rdiff)) = (mismatch, max_adiff, max_rdiff)
+        {
             panic!(
-                "{} mismatched elements: \n  actual: {:?}\n desired: {:?}",
-                mismatch, actual, desired
+                "{}/{} mismatched elements:\n Maximum differences: absolute={:?}, relative={:?}\n actual:\n{:?}\n desired:\n{:?}",
+                mismatch, n_a, max_adiff, max_rdiff, actual, desired
             );
         }
     }

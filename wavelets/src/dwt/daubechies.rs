@@ -176,7 +176,7 @@ mod test {
 
     use super::*;
     use crate::boundarys::BoundaryCondition;
-    use crate::dwt::DiscreteTransform;
+    use crate::dwt::{DiscreteTransform, get_outlen};
     use crate::tests::{test_approx_adjoint, test_approx_equal};
 
     use rstest::rstest;
@@ -204,7 +204,7 @@ mod test {
                 let x: Vec<f64> = (0..n).map(|i| (i + 1) as f64).collect();
                 let mut x2 = vec![0.0; n];
 
-                let nsd = $wvlt::get_outlen(n);
+                let nsd = get_outlen($wvlt::WIDTH, n);
 
                 let mut s = vec![0.0; nsd];
                 let mut d = vec![0.0; nsd];
@@ -296,7 +296,7 @@ mod test {
     fn test_adjoint(#[values(64, 65)] n: usize) {
         type Wvlt = Daubechies3;
 
-        let nsd = Wvlt::get_outlen(n);
+        let nsd = get_outlen(Wvlt::WIDTH, n);
 
         let u = (0..n as isize).map(|i| (i + 1) as f64).collect::<Vec<_>>();
         let v = (0..(2 * nsd) as isize)

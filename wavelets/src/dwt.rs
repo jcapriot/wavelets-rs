@@ -7,7 +7,7 @@ use crate::boundarys::{BoundaryExtension, PeriodicBoundary, ZeroBoundary};
 pub mod bior;
 pub mod coiflet;
 pub mod daubechies;
-//pub mod driver;
+pub mod driver;
 pub mod symlet;
 
 pub trait DiscreteTransform<const N: usize> {
@@ -76,17 +76,12 @@ pub trait DiscreteTransform<const N: usize> {
         let hia: [_; N] = Self::HI.clone().into_iter().rev().collect_array().unwrap();
         dwt_per_forward(&gia, &hia, x, s, d);
     }
-
-    #[inline(always)]
-    fn get_outlen(n: usize) -> usize {
-        get_outlen::<N>(n)
-    }
 }
 
 #[inline(always)]
-pub fn get_outlen<const N: usize>(n: usize) -> usize {
-    let offset = (N - 2) / 2;
-    let n_ds = (n + 1) / 2 + 2 * (N / 4);
+pub fn get_outlen(width: usize, n: usize) -> usize {
+    let offset = (width - 2) / 2;
+    let n_ds = (n + 1) / 2 + 2 * (width / 4);
     if (offset % 2 == 1) && (n % 2 == 1) {
         n_ds - 1
     } else {
@@ -127,14 +122,14 @@ pub fn dwt_forward<T: Transformable + Zero, const N: usize, BC: BoundaryExtensio
     assert_eq!(ns, nd, "'d.len()' must be equal to 's.len()'");
 
     assert_eq!(
-        get_outlen::<N>(nx),
+        get_outlen(N, nx),
         ns,
         "'s.len()` and `d.len()' are inconsistent with 'x.len()'"
     );
 
     let offset = const { get_offset(N) };
 
-    let gh: [_; N] = std::array::from_fn(|i| {
+    let gh: [_; N] = core::array::from_fn(|i| {
         [
             T::scalar_type_from_f64(g[N - (i + 1)]),
             T::scalar_type_from_f64(h[N - (i + 1)]),
@@ -177,7 +172,7 @@ pub fn dwt_forward<T: Transformable + Zero, const N: usize, BC: BoundaryExtensio
                 })
         });
     // x[first_x..].array_windows::<N>().step_by(2);
-    let x_iter = x[first_x..].windows(N).step_by(2);
+    let x_iter = x[first_x..].array_windows::<N>().step_by(2);
 
     debug_assert_eq!(x_iter.len(), nx_steps); // double check in debug that nx_steps is correct
     debug_assert_eq!(x_iter.len(), s_m.len());
@@ -224,12 +219,12 @@ pub fn dwt_inverse<T: Transformable + Zero, const N: usize>(
     assert_eq!(ns, nd, "'d.len()' must be equal to 's.len()'");
 
     assert_eq!(
-        get_outlen::<N>(nx),
+        get_outlen(N, nx),
         ns,
         "'s.len()` and `d.len()' are inconsistent with 'x.len()'"
     );
 
-    let gh: [_; N] = std::array::from_fn(|i| {
+    let gh: [_; N] = core::array::from_fn(|i| {
         [
             T::scalar_type_from_f64(gi[N - (i + 1)]),
             T::scalar_type_from_f64(hi[N - (i + 1)]),
@@ -328,7 +323,7 @@ pub fn dwt_per_forward<T: Transformable + Zero, const N: usize>(
     };
 
     let offset = const { get_offset(N) };
-    let gh: [_; N] = std::array::from_fn(|i| {
+    let gh: [_; N] = core::array::from_fn(|i| {
         [
             T::scalar_type_from_f64(g[N - (i + 1)]),
             T::scalar_type_from_f64(h[N - (i + 1)]),
@@ -360,7 +355,6 @@ pub fn dwt_per_forward<T: Transformable + Zero, const N: usize>(
         .zip(s_f.iter_mut().zip(d_f))
         .for_each(|(i, (s, d))| {
             let ix = 2 * i - offset as isize;
-            dbg!(i, ix);
             *s = T::zero();
             *d = T::zero();
             (ix..ix + N as isize)
@@ -373,7 +367,7 @@ pub fn dwt_per_forward<T: Transformable + Zero, const N: usize>(
                 })
         });
     // x[first_x..].array_windows::<N>().step_by(2);
-    let x_iter = x[first_x..].windows(N).step_by(2);
+    let x_iter = x[first_x..].array_windows::<N>().step_by(2);
 
     debug_assert_eq!(x_iter.len(), nx_steps); // double check in debug that nx_steps is correct
     debug_assert_eq!(x_iter.len(), s_m.len());
@@ -396,7 +390,6 @@ pub fn dwt_per_forward<T: Transformable + Zero, const N: usize>(
             *s = T::zero();
             *d = T::zero();
             let ix = 2 * i - offset as isize;
-            dbg!(i, ix);
             (ix..ix + N as isize)
                 .zip(gh.iter())
                 .for_each(|(j, [g, h])| {
@@ -445,7 +438,7 @@ pub fn dwt_per_inverse<T: Transformable + Zero, const N: usize>(
         (x, s)
     };
 
-    let gh: [_; N] = std::array::from_fn(|i| {
+    let gh: [_; N] = core::array::from_fn(|i| {
         [
             T::scalar_type_from_f64(gi[N - (i + 1)]),
             T::scalar_type_from_f64(hi[N - (i + 1)]),
@@ -583,13 +576,13 @@ mod test {
     fn test_simple() {
         const N: usize = 4;
         let g = [1.0; N];
-        let h = std::array::from_fn(|i| (-1 * (i as isize % 2)) as f64 * 1.0);
+        let h = core::array::from_fn(|i| (-1 * (i as isize % 2)) as f64 * 1.0);
 
         let bc = ZeroBoundary {};
 
         let nx = 33;
         let x = (0..nx).map(|i| (i + 1) as f64).collect::<Vec<_>>();
-        let nsd = dbg!(get_outlen::<N>(nx));
+        let nsd = dbg!(get_outlen(N, nx));
 
         // let ns = (nx + 1) / 2;
         // let nd = nx / 2;

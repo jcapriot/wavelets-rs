@@ -94,22 +94,18 @@ where
     }
 
     pub fn forward_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
-        let axes = HashSet::from_iter(axes.iter().cloned());
         self.forward_multilevel_nd(input, output, shape, &axes, 1);
     }
 
     pub fn inverse_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
-        let axes = HashSet::from_iter(axes.iter().cloned());
         self.inverse_multilevel_nd(input, output, shape, &axes, 1);
     }
 
     pub fn adj_forward_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
-        let axes = HashSet::from_iter(axes.iter().cloned());
         self.adj_forward_multilevel_nd(input, output, shape, &axes, 1);
     }
 
     pub fn adj_inverse_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
-        let axes = HashSet::from_iter(axes.iter().cloned());
         self.adj_inverse_multilevel_nd(input, output, shape, &axes, 1);
     }
 
@@ -118,15 +114,16 @@ where
         input: &[T],
         output: &mut [T],
         shape: &[usize],
-        axes: &HashSet<usize>,
+        axes: &[usize],
         level: usize,
     ) {
+        let axes = HashSet::from_iter(axes.iter().cloned());
         general_nd_forward_multilevel(
             |s, d| (self.lwt_forward)(s, d, &self.bc),
             input,
             output,
             shape,
-            axes,
+            &axes,
             level,
         );
     }
@@ -136,15 +133,16 @@ where
         input: &[T],
         output: &mut [T],
         shape: &[usize],
-        axes: &HashSet<usize>,
+        axes: &[usize],
         level: usize,
     ) {
+        let axes = HashSet::from_iter(axes.iter().cloned());
         general_nd_inverse_multilevel(
             |s, d| (self.lwt_inverse)(s, d, &self.bc),
             input,
             output,
             shape,
-            axes,
+            &axes,
             level,
         );
     }
@@ -154,15 +152,16 @@ where
         input: &[T],
         output: &mut [T],
         shape: &[usize],
-        axes: &HashSet<usize>,
+        axes: &[usize],
         level: usize,
     ) {
+        let axes = HashSet::from_iter(axes.iter().cloned());
         general_nd_inverse_multilevel(
             |s, d| (self.lwt_adj_forward)(s, d, &self.bc),
             input,
             output,
             shape,
-            axes,
+            &axes,
             level,
         );
     }
@@ -172,15 +171,16 @@ where
         input: &[T],
         output: &mut [T],
         shape: &[usize],
-        axes: &HashSet<usize>,
+        axes: &[usize],
         level: usize,
     ) {
+        let axes = HashSet::from_iter(axes.iter().cloned());
         general_nd_forward_multilevel(
             |s, d| (self.lwt_adj_inverse)(s, d, &self.bc),
             input,
             output,
             shape,
-            axes,
+            &axes,
             level,
         );
     }

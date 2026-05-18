@@ -1,6 +1,7 @@
 use crate::iter::slice::{ChunkStridedSliceRef, StridedSliceRef};
 use aligned_vec::AVec;
 use itertools::{Itertools, izip};
+use num_traits::Zero;
 
 #[inline]
 pub fn stride_from_shape(shape: &[usize]) -> Vec<usize> {
@@ -167,203 +168,176 @@ pub fn deinterleave_strided<T: Clone>(x: &StridedSliceRef<T>, evens: &mut [T], o
 }
 
 #[inline]
-pub fn deinterleave_strided_chunk<T: Clone, const N: usize>(
+pub fn deinterleave_strided_chunk<T: Clone, const N: usize, A: aligned_vec::Alignment>(
     x: &ChunkStridedSliceRef<T, N>,
-    evens: &mut [AVec<T>; N],
-    odds: &mut [AVec<T>; N],
+    evens: &mut [AVec<T, A>; N],
+    odds: &mut [AVec<T, A>; N],
 ) {
     assert_ne!(N, 0);
+    let ne = (x.len() + 1) / 2;
+    let no = x.len() / 2;
+    debug_assert_eq!(x.len(), ne + no);
+    assert!(evens.iter().all(|v| v.len() == ne));
+    assert!(odds.iter().all(|v| v.len() == no));
 
-    let mut e_chunks = evens.each_mut().map(|v| v.as_mut_slice());
-    let mut o_chunks = odds.each_mut().map(|v| v.as_mut_slice());
-
-    let mut do_even = true;
-    let mut ind_io = 0;
-
-    if let Some(x_iter) = x.chunks() {
-        x_iter.for_each(|x| {
-            match do_even {
-                true => x
-                    .iter()
-                    .cloned()
-                    .zip(e_chunks.iter_mut())
-                    .for_each(|(x, v)| {
-                        unsafe { *v.get_unchecked_mut(ind_io) = x };
-                    }),
-                false => {
-                    x.iter()
-                        .cloned()
-                        .zip(o_chunks.iter_mut())
-                        .for_each(|(x, v)| {
-                            unsafe { *v.get_unchecked_mut(ind_io) = x };
-                        });
-                    ind_io += 1;
-                }
-            }
-            do_even = !do_even;
-        })
+    if let Some(mut x_iter) = x.slices() {
+        let mut i = 0;
+        while let Some([xe, xo]) = x_iter.next_chunk::<2>() {
+            xe.iter().cloned().zip(evens.iter_mut()).for_each(|(x, v)| {
+                // SAFETY: Every evens' length is equal to ne = x.len()/2 + 1 and i < x.len()/2, so i < v.len().
+                *unsafe { v.get_unchecked_mut(i) } = x;
+            });
+            xo.iter().cloned().zip(odds.iter_mut()).for_each(|(x, v)| {
+                // SAFETY: Every odds' length is equal to no = x.len()/2 and i < x.len()/2, so i < v.len().
+                *unsafe { v.get_unchecked_mut(i) } = x;
+            });
+            i = i + 1;
+        }
+        x_iter.next().map(|x| {
+            x.iter().cloned().zip(evens.iter_mut()).for_each(|(x, v)| {
+                *unsafe { v.get_unchecked_mut(no) } = x;
+            });
+        });
     } else {
-        x.iter().for_each(|x| {
-            match do_even {
-                true => x
-                    .into_iter()
-                    .cloned()
-                    .zip(e_chunks.iter_mut())
-                    .for_each(|(x, v)| {
-                        unsafe { *v.get_unchecked_mut(ind_io) = x };
-                    }),
-                false => {
-                    x.into_iter()
-                        .cloned()
-                        .zip(o_chunks.iter_mut())
-                        .for_each(|(x, v)| {
-                            unsafe { *v.get_unchecked_mut(ind_io) = x };
-                        });
-                    ind_io += 1;
-                }
-            }
-            do_even = !do_even;
+        let mut x_iter = x.iter();
+
+        let mut i = 0;
+        while let Some([xe, xo]) = x_iter.next_chunk::<2>() {
+            xe.into_iter()
+                .cloned()
+                .zip(evens.iter_mut())
+                .for_each(|(x, v)| {
+                    // SAFETY: Every evens' length is equal to ne = x.len()/2 + 1 and i < x.len()/2, so i < v.len().
+                    *unsafe { v.get_unchecked_mut(i) } = x;
+                });
+            xo.into_iter()
+                .cloned()
+                .zip(odds.iter_mut())
+                .for_each(|(x, v)| {
+                    // SAFETY: Every odds' length is equal to no = x.len()/2 and i < x.len()/2, so i < v.len().
+                    *unsafe { v.get_unchecked_mut(i) } = x;
+                });
+            i = i + 1;
+        }
+        x_iter.next().map(|x| {
+            x.into_iter()
+                .cloned()
+                .zip(evens.iter_mut())
+                .for_each(|(x, v)| {
+                    // SAFETY: no < v.len() since v has length ne = no + 1 if there are any leftover slice chunks.
+                    *unsafe { v.get_unchecked_mut(no) } = x;
+                });
         });
     }
 }
 
 #[inline]
-pub fn stack<T: Clone>(first: &[T], second: &[T], out: &mut [T]) {
-    assert_eq!(
-        first.len() + second.len(),
-        out.len(),
+pub fn stack<T: Clone + Zero>(first: &[T], second: &[T], out: &mut [T]) {
+    // stacks first and second into out, but with the second half at the very end of out, instead of immediately after the first half.
+    assert!(
+        first.len() + second.len() <= out.len(),
         "invalid lengths for slice stack, first: {}, second: {}, third: {}",
         first.len(),
         second.len(),
         out.len()
     );
-    out.iter_mut()
-        .zip(first.iter().chain(second).cloned())
+
+    let (of, ol) = out.split_at_mut(first.len());
+    let (om, os) = ol.split_at_mut(ol.len() - second.len());
+    debug_assert_eq!(of.len(), first.len());
+    debug_assert_eq!(os.len(), second.len());
+
+    of.iter_mut()
+        .zip(first.iter().cloned())
+        .for_each(|(a, b)| *a = b);
+    om.iter_mut().for_each(|v| *v = T::zero());
+    os.iter_mut()
+        .zip(second.iter().cloned())
         .for_each(|(a, b)| *a = b);
 }
 
 #[inline]
-pub fn stack_to_strided<T: Clone>(first: &[T], second: &[T], out: &mut StridedSliceRef<T>) {
+pub fn stack_to_strided<T: Clone + Zero>(first: &[T], second: &[T], out: &mut StridedSliceRef<T>) {
     if let Some(out) = out.as_slice_mut() {
         stack(first, second, out);
     } else {
-        assert_eq!(
-            first.len() + second.len(),
-            out.len(),
-            "invalid lengths for strided stack, first: {}, second: {}, third: {}",
-            first.len(),
-            second.len(),
-            out.len()
+        let no = out.len();
+        let nf = first.len();
+        let ns = second.len();
+        assert!(
+            nf + ns <= no,
+            "invalid lengths for slice stack, first: {nf}, second: {ns}, third: {no}",
         );
-        out.iter_mut()
-            .zip(first.iter().chain(second).cloned())
+        let n_mid = no - (nf + ns);
+        let mut out_iter = out.iter_mut();
+        out_iter
+            .by_ref()
+            .take(nf)
+            .zip(first.iter().cloned())
+            .for_each(|(a, b)| *a = b);
+        out_iter.by_ref().take(n_mid).for_each(|v| *v = T::zero());
+        out_iter
+            .zip(second.iter().cloned())
             .for_each(|(a, b)| *a = b);
     }
 }
 
 #[inline]
-pub fn stack_to_strided_chunk<T: Clone, const N: usize>(
-    first: &[AVec<T>; N],
-    second: &[AVec<T>; N],
+pub fn stack_to_strided_chunk<T: Clone + Zero, const N: usize, A: aligned_vec::Alignment>(
+    first: &[AVec<T, A>; N],
+    second: &[AVec<T, A>; N],
     out: &mut ChunkStridedSliceRef<T, N>,
 ) {
     assert_ne!(N, 0);
 
-    let nx = out.len();
-
-    let n_first = first[0].len();
-    let n_second = second[0].len();
-    assert_eq!(
-        n_first + n_second,
-        nx,
-        "invalid lengths for strided chunk stack, first: {n_first}, second: {n_second}, third: {nx}"
+    let nf = first[0].len();
+    let ns = second[0].len();
+    let no = out.len();
+    let n_mid = no - (nf + ns);
+    assert!(first.iter().all(|v| v.len() == nf));
+    assert!(second.iter().all(|v| v.len() == ns));
+    assert!(
+        nf + ns <= no,
+        "invalid lengths for slice stack, first: {nf}, second: {ns}, third: {no}",
     );
 
-    let f_chunks = first.each_ref().map(|v| v.as_slice());
-    let s_chunks = second.each_ref().map(|v| v.as_slice());
-
-    if let Some(mut out_iter) = out.chunks_mut() {
+    if let Some(mut out_iter) = out.slices_mut() {
+        out_iter.by_ref().take(nf).enumerate().for_each(|(i, o)| {
+            o.iter_mut().zip(first.iter()).for_each(|(o, v)| {
+                // SAFETY: i comes from enumerate().take(nf), so i < nf
+                *o = unsafe { v.get_unchecked(i) }.clone();
+            })
+        });
         out_iter
             .by_ref()
-            .take(n_first)
-            .enumerate()
-            .for_each(|(i, out)| {
-                out.iter_mut().zip(f_chunks.iter()).for_each(|(out, v)| {
-                    *out = unsafe { v.get_unchecked(i) }.clone();
-                })
-            });
-        out_iter.enumerate().for_each(|(i, out)| {
-            out.iter_mut().zip(s_chunks.iter()).for_each(|(out, v)| {
-                *out = unsafe { v.get_unchecked(i) }.clone();
+            .take(n_mid)
+            .for_each(|o| o.iter_mut().for_each(|v| *v = T::zero()));
+        out_iter.enumerate().for_each(|(i, o)| {
+            o.iter_mut().zip(second.iter()).for_each(|(o, v)| {
+                // SAFETY: i comes from enumerate() over the remaining ns positions, so i < ns
+                *o = unsafe { v.get_unchecked(i) }.clone();
             })
         });
     } else {
         let mut out_iter = out.iter_mut();
+        out_iter.by_ref().take(nf).enumerate().for_each(|(i, o)| {
+            o.into_iter().zip(first.iter()).for_each(|(o, v)| {
+                // SAFETY: i comes from enumerate().take(nf), so i < nf
+                *o = unsafe { v.get_unchecked(i) }.clone();
+            })
+        });
         out_iter
             .by_ref()
-            .take(n_first)
-            .enumerate()
-            .for_each(|(i, out)| {
-                out.into_iter().zip(f_chunks.iter()).for_each(|(out, v)| {
-                    *out = unsafe { v.get_unchecked(i) }.clone();
-                })
-            });
-        out_iter.enumerate().for_each(|(i, out)| {
-            out.into_iter().zip(s_chunks.iter()).for_each(|(out, v)| {
-                *out = unsafe { v.get_unchecked(i) }.clone();
+            .take(n_mid)
+            .for_each(|o| o.into_iter().for_each(|v| *v = T::zero()));
+        out_iter.enumerate().for_each(|(i, o)| {
+            o.into_iter().zip(second.iter()).for_each(|(o, v)| {
+                // SAFETY: i comes from enumerate() over the remaining ns positions, so i < ns
+                *o = unsafe { v.get_unchecked(i) }.clone();
             })
         });
     }
 }
-
-// #[inline]
-// pub(crate) fn stack_to_strided_aligned_chunk<T: Clone + Alignable, const N: usize>(
-//     first: &[T],
-//     second: &[T],
-//     out: &mut ChunkStridedSliceRef<T, N>,
-// ) {
-//     assert_ne!(N, 0);
-
-//     let nx = out.len();
-//     let n_s = (nx + 1) / 2;
-//     let n_d = nx / 2;
-
-//     let f_chunks: [_; N] = first.aligned_chunks_exact(n_s).collect_array().unwrap();
-//     let s_chunks: [_; N] = second.aligned_chunks_exact(n_d).collect_array().unwrap();
-
-//     if let Some(mut out_iter) = out.chunks_mut() {
-//         out_iter
-//             .by_ref()
-//             .take(n_s)
-//             .enumerate()
-//             .for_each(|(i, out)| {
-//                 out.iter_mut().zip(f_chunks.iter()).for_each(|(out, v)| {
-//                     *out = unsafe { v.get_unchecked(i) }.clone();
-//                 })
-//             });
-//         out_iter.enumerate().for_each(|(i, out)| {
-//             out.iter_mut().zip(s_chunks.iter()).for_each(|(out, v)| {
-//                 *out = unsafe { v.get_unchecked(i) }.clone();
-//             })
-//         });
-//     } else {
-//         let mut out_iter = out.iter_mut();
-//         out_iter
-//             .by_ref()
-//             .take(n_s)
-//             .enumerate()
-//             .for_each(|(i, out)| {
-//                 out.into_iter().zip(f_chunks.iter()).for_each(|(out, v)| {
-//                     *out = unsafe { v.get_unchecked(i) }.clone();
-//                 })
-//             });
-//         out_iter.enumerate().for_each(|(i, out)| {
-//             out.into_iter().zip(s_chunks.iter()).for_each(|(out, v)| {
-//                 *out = unsafe { v.get_unchecked(i) }.clone();
-//             })
-//         });
-//     }
-// }
 
 #[inline]
 pub fn interleave<T: Clone>(evens: &[T], odds: &[T], x: &mut [T]) {
@@ -376,9 +350,9 @@ pub fn interleave<T: Clone>(evens: &[T], odds: &[T], x: &mut [T]) {
 
     let (chunks, rem) = x.as_chunks_mut::<2>();
     let mut ev_iter = evens.iter();
-    izip!(chunks.iter_mut(), ev_iter.by_ref(), odds.iter()).for_each(|(xc, even, odd)| {
-        xc[0] = even.clone();
-        xc[1] = odd.clone();
+    izip!(chunks.iter_mut(), ev_iter.by_ref(), odds.iter()).for_each(|([xe, xo], even, odd)| {
+        *xe = even.clone();
+        *xo = odd.clone();
     });
     if let Some(x) = rem.last_mut()
         && let Some(e) = evens.last()
@@ -406,60 +380,80 @@ pub fn interleave_strided<T: Clone>(evens: &[T], odds: &[T], x: &mut StridedSlic
 }
 
 #[inline]
-pub fn interleave_strided_chunk<T: Clone, const N: usize>(
-    evens: &[AVec<T>; N],
-    odds: &[AVec<T>; N],
+pub fn interleave_strided_chunk<T: Clone, const N: usize, A: aligned_vec::Alignment>(
+    evens: &[AVec<T, A>; N],
+    odds: &[AVec<T, A>; N],
     x: &mut ChunkStridedSliceRef<T, N>,
 ) {
     assert_ne!(N, 0);
+    let ne = (x.len() + 1) / 2;
+    let no = x.len() / 2;
+    debug_assert_eq!(x.len(), ne + no);
+    assert!(evens.iter().all(|v| v.len() == ne));
+    assert!(odds.iter().all(|v| v.len() == no));
 
-    let e_chunks = evens.each_ref().map(|v| v.as_slice());
-    let o_chunks = odds.each_ref().map(|v| v.as_slice());
-
-    let mut do_even = true;
-    let mut ind_io = 0;
-
-    if let Some(x_iter) = x.chunks_mut() {
-        x_iter.for_each(|x| {
-            match do_even {
-                true => x.into_iter().zip(e_chunks.iter()).for_each(|(x, v)| {
-                    *x = unsafe { v.get_unchecked(ind_io) }.clone();
-                }),
-                false => {
-                    x.into_iter().zip(o_chunks.iter()).for_each(|(x, v)| {
-                        *x = unsafe { v.get_unchecked(ind_io) }.clone();
-                    });
-                    ind_io += 1;
-                }
-            }
-            do_even = !do_even;
+    // Note: Uses unsafe indexing to avoid bounds checks that are difficult to elide.
+    // But are gauranteed by the assertions above and the loop conditions.
+    if let Some(mut x_iter) = x.slices_mut() {
+        let mut i = 0;
+        while let Some([xe, xo]) = x_iter.next_chunk::<2>() {
+            xe.iter_mut().zip(evens.iter()).for_each(|(x, v)| {
+                // SAFETY: Every evens' length is equal to ne = x.len()/2 + 1 and i < x.len()/2, so i < v.len().
+                *x = unsafe { v.get_unchecked(i) }.clone();
+            });
+            xo.iter_mut().zip(odds.iter()).for_each(|(x, v)| {
+                // SAFETY: Every odds' length is equal to no = x.len()/2 and i < x.len()/2, so i < v.len().
+                *x = unsafe { v.get_unchecked(i) }.clone();
+            });
+            i = i + 1;
+        }
+        x_iter.next().map(|x| {
+            x.iter_mut().zip(evens.iter()).for_each(|(x, v)| {
+                // SAFETY: no < v.len() since v has length ne = no + 1 if there are any leftover slice chunks.
+                *x = unsafe { v.get_unchecked(no) }.clone();
+            });
         });
     } else {
-        x.iter_mut().for_each(|x| {
-            match do_even {
-                true => x.into_iter().zip(e_chunks.iter()).for_each(|(x, v)| {
-                    *x = unsafe { v.get_unchecked(ind_io) }.clone();
-                }),
-                false => {
-                    x.into_iter().zip(o_chunks.iter()).for_each(|(x, v)| {
-                        *x = unsafe { v.get_unchecked(ind_io) }.clone();
-                    });
-                    ind_io += 1;
-                }
-            }
-            do_even = !do_even;
+        let mut x_iter = x.iter_mut();
+        let mut i = 0;
+        while let Some([xe, xo]) = x_iter.next_chunk::<2>() {
+            xe.into_iter().zip(evens.iter()).for_each(|(x, v)| {
+                // SAFETY: Same as above (chunks branch, evens).
+                *x = unsafe { v.get_unchecked(i) }.clone();
+            });
+            xo.into_iter().zip(odds.iter()).for_each(|(x, v)| {
+                // SAFETY: Same as above (chunks branch, evens).
+                *x = unsafe { v.get_unchecked(i) }.clone();
+            });
+            i = i + 1;
+        }
+        x_iter.next().map(|x| {
+            x.into_iter().zip(evens.iter()).for_each(|(x, v)| {
+                // SAFETY: Same as above (chunks branch remainder, evens).
+                *x = unsafe { v.get_unchecked(no) }.clone();
+            });
         });
     }
 }
 
 #[inline]
 pub fn split<T: Clone>(x: &[T], first: &mut [T], second: &mut [T]) {
-    assert_eq!(x.len(), first.len() + second.len());
+    // splits x into first and second, but with the second at the very end of x, instead of immediately after the first.
+    let nf = first.len();
+    let ns = second.len();
+    let nx = x.len();
+    assert!(
+        nf + ns <= nx,
+        "invalid lengths for slice stack, first: {nf}, second: {ns}, third: {nx}"
+    );
 
-    x.iter()
-        .cloned()
-        .zip(first.iter_mut().chain(second))
-        .for_each(|(b, a)| *a = b);
+    let (xf, xs) = x.split_at(nx - ns);
+    let (xf, _) = xf.split_at(nf);
+    debug_assert_eq!(xf.len(), nf);
+    debug_assert_eq!(xs.len(), ns);
+
+    xf.iter().cloned().zip(first).for_each(|(a, b)| *b = a);
+    xs.iter().cloned().zip(second).for_each(|(a, b)| *b = a);
 }
 
 #[inline]
@@ -467,72 +461,83 @@ pub fn split_strided<T: Clone>(x: &StridedSliceRef<T>, first: &mut [T], second: 
     if let Some(x) = x.as_slice() {
         split(x, first, second);
     } else {
-        assert_eq!(x.len(), first.len() + second.len());
-        x.iter()
-            .cloned()
-            .zip(first.iter_mut().chain(second))
+        let nf = first.len();
+        let ns = second.len();
+        let nx = x.len();
+        assert!(
+            nf + ns <= nx,
+            "invalid lengths for slice stack, first: {nf}, second: {ns}, third: {nx}"
+        );
+        let n_mid = nx - (nf + ns);
+        let mut x_iter = x.iter().cloned();
+        x_iter
+            .by_ref()
+            .take(nf)
+            .zip(first)
             .for_each(|(b, a)| *a = b);
+        x_iter.skip(n_mid).zip(second).for_each(|(b, a)| *a = b);
     }
 }
 
 #[inline]
-pub fn split_strided_chunk<T: Clone, const N: usize>(
+pub fn split_strided_chunk<T: Clone, const N: usize, A: aligned_vec::Alignment>(
     x: &ChunkStridedSliceRef<T, N>,
-    first: &mut [AVec<T>; N],
-    second: &mut [AVec<T>; N],
+    first: &mut [AVec<T, A>; N],
+    second: &mut [AVec<T, A>; N],
 ) {
     assert_ne!(N, 0);
-
+    let nf = first[0].len();
+    let ns = second[0].len();
     let nx = x.len();
+    assert!(
+        nf + ns <= nx,
+        "invalid lengths for slice stack, first: {nf}, second: {ns}, third: {nx}",
+    );
+    assert!(first.iter().all(|v| v.len() == nf));
+    assert!(second.iter().all(|v| v.len() == ns));
 
-    let n_first = first[0].len();
-    let n_second = second[0].len();
-    assert_eq!(nx, n_first + n_second);
+    let n_mid = nx - (nf + ns);
 
-    let mut f_chunks = first.each_mut().map(|v| v.as_mut_slice());
-    let mut s_chunks = second.each_mut().map(|v| v.as_mut_slice());
-
-    if let Some(mut x_iter) = x.chunks() {
-        x_iter
-            .by_ref()
-            .take(n_first)
-            .enumerate()
-            .for_each(|(i, out)| {
-                out.into_iter()
-                    .cloned()
-                    .zip(f_chunks.iter_mut())
-                    .for_each(|(out, v)| {
-                        *unsafe { v.get_unchecked_mut(i) } = out;
-                    })
-            });
-        x_iter.enumerate().for_each(|(i, out)| {
-            out.into_iter()
+    if let Some(mut x_iter) = x.slices() {
+        x_iter.by_ref().take(nf).enumerate().for_each(|(i, out)| {
+            out.iter()
                 .cloned()
-                .zip(s_chunks.iter_mut())
+                .zip(first.iter_mut())
                 .for_each(|(out, v)| {
+                    // SAFETY: i comes from enumerate().take(nf), so i < nf.
+                    // first[lane] has length nf,
+                    // so i < v.len().
+                    *unsafe { v.get_unchecked_mut(i) } = out;
+                })
+        });
+        x_iter.skip(n_mid).enumerate().for_each(|(i, out)| {
+            out.iter()
+                .cloned()
+                .zip(second.iter_mut())
+                .for_each(|(out, v)| {
+                    // SAFETY: i comes from enumerate() over the remaining ns positions,
+                    // so i < ns = second[lane].len().
                     *unsafe { v.get_unchecked_mut(i) } = out;
                 })
         });
     } else {
         let mut x_iter = x.iter();
 
-        x_iter
-            .by_ref()
-            .take(n_first)
-            .enumerate()
-            .for_each(|(i, out)| {
-                out.into_iter()
-                    .cloned()
-                    .zip(f_chunks.iter_mut())
-                    .for_each(|(out, v)| {
-                        *unsafe { v.get_unchecked_mut(i) } = out;
-                    })
-            });
-        x_iter.enumerate().for_each(|(i, out)| {
+        x_iter.by_ref().take(nf).enumerate().for_each(|(i, out)| {
             out.into_iter()
                 .cloned()
-                .zip(s_chunks.iter_mut())
+                .zip(first.iter_mut())
                 .for_each(|(out, v)| {
+                    // SAFETY: see above (chunks branch, first half).
+                    *unsafe { v.get_unchecked_mut(i) } = out;
+                })
+        });
+        x_iter.skip(n_mid).enumerate().for_each(|(i, out)| {
+            out.into_iter()
+                .cloned()
+                .zip(second.iter_mut())
+                .for_each(|(out, v)| {
+                    // SAFETY: see above (chunks branch, second half).
                     *unsafe { v.get_unchecked_mut(i) } = out;
                 })
         });
@@ -565,6 +570,105 @@ pub fn interleave_inplace<T: Clone>(x: &mut [T]) {
     }
     if !do_sub {
         x.chunks_exact_mut(2).for_each(|x| x.reverse());
+    }
+}
+
+#[inline]
+pub fn clone_slice<T: Clone>(x: &[T], out: &mut [T]) {
+    // clones x into out, based on the shorter of the two slices' lengths.
+    x.iter().cloned().zip(out).for_each(|(a, b)| *b = a);
+}
+
+#[inline]
+pub fn clone_strided_to_slice<T: Clone>(x: &StridedSliceRef<T>, out: &mut [T]) {
+    // clones x into out, based on the shorter of the two slices' lengths.
+    if let Some(x) = x.as_slice() {
+        clone_slice(x, out);
+    } else {
+        x.iter().cloned().zip(out).for_each(|(a, b)| *b = a);
+    }
+}
+
+#[inline]
+pub fn clone_strided_chunk_to_avecs<T: Clone, const N: usize, A: aligned_vec::Alignment>(
+    x: &ChunkStridedSliceRef<T, N>,
+    out: &mut [AVec<T, A>; N],
+) {
+    assert_ne!(N, 0);
+    let n = out[0].len();
+    assert!(
+        out.iter().all(|v| v.len() == n),
+        "all output AVecs must have the same length"
+    );
+    assert!(
+        n <= x.len(),
+        "invalid lengths for strided chunk clone, input: {}, output: {}",
+        x.len(),
+        n
+    );
+    if let Some(x) = x.slices() {
+        x.take(n).enumerate().for_each(|(i, x)| {
+            x.iter().cloned().zip(out.iter_mut()).for_each(|(x, v)| {
+                // SAFETY: Every out lane has length n and i < n since i comes from iterating over x's slices.
+                *unsafe { v.get_unchecked_mut(i) } = x;
+            })
+        });
+    } else {
+        x.iter().take(n).enumerate().for_each(|(i, x)| {
+            x.into_iter()
+                .cloned()
+                .zip(out.iter_mut())
+                .for_each(|(x, v)| {
+                    // SAFETY: Same as above (slices branch).
+                    *unsafe { v.get_unchecked_mut(i) } = x;
+                });
+        });
+    }
+}
+
+#[inline]
+pub fn clone_slice_to_strided<T: Clone>(x: &[T], out: &mut StridedSliceRef<T>) {
+    if let Some(out) = out.as_slice_mut() {
+        clone_slice(x, out);
+    } else {
+        x.iter()
+            .cloned()
+            .zip(out.iter_mut())
+            .for_each(|(a, b)| *b = a);
+    }
+}
+
+#[inline]
+pub fn clone_avecs_to_strided_chunk<T: Clone, const N: usize, A: aligned_vec::Alignment>(
+    x: &[AVec<T, A>; N],
+    out: &mut ChunkStridedSliceRef<T, N>,
+) {
+    assert_ne!(N, 0);
+    let n = x[0].len();
+    assert!(
+        x.iter().all(|v| v.len() == n),
+        "all input AVecs must have the same length"
+    );
+    assert!(
+        n <= out.len(),
+        "invalid lengths for strided chunk clone, input: {}, output: {}",
+        n,
+        out.len()
+    );
+    if let Some(out) = out.slices_mut() {
+        out.enumerate().take(n).for_each(|(i, out)| {
+            out.iter_mut().zip(x.iter()).for_each(|(x, v)| {
+                // SAFETY: Every out lane has length n and i < n since i comes from iterating over x's slices.
+                *x = unsafe { v.get_unchecked(i) }.clone();
+            })
+        });
+    } else {
+        out.iter_mut().enumerate().take(n).for_each(|(i, out)| {
+            out.into_iter().zip(x.iter()).for_each(|(x, v)| {
+                // SAFETY: Same as above (slices branch).
+                *x = unsafe { v.get_unchecked(i) }.clone();
+            });
+        });
     }
 }
 
@@ -622,6 +726,7 @@ fn perfect_shuffle<T: Clone>(x: &mut [T]) {
 mod tests {
     use super::*;
     use crate::iter::LanesIterator;
+    use crate::iter::slice::{StridedSlice, StridedSliceMut};
     use aligned_vec::avec;
 
     use rstest::rstest;
@@ -892,16 +997,395 @@ mod tests {
         assert_eq!(out, out2);
     }
 
-    #[test]
-    fn test_aligned_vec() {
-        let n = 12;
-        let mut v = avec![0.0; n];
+    #[rstest]
+    fn test_clone_slice(#[values(10, 12)] n0: usize, #[values(10, 12)] n1: usize) {
+        let inp = (1..n0 + 1).collect_vec();
+        let mut out = vec![0; n1];
 
-        v.iter_mut().enumerate().for_each(|(i, v)| {
-            *v = i as f64;
+        let n_min = n0.min(n1);
+        clone_slice(&inp, &mut out);
+        assert_eq!(out[..n_min], inp[..n_min]);
+    }
+
+    #[rstest]
+    fn test_clone_slice_to_strided(
+        #[values(10, 11, 12)] n0: usize,
+        #[values(10, 11, 12)] n1: usize,
+        #[values(1, 2, 3)] stride: usize,
+    ) {
+        let inp = (1..n0 + 1).collect_vec();
+        let mut out = vec![0; n1 * stride];
+
+        let n_min = n0.min(n1);
+        let mut out_strided = StridedSliceMut::from_slice_mut(&mut out, stride);
+        clone_slice_to_strided(&inp, &mut out_strided);
+
+        let output = out.iter().step_by(stride).cloned().collect_vec();
+
+        assert_eq!(output[..n_min], inp[..n_min]);
+    }
+
+    #[rstest]
+    fn test_clone_slice_to_strided_chunk(
+        #[values(10, 11)] n0: usize,
+        #[values(10, 11)] n1: usize,
+        #[values(10, 11)] m0: usize,
+        #[values(0, 1)] ax: usize,
+    ) {
+        const N: usize = 4;
+
+        let n_shape = [n0, n1];
+
+        let m_shape = if ax == 0 { [m0, n1] } else { [n1, m0] };
+        let m_total: usize = m_shape.iter().product();
+
+        let n_ax = n_shape[ax].min(m_shape[ax]);
+
+        let mut out = vec![0; m_total];
+
+        let mut chunks = out.iter_lane_chunks_mut::<N>(&m_shape, ax);
+        let n_c = chunks.len() * N;
+        chunks.by_ref().enumerate().for_each(|(i, mut chunk)| {
+            let vecs = core::array::from_fn(|j| {
+                let start = i * N + j + 1;
+                let end = start + n_ax;
+                AVec::<_>::from_iter(128, start..end)
+            });
+            clone_avecs_to_strided_chunk(&vecs, &mut chunk);
+        });
+        chunks.remainder().enumerate().for_each(|(i, mut slice)| {
+            let start = n_c + i + 1;
+            let end = start + n_ax;
+            let vec = (start..end).collect_vec();
+            clone_slice_to_strided(&vec, &mut slice);
         });
 
-        assert_eq!(v[n - 1], (n - 1) as f64);
-        assert_eq!(v.len(), n);
+        out.iter_lanes(&m_shape, ax)
+            .enumerate()
+            .for_each(|(i, slice)| {
+                let start = i + 1;
+                let end = start + n_ax;
+                let expected = (start..end).collect_vec();
+                let actual = slice.iter().take(n_ax).cloned().collect_vec();
+                assert_eq!(actual, expected);
+            })
+    }
+
+    #[rstest]
+    fn test_clone_strided_to_slice(
+        #[values(10, 11, 12)] n0: usize,
+        #[values(10, 11, 12)] n1: usize,
+        #[values(1, 2, 3)] stride: usize,
+    ) {
+        let inp = (1..n0 * stride + 1).collect_vec();
+        let inp_strided = StridedSlice::from_slice(&inp, stride);
+        let mut out = vec![0; n1];
+
+        clone_strided_to_slice(&inp_strided, &mut out);
+
+        let n_min = n0.min(n1);
+
+        let out_ref = inp.iter().step_by(stride).cloned().collect_vec();
+
+        assert_eq!(out[..n_min], out_ref[..n_min]);
+    }
+
+    #[rstest]
+    fn test_clone_strided_chunk_to_slice(
+        #[values(10, 11)] n0: usize,
+        #[values(10, 11)] n1: usize,
+        #[values(10, 11)] m0: usize,
+        #[values(0, 1)] ax: usize,
+    ) {
+        const N: usize = 4;
+
+        let n_shape = [n0, n1];
+
+        let m_shape = if ax == 0 { [m0, n1] } else { [n1, m0] };
+        let m_total: usize = m_shape.iter().product();
+
+        let mut inp = vec![0; m_total];
+
+        inp.iter_lanes_mut(&m_shape, ax)
+            .enumerate()
+            .for_each(|(i, mut slice)| {
+                let start = i + 1;
+                let end = start + m_shape[ax];
+                slice.iter_mut().zip(start..end).for_each(|(v, i)| {
+                    *v = i;
+                });
+            });
+        let n_lanes = if ax == 0 { m_shape[1] } else { m_shape[0] };
+
+        let n_ax = n_shape[ax].min(m_shape[ax]);
+
+        let chunks = inp.iter_lane_chunks::<N>(&m_shape, ax);
+        let rem = chunks.remainder();
+        let n_c = chunks.len();
+
+        chunks.enumerate().for_each(|(i, chunk)| {
+            let mut vecs = core::array::from_fn(|_| avec![0;n_ax]);
+            clone_strided_chunk_to_avecs(&chunk, &mut vecs);
+
+            vecs.into_iter().enumerate().for_each(|(j, vec)| {
+                let start = i * N + j + 1;
+                let end = start + n_ax;
+                assert_eq!(vec.as_slice(), &(start..end).collect_vec());
+            })
+        });
+
+        (n_c * N..n_lanes).zip(rem).for_each(|(i, slice)| {
+            let mut vec = vec![0; n_ax];
+            clone_strided_to_slice(&slice, &mut vec);
+
+            let start = i + 1;
+            let end = start + n_ax;
+            assert_eq!(vec, (start..end).collect_vec());
+        });
+    }
+
+    #[rstest]
+    fn test_stack_slices_to_outer(#[values(10, 11)] n0: usize, #[values(0, 2, 5)] n_pad: usize) {
+        let inp = (1..n0 + 1).collect_vec();
+        let n1 = n0 + n_pad;
+        let mut out = vec![0; n1];
+
+        let nf = (n0 + 1) / 2;
+        let ns = n0 / 2;
+
+        let (in_1, in_2) = inp.split_at(nf);
+
+        assert_eq!(in_1.len(), nf);
+        assert_eq!(in_2.len(), ns);
+
+        stack(&in_1, &in_2, &mut out);
+
+        assert_eq!(&out[..nf], in_1);
+        assert_eq!(&out[n1 - ns..], in_2);
+    }
+
+    #[rstest]
+    fn test_stack_slices_to_outer_strided(
+        #[values(10, 11)] n0: usize,
+        #[values(0, 2, 5)] n_pad: usize,
+        #[values(1, 2, 3)] stride: usize,
+    ) {
+        let inp = (1..n0 + 1).collect_vec();
+        let n1 = n0 + n_pad;
+        let mut out = vec![0; n1 * stride];
+
+        let nf = (n0 + 1) / 2;
+        let ns = n0 / 2;
+
+        let (in_1, in_2) = inp.split_at(nf);
+
+        assert_eq!(in_1.len(), nf);
+        assert_eq!(in_2.len(), ns);
+
+        let mut out_strided = StridedSliceMut::from_slice_mut(&mut out, stride);
+        stack_to_strided(&in_1, &in_2, &mut out_strided);
+
+        let out_f = out.iter().step_by(stride).take(nf).cloned().collect_vec();
+        let out_s = out
+            .iter()
+            .step_by(stride)
+            .skip(n1 - ns)
+            .cloned()
+            .collect_vec();
+        assert_eq!(&out_f, in_1);
+        assert_eq!(&out_s, in_2);
+    }
+
+    #[rstest]
+    fn test_stack_slice_to_outer_strided_chunk(
+        #[values(10, 11)] n0: usize,
+        #[values(10, 11)] n1: usize,
+        #[values(0, 2, 5)] n_pad: usize,
+        #[values(0, 1)] ax: usize,
+    ) {
+        const N: usize = 4;
+
+        let n_shape = [n0, n1];
+
+        let m_shape = if ax == 0 {
+            [n0 + n_pad, n1]
+        } else {
+            [n0, n1 + n_pad]
+        };
+        let m_total: usize = m_shape.iter().product();
+
+        let n_ax = n_shape[ax];
+        let nf = (n_ax + 1) / 2;
+        let ns = n_ax / 2;
+
+        let mut out = vec![0; m_total];
+
+        let mut chunks = out.iter_lane_chunks_mut::<N>(&m_shape, ax);
+        let n_c = chunks.len() * N;
+        chunks.by_ref().enumerate().for_each(|(i, mut chunk)| {
+            let vecs_f = core::array::from_fn(|j| {
+                let start = i * N + j + 1;
+                let end = start + nf;
+                AVec::<_>::from_iter(128, start..end)
+            });
+            let vecs_s = core::array::from_fn(|j| {
+                let start = i * N + j + 1 + nf;
+                let end = start + ns;
+                AVec::<_>::from_iter(128, start..end)
+            });
+            stack_to_strided_chunk(&vecs_f, &vecs_s, &mut chunk);
+        });
+        chunks.remainder().enumerate().for_each(|(i, mut slice)| {
+            let start = n_c + i + 1;
+            let end = start + n_ax;
+            let vec = (start..end).collect_vec();
+            let (vf, vs) = vec.split_at(nf);
+            stack_to_strided(vf, vs, &mut slice);
+        });
+
+        out.iter_lanes(&m_shape, ax)
+            .enumerate()
+            .for_each(|(i, slice)| {
+                let start = i + 1;
+                let end = start + n_ax;
+                let expected = (start..end).collect_vec();
+
+                let a_f = slice.iter().take(nf).cloned();
+                let a_s = slice.iter().skip(nf + n_pad).cloned();
+                assert_eq!(a_f.len(), nf);
+                assert_eq!(a_s.len(), ns);
+
+                let actual = a_f.chain(a_s).collect_vec();
+                assert_eq!(actual, expected);
+            })
+    }
+
+    #[rstest]
+    fn test_split_outer_to_slices(#[values(10, 11)] n0: usize, #[values(0, 2, 5)] n_pad: usize) {
+        let n1 = n0 + n_pad;
+        let inp = (1..n1 + 1).collect_vec();
+        let mut out = vec![0; n0];
+
+        let nf = (n0 + 1) / 2;
+        let ns = n0 / 2;
+
+        let (out_f, out_s) = out.split_at_mut(nf);
+
+        assert_eq!(out_f.len(), nf);
+        assert_eq!(out_s.len(), ns);
+
+        split(&inp, out_f, out_s);
+
+        assert_eq!(out_f, &inp[..nf]);
+        assert_eq!(out_s, &inp[n1 - ns..]);
+    }
+
+    #[rstest]
+    fn test_split_strided_outer_to_slices(
+        #[values(10, 11)] n0: usize,
+        #[values(0, 2, 5)] n_pad: usize,
+        #[values(1, 2, 3)] stride: usize,
+    ) {
+        let n1 = n0 + n_pad;
+        let inp = (1..n1 * stride + 1).collect_vec();
+        let mut out = vec![0; n0];
+
+        let nf = (n0 + 1) / 2;
+        let ns = n0 / 2;
+
+        let (out_f, out_s) = out.split_at_mut(nf);
+
+        assert_eq!(out_f.len(), nf);
+        assert_eq!(out_s.len(), ns);
+
+        let inp_strided = StridedSlice::from_slice(&inp, stride);
+        split_strided(&inp_strided, out_f, out_s);
+
+        let inp_f = inp.iter().step_by(stride).take(nf).cloned().collect_vec();
+        let inp_s = inp
+            .iter()
+            .step_by(stride)
+            .skip(n1 - ns)
+            .cloned()
+            .collect_vec();
+        assert_eq!(out_f, &inp_f);
+        assert_eq!(out_s, &inp_s);
+    }
+
+    #[rstest]
+    fn test_split_strided_chunk_outer_to_slices(
+        #[values(10, 11)] n0: usize,
+        #[values(10, 11)] n1: usize,
+        #[values(0, 2, 5)] n_pad: usize,
+        #[values(0, 1)] ax: usize,
+    ) {
+        const N: usize = 4;
+
+        let n_shape = [n0, n1];
+
+        let m_shape = if ax == 0 {
+            [n0 + n_pad, n1]
+        } else {
+            [n0, n1 + n_pad]
+        };
+        let m_total: usize = m_shape.iter().product();
+
+        let mut inp = vec![0; m_total];
+
+        let m_ax = m_shape[ax];
+        inp.iter_lanes_mut(&m_shape, ax)
+            .enumerate()
+            .for_each(|(i, mut slice)| {
+                let start = i + 1;
+                let end = start + m_ax;
+                assert_eq!(slice.len(), m_ax);
+                slice.iter_mut().zip(start..end).for_each(|(v, i)| {
+                    *v = i;
+                });
+            });
+
+        let chunks = inp.iter_lane_chunks::<N>(&m_shape, ax);
+        let rem = chunks.remainder();
+
+        let n_lanes = if ax == 0 { m_shape[1] } else { m_shape[0] };
+        let n_c = chunks.len();
+
+        let n_ax = n_shape[ax];
+        let nf = (n_ax + 1) / 2;
+        let ns = n_ax / 2;
+
+        chunks.enumerate().for_each(|(i, chunk)| {
+            let mut vecs_f = core::array::from_fn(|_| avec![0; nf]);
+            let mut vecs_s = core::array::from_fn(|_| avec![0; ns]);
+
+            split_strided_chunk(&chunk, &mut vecs_f, &mut vecs_s);
+
+            vecs_f
+                .into_iter()
+                .zip(vecs_s.into_iter())
+                .enumerate()
+                .for_each(|(j, (vf, vs))| {
+                    let start = i * N + j + 1;
+                    let end = start + nf;
+                    assert_eq!(vf.as_slice(), &(start..end).collect_vec());
+                    let start = end + n_pad;
+                    let end = start + ns;
+                    assert_eq!(vs.as_slice(), &(start..end).collect_vec());
+                });
+        });
+
+        (n_c * N..n_lanes).zip(rem).for_each(|(i, slice)| {
+            let mut vec_f = vec![0; nf];
+            let mut vec_s = vec![0; ns];
+            split_strided(&slice, &mut vec_f, &mut vec_s);
+
+            let start = i + 1;
+            let end = start + nf;
+            assert_eq!(vec_f, (start..end).collect_vec());
+
+            let start = end + n_pad;
+            let end = start + ns;
+            assert_eq!(vec_s, (start..end).collect_vec());
+        });
     }
 }

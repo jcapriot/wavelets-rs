@@ -3,7 +3,7 @@ use criterion::{Criterion, criterion_group, criterion_main};
 use itertools::Itertools;
 use wavelets::utils::{
     interleave_strided, interleave_strided_chunk, split_strided, split_strided_chunk,
-    stack_to_strided,
+    stack_to_strided, stack_to_strided_chunk,
 };
 
 fn db2_benchmark(c: &mut Criterion) {
@@ -40,7 +40,7 @@ fn db2_benchmark(c: &mut Criterion) {
     });
 
     let x2 = (0..n).map(|i| i as f64).collect_vec();
-    let nsd = wavelets::dwt::get_outlen::<{ WVLT::WIDTH }>(n);
+    let nsd = wavelets::dwt::get_outlen(WVLT::WIDTH, n);
     let mut s2 = avec![0.0; nsd];
     let mut d2 = avec![0.0; nsd];
 
@@ -88,7 +88,7 @@ fn db6_benchmark(c: &mut Criterion) {
     });
 
     let x2 = (0..n).map(|i| i as f64).collect_vec();
-    let nsd = wavelets::dwt::get_outlen::<{ WVLT::WIDTH }>(n);
+    let nsd = wavelets::dwt::get_outlen(WVLT::WIDTH, n);
     let mut s2 = vec![0.0; nsd];
     let mut d2 = vec![0.0; nsd];
 
@@ -236,19 +236,19 @@ fn interleave_strided_benchmark(c: &mut Criterion) {
 
 fn deinterleave_benchmark(c: &mut Criterion) {
     use wavelets::iter::LanesIterator;
-    use wavelets::utils::{deinterleave_nd, deinterleave_strided};
+    use wavelets::utils::{deinterleave_nd, deinterleave_strided, deinterleave_strided_chunk};
 
     const D: usize = 2;
     let n = 100;
 
-    let mut group = c.benchmark_group("deinterleave-strided");
+    let mut group = c.benchmark_group("deinterleave_strided");
 
     let shape = vec![n; 2];
     let n_total = shape.iter().product();
     let x1 = (0..n_total).collect_vec();
     let mut x2 = (0..n_total).collect_vec();
 
-    group.bench_function("using lanes", |b| {
+    group.bench_function("lanes", |b| {
         b.iter(|| {
             for ax in 0..D {
                 let n = shape[ax];
@@ -266,7 +266,39 @@ fn deinterleave_benchmark(c: &mut Criterion) {
         })
     });
 
-    group.bench_function("using recursive", |b| {
+    const N: usize = 8;
+
+    group.bench_function("lane chunks", |b| {
+        b.iter(|| {
+            for ax in 0..D {
+                let n = shape[ax];
+                let n_e = (n + 1) / 2;
+                let n_o = n / 2;
+
+                let mut work_e: [_; N] = core::array::from_fn(|_| avec![0; n_e]);
+                let mut work_o: [_; N] = core::array::from_fn(|_| avec![0; n_o]);
+
+                let in_chunk = x1.iter_lane_chunks::<N>(&shape, 0);
+                let in_rem = in_chunk.remainder();
+                let out_chunk = x2.iter_lane_chunks_mut::<N>(&shape, 0);
+                let out_rem = out_chunk.remainder();
+
+                for (in_chunk, mut out_chunk) in in_chunk.zip(out_chunk) {
+                    deinterleave_strided_chunk(&in_chunk, &mut work_e, &mut work_o);
+                    stack_to_strided_chunk(&work_e, &work_o, &mut out_chunk);
+                }
+
+                let mut work_e = avec![0; n_e];
+                let mut work_o = avec![0; n_o];
+                for (in_rem, mut out_rem) in in_rem.zip(out_rem) {
+                    deinterleave_strided(&in_rem, &mut work_e, &mut work_o);
+                    stack_to_strided(&work_e, &work_o, &mut out_rem);
+                }
+            }
+        })
+    });
+
+    group.bench_function("recursive", |b| {
         b.iter(|| {
             deinterleave_nd(&x1, &mut x2, &shape);
         })
