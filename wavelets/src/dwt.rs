@@ -1,3 +1,27 @@
+//! Discrete Wavelet Transform (DWT) via direct convolution and subsampling.
+//!
+//! The DWT decomposes a 1-D signal `x` of length `n` into two sub-bands of roughly
+//! half the length:
+//!
+//! - **approximation coefficients** `s` (low-pass) — computed via the analysis
+//!   scaling filter `G`.
+//! - **detail coefficients** `d` (high-pass) — computed via the analysis wavelet
+//!   filter `H`.
+//!
+//! The inverse transform reconstructs `x` from `s` and `d` using the synthesis
+//! filters `GI` and `HI`.
+//!
+//! # Output length
+//!
+//! For a non-periodic transform the output length depends on the filter width via
+//! [`get_outlen`].  For the periodic transform (suffix `_per`) the signal must have
+//! even length and the two sub-bands together equal the input length.
+//!
+//! # Sub-modules
+//!
+//! - [`driver`] — high-level [`driver::WaveletTransform`] for 1-D and N-D transforms.
+//! - [`daubechies`], [`symlet`], [`coiflet`], [`bior`] — per-family coefficient tables.
+
 use itertools::Itertools;
 use num_traits::Zero;
 
@@ -10,12 +34,27 @@ pub mod daubechies;
 pub mod driver;
 pub mod symlet;
 
+/// Compile-time filter coefficients and default transform methods for a specific wavelet.
+///
+/// Implementors supply four coefficient arrays:
+///
+/// - `G` / `H` — analysis (forward) low-pass and high-pass filters.
+/// - `GI` / `HI` — synthesis (inverse) low-pass and high-pass filters.
+///
+/// All default method implementations delegate to the free functions in this module
+/// ([`dwt_forward`], [`dwt_inverse`], etc.) so implementors only need to supply the
+/// four arrays.
 pub trait DiscreteTransform<const N: usize> {
+    /// Analysis low-pass (scaling) filter coefficients.
     const G: [f64; N];
+    /// Analysis high-pass (wavelet) filter coefficients.
     const H: [f64; N];
+    /// Synthesis low-pass filter coefficients.
     const GI: [f64; N];
+    /// Synthesis high-pass filter coefficients.
     const HI: [f64; N];
 
+    /// Forward DWT: decompose `x` into approximation `s` and detail `d`.
     #[inline]
     fn forward<T: Transformable + Zero, BC: BoundaryExtension>(
         x: &[T],
@@ -26,21 +65,13 @@ pub trait DiscreteTransform<const N: usize> {
         dwt_forward(&Self::G, &Self::H, x, s, d, bc);
     }
 
+    /// Inverse DWT: reconstruct `x` from approximation `s` and detail `d`.
     #[inline]
     fn inverse<T: Transformable + Zero>(s: &[T], d: &[T], x: &mut [T]) {
         dwt_inverse(&Self::GI, &Self::HI, s, d, x);
     }
 
-    // #[inline]
-    // fn adjoint_forward<T: Transformable>(s: &[T], d: &[T], x: &mut [T], &BC: BoundaryExtension)
-    // where
-    //     T::ScalarType: From<U>,
-    // {
-    //     let ga: [_; N] = Self::G.clone().into_iter().rev().collect_array().unwrap();
-    //     let ha: [_; N] = Self::H.clone().into_iter().rev().collect_array().unwrap();
-    //     dwt_inverse(&ga, &ha, s, d, x);
-    // }
-
+    /// Adjoint (transpose) of the inverse DWT.
     #[inline]
     fn adjoint_inverse<T: Transformable + Zero>(x: &[T], s: &mut [T], d: &mut [T]) {
         let ga: [_; N] = Self::GI.clone().into_iter().rev().collect_array().unwrap();
@@ -48,16 +79,13 @@ pub trait DiscreteTransform<const N: usize> {
         dwt_forward(&ga, &ha, x, s, d, &ZeroBoundary {});
     }
 
+    /// Periodic forward DWT: decompose `x` with circular boundary conditions.
     #[inline]
     fn forward_per<T: Transformable + Zero>(x: &[T], s: &mut [T], d: &mut [T]) {
         dwt_per_forward(&Self::G, &Self::H, x, s, d);
     }
 
-    // #[inline]
-    // fn forward_per_new<T: Transformable + Zero>(x: &[T], s: &mut [T], d: &mut [T]) {
-    //     dwt_per_forward_new(&Self::G, &Self::H, x, s, d);
-    // }
-
+    /// Adjoint of the periodic forward DWT.
     #[inline]
     fn adjoint_forward_per<T: Transformable + Zero>(s: &[T], d: &[T], x: &mut [T]) {
         let ga: [_; N] = Self::G.clone().into_iter().rev().collect_array().unwrap();
@@ -65,11 +93,13 @@ pub trait DiscreteTransform<const N: usize> {
         dwt_per_inverse(&ga, &ha, s, d, x);
     }
 
+    /// Periodic inverse DWT: reconstruct `x` with circular boundary conditions.
     #[inline]
     fn inverse_per<T: Transformable + Zero>(s: &[T], d: &[T], x: &mut [T]) {
         dwt_per_inverse(&Self::GI, &Self::HI, s, d, x);
     }
 
+    /// Adjoint of the periodic inverse DWT.
     #[inline]
     fn adjoint_inverse_per<T: Transformable + Zero>(x: &[T], s: &mut [T], d: &mut [T]) {
         let gia: [_; N] = Self::GI.clone().into_iter().rev().collect_array().unwrap();
@@ -78,6 +108,10 @@ pub trait DiscreteTransform<const N: usize> {
     }
 }
 
+/// Compute the sub-band length for a non-periodic DWT of a signal with `n` samples
+/// using a filter of the given `width`.
+///
+/// Both the approximation and detail arrays must have this length.
 #[inline(always)]
 pub fn get_outlen(width: usize, n: usize) -> usize {
     let offset = (width - 2) / 2;
@@ -89,8 +123,12 @@ pub fn get_outlen(width: usize, n: usize) -> usize {
     }
 }
 
+/// Compile-time assertion that `N` is a valid filter length (≥ 2 and even).
+///
+/// Evaluate `CheckCoefLen::<N>::VALID` in a const context to trigger the assert.
 pub struct CheckCoefLen<const N: usize>();
 impl<const N: usize> CheckCoefLen<N> {
+    /// Asserts at compile time that `N >= 2` and `N % 2 == 0`.
     pub const VALID: () = {
         assert!(N >= 2, "Coefficient length must be 2 or more.");
         assert!(N % 2 == 0, "Coefficient length must be even.");
@@ -104,10 +142,20 @@ macro_rules! static_assert_valid_coefficient_length {
     };
 }
 
+/// Filter offset used to centre the convolution window for a filter of width `n`.
 pub const fn get_offset(n: usize) -> usize {
     (n - 2) / 2
 }
 
+/// Low-level forward DWT with explicit filter arrays and boundary condition.
+///
+/// Convolves `x` with the analysis filters `g` (low-pass) and `h` (high-pass),
+/// downsampling by 2 to produce the sub-band outputs `s` and `d`.
+///
+/// # Panics
+///
+/// Panics if `s.len() != d.len()` or if either length is inconsistent with
+/// `get_outlen(N, x.len())`.
 pub fn dwt_forward<T: Transformable + Zero, const N: usize, BC: BoundaryExtension>(
     g: &[f64; N],
     h: &[f64; N],
@@ -206,6 +254,14 @@ pub fn dwt_forward<T: Transformable + Zero, const N: usize, BC: BoundaryExtensio
         });
 }
 
+/// Low-level inverse DWT with explicit synthesis filter arrays.
+///
+/// Upsamples `s` and `d` and convolves with the synthesis filters `gi` and `hi`
+/// to reconstruct `x`.
+///
+/// # Panics
+///
+/// Panics if `s.len() != d.len()` or if the lengths are inconsistent with `x.len()`.
 pub fn dwt_inverse<T: Transformable + Zero, const N: usize>(
     gi: &[f64; N],
     hi: &[f64; N],
@@ -285,6 +341,16 @@ pub fn dwt_inverse<T: Transformable + Zero, const N: usize>(
     }
 }
 
+/// Low-level periodic forward DWT.
+///
+/// Like [`dwt_forward`] but uses circular (periodic) boundary conditions so that
+/// `s.len() + d.len() == x.len()`.  Odd-length signals are handled by copying the
+/// last element to the end of `s`.
+///
+/// # Panics
+///
+/// Panics if `s.len() + d.len() != x.len()` or if the relative lengths of `s` and
+/// `d` are inconsistent (they must satisfy `s.len() == d.len()` or `s.len() == d.len() + 1`).
 pub fn dwt_per_forward<T: Transformable + Zero, const N: usize>(
     g: &[f64; N],
     h: &[f64; N],
@@ -401,6 +467,14 @@ pub fn dwt_per_forward<T: Transformable + Zero, const N: usize>(
         });
 }
 
+/// Low-level periodic inverse DWT.
+///
+/// Reconstructs `x` from sub-bands `s` and `d` using circular boundary conditions.
+/// Mirror of [`dwt_per_forward`].
+///
+/// # Panics
+///
+/// Same length constraints as [`dwt_per_forward`].
 pub fn dwt_per_inverse<T: Transformable + Zero, const N: usize>(
     gi: &[f64; N],
     hi: &[f64; N],

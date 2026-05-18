@@ -20,6 +20,25 @@ use crate::{ChunkWidth, SimdTransformable};
 
 use wavelets_macros::generate_wavelet_match_arms;
 
+/// High-level Lifting Wavelet Transform driver.
+///
+/// `WaveletTransform` owns the lifting-step function pointers for a chosen wavelet
+/// and boundary condition.  The const generic `N` must match the SIMD chunk width
+/// for `T` — use the [`ChunkWidth`](crate::ChunkWidth) impls to pick the correct
+/// value (e.g. `64` for `f32`, `64` for `f64`).
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use wavelets::{Wavelets, boundarys::BoundaryCondition, lwt::driver::WaveletTransform};
+///
+/// let xfm: WaveletTransform<f64, _, 64> =
+///     WaveletTransform::new(Wavelets::Daubechies4, BoundaryCondition::Periodic);
+///
+/// let input = vec![1.0_f64; 64];
+/// let mut output = vec![0.0_f64; 64];
+/// xfm.forward_nd(&input, &mut output, &[64], &[0]);
+/// ```
 pub struct WaveletTransform<T, BC, const N: usize>
 where
     T: SimdTransformable + Zero + ChunkWidth<T, N>,
@@ -37,6 +56,11 @@ where
     T: SimdTransformable + Zero + ChunkWidth<T, N>,
     BC: BoundaryExtension,
 {
+    /// Construct a `WaveletTransform` for the given `wvlt` and `bc`.
+    ///
+    /// Function pointers to the correct lifting-step implementations are resolved at
+    /// construction time so every subsequent transform call is a direct (non-virtual)
+    /// dispatch with no runtime branching on the wavelet type.
     pub fn new(wvlt: Wavelets, bc: BC) -> Self {
         use crate::lwt::bior::*;
         use crate::lwt::coiflet::*;
@@ -71,44 +95,65 @@ where
         }
     }
 
+    /// Single-level forward LWT of a 1-D signal.
+    ///
+    /// Splits `input` into even/odd samples, then applies the forward lifting steps
+    /// in-place, writing approximation coefficients into `s` and detail coefficients
+    /// into `d`.
     pub fn forward_1d(&self, input: &[T], s: &mut [T], d: &mut [T]) {
         deinterleave(input, s, d);
         (self.lwt_forward)(s, d, &self.bc);
     }
 
+    /// Single-level inverse LWT of a 1-D signal.
+    ///
+    /// Applies the inverse lifting steps to a copy of `s` and `d`, then interleaves
+    /// the result back into `output`.
     pub fn inverse_1d(&self, s: &[T], d: &[T], output: &mut [T]) {
         let (mut s, mut d) = (s.to_owned(), d.to_owned());
         (self.lwt_inverse)(&mut s, &mut d, &self.bc);
         interleave(&s, &d, output);
     }
 
+    /// Adjoint of the forward 1-D LWT.
     pub fn adj_forward_1d(&self, s: &[T], d: &[T], output: &mut [T]) {
         let (mut s, mut d) = (s.to_owned(), d.to_owned());
         (self.lwt_adj_forward)(&mut s, &mut d, &self.bc);
         interleave(&s, &d, output);
     }
 
+    /// Adjoint of the inverse 1-D LWT.
     pub fn adj_inverse_1d(&self, input: &[T], s: &mut [T], d: &mut [T]) {
         deinterleave(input, s, d);
         (self.lwt_adj_inverse)(s, d, &self.bc);
     }
 
+    /// Single-level forward LWT applied to each axis in `axes` of an N-D array.
+    ///
+    /// `shape` describes the logical dimensions of the flat slice `input`/`output`.
     pub fn forward_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
         self.forward_multilevel_nd(input, output, shape, &axes, 1);
     }
 
+    /// Single-level inverse LWT applied to each axis in `axes` of an N-D array.
     pub fn inverse_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
         self.inverse_multilevel_nd(input, output, shape, &axes, 1);
     }
 
+    /// Single-level adjoint of the forward LWT on an N-D array.
     pub fn adj_forward_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
         self.adj_forward_multilevel_nd(input, output, shape, &axes, 1);
     }
 
+    /// Single-level adjoint of the inverse LWT on an N-D array.
     pub fn adj_inverse_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
         self.adj_inverse_multilevel_nd(input, output, shape, &axes, 1);
     }
 
+    /// Multi-level forward LWT on an N-D array.
+    ///
+    /// Applies `level` successive single-level forward transforms along each axis in
+    /// `axes`.  The approximation sub-band is recursively decomposed at each level.
     pub fn forward_multilevel_nd(
         &self,
         input: &[T],
@@ -128,6 +173,9 @@ where
         );
     }
 
+    /// Multi-level inverse LWT on an N-D array.
+    ///
+    /// Reverses `forward_multilevel_nd` for the same `level` and `axes`.
     pub fn inverse_multilevel_nd(
         &self,
         input: &[T],
@@ -147,6 +195,7 @@ where
         );
     }
 
+    /// Multi-level adjoint of the forward LWT on an N-D array.
     pub fn adj_forward_multilevel_nd(
         &self,
         input: &[T],
@@ -166,6 +215,7 @@ where
         );
     }
 
+    /// Multi-level adjoint of the inverse LWT on an N-D array.
     pub fn adj_inverse_multilevel_nd(
         &self,
         input: &[T],

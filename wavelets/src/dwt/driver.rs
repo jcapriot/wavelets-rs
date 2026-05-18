@@ -35,6 +35,14 @@ macro_rules! assert_slice_matches_shape {
     }};
 }
 
+/// Compute the output shape of a multi-level DWT applied along the given `axes`.
+///
+/// For each transformed axis the output length grows because the non-periodic DWT
+/// pads sub-bands based on the filter `width`.  Each level appends the detail
+/// sub-band length along that axis; the final level appends both approximation and
+/// detail lengths.
+///
+/// When `per_mode` is `true` (periodic DWT) the output shape equals the input shape.
 pub fn get_transform_shape<'a, IT: IntoIterator<Item = &'a usize>>(
     in_shape: &[usize],
     axes: IT,
@@ -73,6 +81,18 @@ pub fn get_transform_shape<'a, IT: IntoIterator<Item = &'a usize>>(
     out_shape
 }
 
+/// High-level Discrete Wavelet Transform driver.
+///
+/// `WaveletTransform` owns function pointers to the forward, inverse, and adjoint
+/// kernels for a chosen wavelet and boundary condition.  They are resolved at
+/// construction time so each transform call is a direct, non-virtual dispatch.
+///
+/// The const generic `N` ties this driver to the SIMD chunk width for `T`.
+/// See [`ChunkWidth`](crate::ChunkWidth) for the correct value per element type.
+///
+/// Unlike the LWT driver, the DWT output shape differs from the input shape for
+/// non-periodic transforms.  Use [`get_transform_shape`] to compute the required
+/// output buffer size.
 pub struct WaveletTransform<T, BC, const N: usize>
 where
     T: Transformable + Zero + ChunkWidth<T, N>,
@@ -90,6 +110,7 @@ where
     T: Transformable + Zero + ChunkWidth<T, N>,
     BC: BoundaryExtension,
 {
+    /// Construct a `WaveletTransform` for the given `wvlt` and `bc`.
     pub fn new(wvlt: Wavelets, bc: BC) -> Self {
         use crate::dwt::bior::*;
         use crate::dwt::coiflet::*;
@@ -125,40 +146,47 @@ where
         }
     }
 
+    /// Single-level forward DWT of a 1-D signal.
+    ///
+    /// `s` and `d` must each have length `get_outlen(width, input.len())`.
     pub fn forward_1d(&self, input: &[T], s: &mut [T], d: &mut [T]) {
         (self.dwt_forward)(input, s, d, &self.bc);
     }
 
+    /// Single-level inverse DWT of a 1-D signal.
+    ///
+    /// Reconstructs the signal from approximation `s` and detail `d`.
     pub fn inverse_1d(&self, s: &[T], d: &[T], output: &mut [T]) {
         (self.dwt_inverse)(&s, &d, output);
     }
 
-    // pub fn adj_forward_1d(&self, s: &[T], d: &[T], output: &mut [T]) {
-    //     let (mut s, mut d) = (s.to_owned(), d.to_owned());
-    //     (self.lwt_adj_forward)(&mut s, &mut d, &self.bc);
-    //     interleave(&s, &d, output);
-    // }
-
+    /// Adjoint of the inverse 1-D DWT.
     pub fn adj_inverse_1d(&self, input: &[T], s: &mut [T], d: &mut [T]) {
         (self.dwt_adj_inverse)(input, s, d);
     }
 
+    /// Single-level forward DWT applied along each axis in `axes` of an N-D array.
+    ///
+    /// `input` must be a flat slice whose logical shape is `shape`.  `output` must
+    /// have the shape returned by `get_transform_shape(shape, axes, 1, width, false)`.
     pub fn forward_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
         self.forward_multilevel_nd(input, output, shape, &axes, 1);
     }
 
+    /// Single-level inverse DWT on an N-D array.
     pub fn inverse_nd(&self, input: &mut [T], output: &mut [T], shape: &[usize], axes: &[usize]) {
         self.inverse_multilevel_nd(input, output, shape, &axes, 1);
     }
 
-    // pub fn adj_forward_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
-    //     self.adj_forward_multilevel_nd(input, output, shape, &axes, 1);
-    // }
-
+    /// Single-level adjoint of the inverse DWT on an N-D array.
     pub fn adj_inverse_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
         self.adj_inverse_multilevel_nd(input, output, shape, &axes, 1);
     }
 
+    /// Multi-level forward DWT on an N-D array.
+    ///
+    /// Applies `level` successive single-level forward transforms along each axis in
+    /// `axes`, recursively decomposing the approximation sub-band.
     pub fn forward_multilevel_nd(
         &self,
         input: &[T],
@@ -183,6 +211,11 @@ where
         );
     }
 
+    /// Multi-level inverse DWT on an N-D array.
+    ///
+    /// `out_shape` is the shape of the *original* signal (before decomposition).
+    /// The input must have the shape produced by `forward_multilevel_nd` with the
+    /// same `level` and `axes`.
     pub fn inverse_multilevel_nd(
         &self,
         input: &mut [T],
@@ -226,6 +259,7 @@ where
     //     );
     // }
 
+    /// Multi-level adjoint of the inverse DWT on an N-D array.
     pub fn adj_inverse_multilevel_nd(
         &self,
         input: &[T],

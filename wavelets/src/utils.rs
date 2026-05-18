@@ -1,8 +1,17 @@
+//! Array layout utilities for wavelet sub-band manipulation.
+//!
+//! This module provides helpers for the even/odd index splitting (deinterleave) and
+//! merging (interleave/stack) that the lifting transform requires, as well as strided
+//! variants used for N-D axis traversal.
+
 use crate::iter::slice::{ChunkStridedSliceRef, StridedSliceRef};
 use aligned_vec::AVec;
 use itertools::{Itertools, izip};
 use num_traits::Zero;
 
+/// Compute the C-order (row-major) strides for a given shape.
+///
+/// `stride[i]` is the number of elements to skip to advance by one step along axis `i`.
 #[inline]
 pub fn stride_from_shape(shape: &[usize]) -> Vec<usize> {
     let mut stride = vec![1; shape.len()];
@@ -12,6 +21,11 @@ pub fn stride_from_shape(shape: &[usize]) -> Vec<usize> {
     stride
 }
 
+/// Split a slice into its even-indexed and odd-indexed elements.
+///
+/// `evens[i] = x[2*i]` and `odds[i] = x[2*i + 1]`.  For odd-length `x` the extra
+/// element goes into `evens`, so `evens.len() == (x.len() + 1) / 2` and
+/// `odds.len() == x.len() / 2`.
 #[inline]
 pub fn deinterleave<T: Clone>(x: &[T], evens: &mut [T], odds: &mut [T]) {
     let nx = x.len();

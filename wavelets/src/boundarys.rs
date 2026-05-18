@@ -1,19 +1,65 @@
+//! Boundary extension strategies for wavelet transforms.
+//!
+//! When a filter kernel reaches the edge of a signal it needs values outside the
+//! array bounds.  Each type in this module implements a different convention for
+//! providing those virtual out-of-bounds values.
+
 use crate::Transformable;
 
+/// Strategy for extending a signal beyond its boundaries.
+///
+/// Implementors define how out-of-bounds index `i` maps to an in-bounds value (or
+/// a linear combination of in-bounds values).  Two complementary methods are required:
+///
+/// - `get_bc` — returns the actual extended value, used during the forward transform.
+/// - `get_parts` — returns a sparse weighted sum of in-bounds indices, used to build
+///   the adjoint (transpose) of the forward transform.
 pub trait BoundaryExtension: Sync {
+    /// Return the signal value at virtual index `i` under this boundary condition.
+    ///
+    /// Returns `None` when the boundary condition maps `i` to zero (e.g. zero-padding
+    /// outside bounds), so callers can skip the contribution entirely.
     fn get_bc<T: Transformable>(&self, data: &[T], i: isize) -> Option<T>;
+
+    /// Decompose virtual index `i` into a weighted sum of in-bounds indices.
+    ///
+    /// Each entry is `(scale, j)` meaning the contribution is `scale * data[j]` (or
+    /// just `data[j]` when `scale` is `None`, implying a weight of 1).  Used to form
+    /// the adjoint operator without materialising extra memory.
     fn get_parts<T: Transformable>(&self, n: usize, i: isize) -> Vec<(Option<T::Scalar>, usize)>;
 }
 
+/// Runtime-selectable boundary extension condition.
+///
+/// Choose the variant that best matches the physical interpretation of your signal:
+///
+/// | Variant | Extension rule |
+/// |---------|---------------|
+/// | `Zero` | Out-of-bounds values are zero (zero-padding). |
+/// | `Periodic` | Signal repeats periodically. |
+/// | `Constant` | Nearest edge value is repeated. |
+/// | `Symmetric` | Signal is reflected about the edge sample (even symmetry). |
+/// | `Reflect` | Signal is reflected about the point just outside the edge (point reflection). |
+/// | `Antisymmetric` | Like `Symmetric` but with sign flip on each reflection. |
+/// | `Smooth` | Linear extrapolation using the two nearest edge samples. |
+/// | `Antireflect` | Odd-symmetric extension preserving derivatives at boundaries. |
 #[derive(Clone, Copy, Debug)]
 pub enum BoundaryCondition {
+    /// Out-of-bounds indices contribute zero (zero-padding).
     Zero,
+    /// Signal wraps around periodically.
     Periodic,
+    /// Nearest edge sample is repeated for all out-of-bounds indices.
     Constant,
+    /// Even (mirror) reflection about the edge sample.
     Symmetric,
+    /// Odd reflection about the point just outside the edge (no edge repetition).
     Reflect,
+    /// Even reflection with sign flip on each reflection.
     Antisymmetric,
+    /// Linear extrapolation from the two nearest edge samples.
     Smooth,
+    /// Odd-symmetric extension that preserves the first derivative at boundaries.
     Antireflect,
 }
 
@@ -279,6 +325,10 @@ impl BoundaryExtension for BoundaryCondition {
     }
 }
 
+/// Zero-padding boundary: out-of-bounds indices return `None` (treated as zero).
+///
+/// This is a zero-cost alternative to `BoundaryCondition::Zero` for contexts where
+/// the boundary type is fixed at compile time.
 #[derive(Clone, Copy, Debug)]
 pub struct ZeroBoundary;
 
@@ -300,6 +350,9 @@ impl BoundaryExtension for ZeroBoundary {
     }
 }
 
+/// Periodic boundary: indices wrap around modulo the signal length.
+///
+/// This is a zero-cost alternative to `BoundaryCondition::Periodic`.
 #[derive(Clone, Copy, Debug)]
 pub struct PeriodicBoundary;
 impl BoundaryExtension for PeriodicBoundary {

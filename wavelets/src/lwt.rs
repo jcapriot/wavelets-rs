@@ -1,3 +1,22 @@
+//! Lifting Wavelet Transform (LWT).
+//!
+//! The LWT is an in-place factorisation of the DWT into a sequence of simple
+//! *predict* and *update* steps (the lifting scheme).  It operates directly on
+//! pre-split approximation `s` and detail `d` sub-arrays (even/odd samples of the
+//! original signal) and is generally faster and more memory-efficient than the
+//! convolution-based DWT.
+//!
+//! # Relationship to DWT
+//!
+//! The LWT and DWT compute the same mathematical transform — they differ only in
+//! the implementation strategy.  The LWT operates in-place on split sub-bands,
+//! while the DWT convolves the full signal and subsamples.
+//!
+//! # Sub-modules
+//!
+//! - [`driver`] — high-level [`driver::WaveletTransform`] for 1-D and N-D transforms.
+//! - [`daubechies`], [`symlet`], [`coiflet`], [`bior`] — per-family lifting steps.
+
 pub mod bior;
 pub mod coiflet;
 pub mod daubechies;
@@ -7,20 +26,39 @@ pub mod symlet;
 use crate::boundarys::BoundaryExtension;
 use crate::{SimdTransformable, Transformable};
 
+/// Lifting-scheme transform for a specific wavelet.
+///
+/// All methods operate **in-place** on pre-split sub-arrays:
+/// - `s` contains the even-indexed samples (approximation channel).
+/// - `d` contains the odd-indexed samples (detail channel).
+///
+/// Before calling `forward`, split the signal with
+/// [`crate::utils::deinterleave`]; after calling `inverse`, merge with
+/// [`crate::utils::interleave`].  The high-level [`driver::WaveletTransform`]
+/// handles this automatically.
 pub trait LiftingTransform {
+    /// Forward lifting transform: update `s` and `d` in-place.
     fn forward<T: SimdTransformable, BC: BoundaryExtension>(s: &mut [T], d: &mut [T], bc: &BC);
+
+    /// Forward lifting transform using explicit chunk size for SIMD/parallel dispatch.
     fn forward_chunk<T: Transformable, BC: BoundaryExtension>(
         s: &mut [T],
         d: &mut [T],
         chunk_size: usize,
         bc: &BC,
     );
+
+    /// Inverse lifting transform: undo `forward` in-place.
     fn inverse<T: SimdTransformable, BC: BoundaryExtension>(s: &mut [T], d: &mut [T], bc: &BC);
+
+    /// Adjoint (transpose) of the forward lifting transform.
     fn adjoint_forward<T: SimdTransformable, BC: BoundaryExtension>(
         s: &mut [T],
         d: &mut [T],
         bc: &BC,
     );
+
+    /// Adjoint (transpose) of the inverse lifting transform.
     fn adjoint_inverse<T: SimdTransformable, BC: BoundaryExtension>(
         s: &mut [T],
         d: &mut [T],
