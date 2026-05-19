@@ -221,8 +221,7 @@ where
         axes: &[usize],
         level: usize,
     ) {
-        let axes = HashSet::from_iter(axes.iter().cloned());
-        let out_shape = get_transform_shape(in_shape, &axes, level, self.width, false);
+        let out_shape = get_transform_shape(in_shape, axes, level, self.width, false);
         assert_slice_matches_shape!("input", input, in_shape);
         assert_slice_matches_shape!("output", output, out_shape);
         general_nd_forward_multilevel(
@@ -231,7 +230,7 @@ where
             output,
             in_shape,
             &out_shape,
-            &axes,
+            axes,
             level,
             self.width,
         );
@@ -250,8 +249,7 @@ where
         axes: &[usize],
         level: usize,
     ) {
-        let axes = HashSet::from_iter(axes.iter().cloned());
-        let in_shape = get_transform_shape(out_shape, &axes, level, self.width, false);
+        let in_shape = get_transform_shape(out_shape, axes, level, self.width, false);
         assert_slice_matches_shape!("input", input, in_shape);
         assert_slice_matches_shape!("output", output, out_shape);
         general_nd_inverse_multilevel(
@@ -260,7 +258,7 @@ where
             output,
             &in_shape,
             out_shape,
-            &axes,
+            axes,
             level,
             self.width,
         );
@@ -283,8 +281,7 @@ where
         axes: &[usize],
         level: usize,
     ) {
-        let axes = HashSet::from_iter(axes.iter().cloned());
-        let in_shape = get_transform_shape(out_shape, &axes, level, self.width, false);
+        let in_shape = get_transform_shape(out_shape, axes, level, self.width, false);
         assert_slice_matches_shape!("input", input, in_shape);
         assert_slice_matches_shape!("output", output, out_shape);
         general_nd_inverse_multilevel(
@@ -293,7 +290,7 @@ where
             output,
             &in_shape,
             out_shape,
-            &axes,
+            axes,
             level,
             self.width,
         );
@@ -308,8 +305,7 @@ where
         axes: &[usize],
         level: usize,
     ) {
-        let axes = HashSet::from_iter(axes.iter().cloned());
-        let out_shape = get_transform_shape(in_shape, &axes, level, self.width, false);
+        let out_shape = get_transform_shape(in_shape, axes, level, self.width, false);
         assert_slice_matches_shape!("input", input, in_shape);
         assert_slice_matches_shape!("output", output, out_shape);
         general_nd_forward_multilevel(
@@ -318,7 +314,7 @@ where
             output,
             in_shape,
             &out_shape,
-            &axes,
+            axes,
             level,
             self.width,
         );
@@ -341,9 +337,8 @@ where
         axes: &[usize],
         level: usize,
     ) {
-        let axes = HashSet::from_iter(axes.iter().cloned());
         let in_shape = input.shape();
-        let out_shape = get_transform_shape(in_shape, &axes, level, self.width, false);
+        let out_shape = get_transform_shape(in_shape, axes, level, self.width, false);
         assert_eq!(
             out_shape,
             output.shape(),
@@ -356,7 +351,7 @@ where
             output,
             in_shape,
             &out_shape,
-            &axes,
+            axes,
             level,
             self.width,
         );
@@ -373,9 +368,8 @@ where
         axes: &[usize],
         level: usize,
     ) {
-        let axes = HashSet::from_iter(axes.iter().cloned());
         let out_shape = output.shape().to_owned();
-        let in_shape = get_transform_shape(&out_shape, &axes, level, self.width, false);
+        let in_shape = get_transform_shape(&out_shape, axes, level, self.width, false);
         assert_eq!(
             in_shape,
             input.shape(),
@@ -388,7 +382,7 @@ where
             output,
             &in_shape,
             &out_shape,
-            &axes,
+            axes,
             level,
             self.width,
         );
@@ -406,9 +400,8 @@ where
         axes: &[usize],
         level: usize,
     ) {
-        let axes = HashSet::from_iter(axes.iter().cloned());
         let out_shape = output.shape().to_owned();
-        let in_shape = get_transform_shape(&out_shape, &axes, level, self.width, false);
+        let in_shape = get_transform_shape(&out_shape, axes, level, self.width, false);
         assert_eq!(
             in_shape,
             input.shape(),
@@ -421,7 +414,7 @@ where
             output,
             &in_shape,
             &out_shape,
-            &axes,
+            axes,
             level,
             self.width,
         );
@@ -437,9 +430,8 @@ where
         axes: &[usize],
         level: usize,
     ) {
-        let axes = HashSet::from_iter(axes.iter().cloned());
         let in_shape = input.shape();
-        let out_shape = get_transform_shape(in_shape, &axes, level, self.width, false);
+        let out_shape = get_transform_shape(in_shape, axes, level, self.width, false);
         assert_eq!(
             out_shape,
             output.shape(),
@@ -452,7 +444,7 @@ where
             output,
             in_shape,
             &out_shape,
-            &axes,
+            axes,
             level,
             self.width,
         );
@@ -568,7 +560,6 @@ where
         axes: &[usize],
         level: usize,
     ) {
-        let axes = HashSet::from_iter(axes.iter().cloned());
         assert_slice_matches_shape!("input", input, shape);
         assert_slice_matches_shape!("output", output, shape);
         general_nd_per_forward_multilevel(
@@ -576,7 +567,7 @@ where
             input,
             output,
             shape,
-            &axes,
+            axes,
             level,
         );
     }
@@ -590,7 +581,6 @@ where
         axes: &[usize],
         level: usize,
     ) {
-        let axes = HashSet::from_iter(axes.iter().cloned());
         let ptr = input.as_ptr() as *mut T;
 
         //SAFETY:: We mark input as mutable here for the following reasons
@@ -607,7 +597,7 @@ where
             input,
             output,
             shape,
-            &axes,
+            axes,
             level,
         );
     }
@@ -621,7 +611,6 @@ where
         axes: &[usize],
         level: usize,
     ) {
-        let axes = HashSet::from_iter(axes.iter().cloned());
         let ptr = input.as_ptr() as *mut T;
 
         //SAFETY:: We mark input as mutable here for the following reasons
@@ -637,7 +626,7 @@ where
             input,
             output,
             shape,
-            &axes,
+            axes,
             level,
         );
     }
@@ -651,7 +640,6 @@ where
         axes: &[usize],
         level: usize,
     ) {
-        let axes = HashSet::from_iter(axes.iter().cloned());
         assert_slice_matches_shape!("input", input, shape);
         assert_slice_matches_shape!("output", output, shape);
         general_nd_per_forward_multilevel(
@@ -659,7 +647,7 @@ where
             input,
             output,
             shape,
-            &axes,
+            axes,
             level,
         );
     }
@@ -678,7 +666,6 @@ where
         axes: &[usize],
         level: usize,
     ) {
-        let axes = HashSet::from_iter(axes.iter().cloned());
         let shape = input.shape();
         assert_eq!(
             shape,
@@ -691,7 +678,7 @@ where
             input,
             output,
             shape,
-            &axes,
+            axes,
             level,
         );
     }
@@ -704,7 +691,6 @@ where
         axes: &[usize],
         level: usize,
     ) {
-        let axes = HashSet::from_iter(axes.iter().cloned());
         let shape = input.shape();
         assert_eq!(
             shape,
@@ -717,7 +703,7 @@ where
             input,
             output,
             shape,
-            &axes,
+            axes,
             level,
         );
     }
@@ -730,7 +716,6 @@ where
         axes: &[usize],
         level: usize,
     ) {
-        let axes = HashSet::from_iter(axes.iter().cloned());
         let shape = input.shape();
         assert_eq!(
             shape,
@@ -743,7 +728,7 @@ where
             input,
             output,
             shape,
-            &axes,
+            axes,
             level,
         );
     }
@@ -756,7 +741,6 @@ where
         axes: &[usize],
         level: usize,
     ) {
-        let axes = HashSet::from_iter(axes.iter().cloned());
         let shape = input.shape();
         assert_eq!(
             shape,
@@ -769,7 +753,7 @@ where
             input,
             output,
             shape,
-            &axes,
+            axes,
             level,
         );
     }
@@ -781,7 +765,7 @@ fn general_nd_forward_multilevel<F, T, L, const N: usize>(
     output: &mut L,
     in_shape: &[usize],
     out_shape: &[usize],
-    axes: &HashSet<usize>,
+    axes: &[usize],
     level: usize,
     width: usize,
 ) where
@@ -790,6 +774,7 @@ fn general_nd_forward_multilevel<F, T, L, const N: usize>(
     T: Clone + Zero + ChunkWidth<T, N>,
 {
     let ndim = in_shape.len();
+    let axes = HashSet::<_>::from_iter(axes.iter().cloned());
     assert_eq!(
         in_shape.len(),
         out_shape.len(),
@@ -805,7 +790,7 @@ fn general_nd_forward_multilevel<F, T, L, const N: usize>(
 
     for _level in 0..level {
         let mut sub_shape = in_sub_shape.clone();
-        for &ax in axes {
+        for &ax in &axes {
             let n_ax = sub_shape[ax];
             let n_sd = get_outlen(width, n_ax);
 
@@ -900,7 +885,7 @@ fn general_nd_forward_multilevel<F, T, L, const N: usize>(
         }
 
         // shrink shape for each axis we used.
-        for &ax in axes {
+        for &ax in &axes {
             let n_ax = in_sub_shape[ax];
             let n_sd = get_outlen(width, n_ax);
             if n_sd > 1 {
@@ -917,7 +902,7 @@ fn general_nd_inverse_multilevel<F, T, L, const N: usize>(
     output: &mut L,
     in_shape: &[usize],
     out_shape: &[usize],
-    axes: &HashSet<usize>,
+    axes: &[usize],
     level: usize,
     width: usize,
 ) where
@@ -926,6 +911,7 @@ fn general_nd_inverse_multilevel<F, T, L, const N: usize>(
     T: Clone + Zero + ChunkWidth<T, N>,
 {
     let ndim = in_shape.len();
+    let axes = HashSet::<_>::from_iter(axes.iter().cloned());
     assert_eq!(
         in_shape.len(),
         out_shape.len(),
@@ -945,7 +931,7 @@ fn general_nd_inverse_multilevel<F, T, L, const N: usize>(
         // shrink shape for each axis that is used.
         let mut sd_shape = ax_shapes.last().unwrap().clone();
         let mut next_out_shape = out_shapes.last().unwrap().clone();
-        for &ax in axes {
+        for &ax in &axes {
             let n_ax = sd_shape[ax];
             let n_sd = get_outlen(width, n_ax);
 
@@ -963,7 +949,7 @@ fn general_nd_inverse_multilevel<F, T, L, const N: usize>(
 
     for level in (0..level).rev() {
         let mut sub_shape = out_shapes[level].clone();
-        for &ax in axes {
+        for &ax in &axes {
             let n_ax = ax_shapes[level][ax];
             let n_sd = sd_shapes[level][ax];
 
@@ -1035,7 +1021,7 @@ fn general_nd_per_forward_multilevel<F, T, L, const N: usize>(
     input: &L,
     output: &mut L,
     shape: &[usize],
-    axes: &HashSet<usize>,
+    axes: &[usize],
     level: usize,
 ) where
     F: Fn(&[T], &mut [T], &mut [T]),
@@ -1043,6 +1029,7 @@ fn general_nd_per_forward_multilevel<F, T, L, const N: usize>(
     T: Clone + Zero + ChunkWidth<T, N>,
 {
     let ndim = shape.len();
+    let axes = HashSet::<_>::from_iter(axes.iter().cloned());
     assert!(axes.iter().all(|i| *i < ndim));
     // note that axes is a HashSet, so they are gauranteed to be different axes.
 
@@ -1053,7 +1040,7 @@ fn general_nd_per_forward_multilevel<F, T, L, const N: usize>(
 
     for _level in 0..level {
         let mut sub_shape = in_sub_shape.clone();
-        for &ax in axes {
+        for &ax in &axes {
             let n_ax = sub_shape[ax];
             let n_d = n_ax / 2;
             let n_s = n_ax - n_d;
@@ -1148,7 +1135,7 @@ fn general_nd_per_forward_multilevel<F, T, L, const N: usize>(
         }
 
         // shrink shape for each axis we used.
-        for &ax in axes {
+        for &ax in &axes {
             let n_ax = in_sub_shape[ax];
             let n_d = n_ax / 2;
             let n_s = n_ax - n_d;
@@ -1165,7 +1152,7 @@ fn general_nd_per_inverse_multilevel<F, T, L, const N: usize>(
     input: &L,
     output: &mut L,
     shape: &[usize],
-    axes: &HashSet<usize>,
+    axes: &[usize],
     level: usize,
 ) where
     F: Fn(&[T], &[T], &mut [T]),
@@ -1173,6 +1160,7 @@ fn general_nd_per_inverse_multilevel<F, T, L, const N: usize>(
     T: Clone + Zero + ChunkWidth<T, N>,
 {
     let ndim = shape.len();
+    let axes = HashSet::<_>::from_iter(axes.iter().cloned());
     assert!(axes.iter().all(|i| *i < ndim));
     // note that axes is a HashSet, so they are gauranteed to be different axes.
 
@@ -1191,7 +1179,7 @@ fn general_nd_per_inverse_multilevel<F, T, L, const N: usize>(
         let mut approx_shape = ax_shapes.last().unwrap().clone();
         let mut detail_shape = approx_shape.clone();
         let mut next_out_shape = out_shapes.last().unwrap().clone();
-        for &ax in axes {
+        for &ax in &axes {
             let n_ax = approx_shape[ax];
             let n_d = n_ax / 2;
             let n_s = n_ax - n_d;
@@ -1233,7 +1221,7 @@ fn general_nd_per_inverse_multilevel<F, T, L, const N: usize>(
 
     for level in (0..level).rev() {
         let mut sub_shape = out_shapes[level].clone();
-        for &ax in axes {
+        for &ax in &axes {
             let n_ax = ax_shapes[level][ax];
             let n_s = approx_shapes[level][ax];
             let n_d = detail_shapes[level][ax];
@@ -1341,8 +1329,7 @@ pub mod parallel {
             axes: &[usize],
             level: usize,
         ) {
-            let axes = HashSet::from_iter(axes.iter().cloned());
-            let out_shape = get_transform_shape(in_shape, &axes, level, self.width, false);
+            let out_shape = get_transform_shape(in_shape, axes, level, self.width, false);
             assert_slice_matches_shape!("input", input, in_shape);
             assert_slice_matches_shape!("output", output, out_shape);
             general_nd_forward_multilevel(
@@ -1351,7 +1338,7 @@ pub mod parallel {
                 output,
                 in_shape,
                 &out_shape,
-                &axes,
+                axes,
                 level,
                 self.width,
             );
@@ -1366,8 +1353,7 @@ pub mod parallel {
             axes: &[usize],
             level: usize,
         ) {
-            let axes = HashSet::from_iter(axes.iter().cloned());
-            let in_shape = get_transform_shape(out_shape, &axes, level, self.width, false);
+            let in_shape = get_transform_shape(out_shape, axes, level, self.width, false);
             assert_slice_matches_shape!("input", input, in_shape);
             assert_slice_matches_shape!("output", output, out_shape);
             general_nd_inverse_multilevel(
@@ -1376,7 +1362,7 @@ pub mod parallel {
                 output,
                 &in_shape,
                 out_shape,
-                &axes,
+                axes,
                 level,
                 self.width,
             );
@@ -1410,8 +1396,7 @@ pub mod parallel {
             axes: &[usize],
             level: usize,
         ) {
-            let axes = HashSet::from_iter(axes.iter().cloned());
-            let out_shape = get_transform_shape(in_shape, &axes, level, self.width, false);
+            let out_shape = get_transform_shape(in_shape, axes, level, self.width, false);
             assert_slice_matches_shape!("input", input, in_shape);
             assert_slice_matches_shape!("output", output, out_shape);
             general_nd_forward_multilevel(
@@ -1420,7 +1405,7 @@ pub mod parallel {
                 output,
                 in_shape,
                 &out_shape,
-                &axes,
+                axes,
                 level,
                 self.width,
             );
@@ -1441,9 +1426,8 @@ pub mod parallel {
             axes: &[usize],
             level: usize,
         ) {
-            let axes = HashSet::from_iter(axes.iter().cloned());
             let in_shape = input.shape();
-            let out_shape = get_transform_shape(in_shape, &axes, level, self.width, false);
+            let out_shape = get_transform_shape(in_shape, axes, level, self.width, false);
             assert_eq!(
                 out_shape,
                 output.shape(),
@@ -1456,7 +1440,7 @@ pub mod parallel {
                 output,
                 in_shape,
                 &out_shape,
-                &axes,
+                axes,
                 level,
                 self.width,
             );
@@ -1470,9 +1454,8 @@ pub mod parallel {
             axes: &[usize],
             level: usize,
         ) {
-            let axes = HashSet::from_iter(axes.iter().cloned());
             let out_shape = output.shape().to_owned();
-            let in_shape = get_transform_shape(&out_shape, &axes, level, self.width, false);
+            let in_shape = get_transform_shape(&out_shape, axes, level, self.width, false);
             assert_eq!(
                 in_shape,
                 input.shape(),
@@ -1485,7 +1468,7 @@ pub mod parallel {
                 output,
                 &in_shape,
                 &out_shape,
-                &axes,
+                axes,
                 level,
                 self.width,
             );
@@ -1499,9 +1482,8 @@ pub mod parallel {
             axes: &[usize],
             level: usize,
         ) {
-            let axes = HashSet::from_iter(axes.iter().cloned());
             let in_shape = input.shape();
-            let out_shape = get_transform_shape(in_shape, &axes, level, self.width, false);
+            let out_shape = get_transform_shape(in_shape, axes, level, self.width, false);
             assert_eq!(
                 out_shape,
                 output.shape(),
@@ -1514,7 +1496,7 @@ pub mod parallel {
                 output,
                 in_shape,
                 &out_shape,
-                &axes,
+                axes,
                 level,
                 self.width,
             );
@@ -1578,7 +1560,6 @@ pub mod parallel {
             axes: &[usize],
             level: usize,
         ) {
-            let axes = HashSet::from_iter(axes.iter().cloned());
             assert_slice_matches_shape!("input", input, shape);
             assert_slice_matches_shape!("output", output, shape);
             general_nd_per_forward_multilevel(
@@ -1586,7 +1567,7 @@ pub mod parallel {
                 input,
                 output,
                 shape,
-                &axes,
+                axes,
                 level,
             );
         }
@@ -1600,15 +1581,6 @@ pub mod parallel {
             axes: &[usize],
             level: usize,
         ) {
-            let axes = HashSet::from_iter(axes.iter().cloned());
-            let ptr = input.as_ptr() as *mut T;
-
-            //SAFETY:: We mark input as mutable here for the following reasons
-            // 1) It cannot alias output.
-            // 2) The private general_nd_inverse_multilevel function requires input to be mutable,
-            //    But it does not actually mutate the input when ran in "per" mode.
-            // 3) using the same function reduces the code duplication and (potentially) binary size.
-            let input = unsafe { std::slice::from_raw_parts_mut(ptr, input.len()) };
             assert_slice_matches_shape!("input", input, shape);
             assert_slice_matches_shape!("output", output, shape);
 
@@ -1617,7 +1589,7 @@ pub mod parallel {
                 input,
                 output,
                 shape,
-                &axes,
+                axes,
                 level,
             );
         }
@@ -1631,15 +1603,6 @@ pub mod parallel {
             axes: &[usize],
             level: usize,
         ) {
-            let axes = HashSet::from_iter(axes.iter().cloned());
-            let ptr = input.as_ptr() as *mut T;
-
-            //SAFETY:: We mark input as mutable here for the following reasons
-            // 1) It cannot alias output.
-            // 2) The private general_nd_inverse_multilevel function requires input to be mutable,
-            //    But it does not actually mutate the input when ran in "per" mode.
-            // 3) using the same function reduces the code duplication and (potentially) binary size.
-            let input = unsafe { std::slice::from_raw_parts_mut(ptr, input.len()) };
             assert_slice_matches_shape!("input", input, shape);
             assert_slice_matches_shape!("output", output, shape);
             general_nd_per_inverse_multilevel(
@@ -1647,7 +1610,7 @@ pub mod parallel {
                 input,
                 output,
                 shape,
-                &axes,
+                axes,
                 level,
             );
         }
@@ -1661,7 +1624,6 @@ pub mod parallel {
             axes: &[usize],
             level: usize,
         ) {
-            let axes = HashSet::from_iter(axes.iter().cloned());
             assert_slice_matches_shape!("input", input, shape);
             assert_slice_matches_shape!("output", output, shape);
             general_nd_per_forward_multilevel(
@@ -1669,7 +1631,7 @@ pub mod parallel {
                 input,
                 output,
                 shape,
-                &axes,
+                axes,
                 level,
             );
         }
@@ -1688,7 +1650,6 @@ pub mod parallel {
             axes: &[usize],
             level: usize,
         ) {
-            let axes = HashSet::from_iter(axes.iter().cloned());
             let shape = input.shape();
             assert_eq!(
                 shape,
@@ -1701,7 +1662,7 @@ pub mod parallel {
                 input,
                 output,
                 shape,
-                &axes,
+                axes,
                 level,
             );
         }
@@ -1714,7 +1675,6 @@ pub mod parallel {
             axes: &[usize],
             level: usize,
         ) {
-            let axes = HashSet::from_iter(axes.iter().cloned());
             let shape = input.shape();
             assert_eq!(
                 shape,
@@ -1727,7 +1687,7 @@ pub mod parallel {
                 input,
                 output,
                 shape,
-                &axes,
+                axes,
                 level,
             );
         }
@@ -1740,7 +1700,6 @@ pub mod parallel {
             axes: &[usize],
             level: usize,
         ) {
-            let axes = HashSet::from_iter(axes.iter().cloned());
             let shape = input.shape();
             assert_eq!(
                 shape,
@@ -1753,7 +1712,7 @@ pub mod parallel {
                 input,
                 output,
                 shape,
-                &axes,
+                axes,
                 level,
             );
         }
@@ -1766,7 +1725,6 @@ pub mod parallel {
             axes: &[usize],
             level: usize,
         ) {
-            let axes = HashSet::from_iter(axes.iter().cloned());
             let shape = input.shape();
             assert_eq!(
                 shape,
@@ -1779,7 +1737,7 @@ pub mod parallel {
                 input,
                 output,
                 shape,
-                &axes,
+                axes,
                 level,
             );
         }
@@ -1791,7 +1749,7 @@ pub mod parallel {
         output: &mut L,
         in_shape: &[usize],
         out_shape: &[usize],
-        axes: &HashSet<usize>,
+        axes: &[usize],
         level: usize,
         width: usize,
     ) where
@@ -1806,6 +1764,7 @@ pub mod parallel {
             "input and output shapes must have the same number of dimensions"
         );
         assert!(axes.iter().all(|i| *i < ndim));
+        let axes = HashSet::<_>::from_iter(axes.iter().cloned());
         // note that axes is a HashSet, so they are gauranteed to be different axes.
 
         let mut first = true;
@@ -1815,7 +1774,7 @@ pub mod parallel {
 
         for _level in 0..level {
             let mut sub_shape = in_sub_shape.clone();
-            for &ax in axes {
+            for &ax in &axes {
                 let n_ax = sub_shape[ax];
                 let n_sd = get_outlen(width, n_ax);
 
@@ -1922,7 +1881,7 @@ pub mod parallel {
             }
 
             // shrink shape for each axis we used.
-            for &ax in axes {
+            for &ax in &axes {
                 let n_ax = in_sub_shape[ax];
                 let n_sd = get_outlen(width, n_ax);
                 if n_sd > 1 {
@@ -1939,7 +1898,7 @@ pub mod parallel {
         output: &mut L,
         in_shape: &[usize],
         out_shape: &[usize],
-        axes: &HashSet<usize>,
+        axes: &[usize],
         level: usize,
         width: usize,
     ) where
@@ -1953,6 +1912,7 @@ pub mod parallel {
             out_shape.len(),
             "input and output shapes must have the same number of dimensions"
         );
+        let axes = HashSet::<_>::from_iter(axes.iter().cloned());
         assert!(axes.iter().all(|i| *i < ndim));
         // note that axes is a HashSet, so they are gauranteed to be different axes.
 
@@ -1967,7 +1927,7 @@ pub mod parallel {
             // shrink shape for each axis that is used.
             let mut sd_shape = ax_shapes.last().unwrap().clone();
             let mut next_out_shape = out_shapes.last().unwrap().clone();
-            for &ax in axes {
+            for &ax in &axes {
                 let n_ax = sd_shape[ax];
                 let n_sd = get_outlen(width, n_ax);
 
@@ -1985,7 +1945,7 @@ pub mod parallel {
 
         for level in (0..level).rev() {
             let mut sub_shape = out_shapes[level].clone();
-            for &ax in axes {
+            for &ax in &axes {
                 let n_ax = ax_shapes[level][ax];
                 let n_sd = sd_shapes[level][ax];
 
@@ -2070,7 +2030,7 @@ pub mod parallel {
         input: &L,
         output: &mut L,
         shape: &[usize],
-        axes: &HashSet<usize>,
+        axes: &[usize],
         level: usize,
     ) where
         F: Fn(&[T], &mut [T], &mut [T]) + Sync,
@@ -2078,6 +2038,7 @@ pub mod parallel {
         T: Clone + Zero + ChunkWidth<T, N> + Send + Sync,
     {
         let ndim = shape.len();
+        let axes = HashSet::<_>::from_iter(axes.iter().cloned());
         assert!(axes.iter().all(|i| *i < ndim));
         // note that axes is a HashSet, so they are gauranteed to be different axes.
 
@@ -2088,7 +2049,7 @@ pub mod parallel {
 
         for _level in 0..level {
             let mut sub_shape = in_sub_shape.clone();
-            for &ax in axes {
+            for &ax in &axes {
                 let n_ax = sub_shape[ax];
                 let n_d = n_ax / 2;
                 let n_s = n_ax - n_d;
@@ -2197,7 +2158,7 @@ pub mod parallel {
             }
 
             // shrink shape for each axis we used.
-            for &ax in axes {
+            for &ax in &axes {
                 let n_ax = in_sub_shape[ax];
                 let n_d = n_ax / 2;
                 let n_s = n_ax - n_d;
@@ -2214,7 +2175,7 @@ pub mod parallel {
         input: &L,
         output: &mut L,
         shape: &[usize],
-        axes: &HashSet<usize>,
+        axes: &[usize],
         level: usize,
     ) where
         F: Fn(&[T], &[T], &mut [T]) + Sync,
@@ -2222,6 +2183,7 @@ pub mod parallel {
         T: Clone + Zero + ChunkWidth<T, N> + Send + Sync,
     {
         let ndim = shape.len();
+        let axes = HashSet::<_>::from_iter(axes.iter().cloned());
         assert!(axes.iter().all(|i| *i < ndim));
         // note that axes is a HashSet, so they are gauranteed to be different axes.
 
@@ -2240,7 +2202,7 @@ pub mod parallel {
             let mut approx_shape = ax_shapes.last().unwrap().clone();
             let mut detail_shape = approx_shape.clone();
             let mut next_out_shape = out_shapes.last().unwrap().clone();
-            for &ax in axes {
+            for &ax in &axes {
                 let n_ax = approx_shape[ax];
                 let n_d = n_ax / 2;
                 let n_s = n_ax - n_d;
@@ -2282,7 +2244,7 @@ pub mod parallel {
 
         for level in (0..level).rev() {
             let mut sub_shape = out_shapes[level].clone();
-            for &ax in axes {
+            for &ax in &axes {
                 let n_ax = ax_shapes[level][ax];
                 let n_s = approx_shapes[level][ax];
                 let n_d = detail_shapes[level][ax];
