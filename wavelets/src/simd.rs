@@ -27,7 +27,7 @@ pub trait Alignable {
                 T::simd_lanes(simd)
             }
         }
-        crate::simd::ARCH.dispatch(Impl(PhantomData::<Self>))
+        crate::simd::ARCH.dispatch_simd(Impl(PhantomData::<Self>))
     }
 }
 
@@ -110,39 +110,27 @@ pub trait Simd: pulp::Simd {
     fn div_c64s_f64s(self, a: Self::c64s, b: Self::f64s) -> Self::c64s {
         cast(self.div_f64s(cast(a), b))
     }
-
-    /// Run `op` under this SIMD context, returning its output.
-    #[inline]
-    fn vectorize<Op: WithSimd>(self, op: Op) -> Op::Output {
-        op.with_simd(self)
-    }
 }
 
-/// Callback type for [`Simd::vectorize`]: receives a concrete SIMD backend and
-/// returns an `Output` value.
-pub trait WithSimd {
+/// Callback type passed to [`ArchDispatch::dispatch`]: receives a concrete SIMD
+/// backend (one that implements both [`pulp::Simd`] and the local [`Simd`] extension)
+/// and returns an `Output` value.
+pub(crate) trait WithSimd {
     /// The return type of [`with_simd`](WithSimd::with_simd).
     type Output;
-    /// Called with the concrete SIMD backend `simd` selected at runtime.
+    /// Called with the concrete SIMD backend selected at runtime.
     fn with_simd<S: Simd>(self, simd: S) -> Self::Output;
-}
-impl<F: pulp::NullaryFnOnce> WithSimd for F {
-    type Output = F::Output;
-
-    #[inline(always)]
-    fn with_simd<S: Simd>(self, simd: S) -> Self::Output {
-        let _simd = &simd;
-        self.call()
-    }
 }
 
 impl Simd for pulp::Scalar {
+    #[inline(always)]
     fn mul_add_c32s_f32s(self, a: Self::c32s, b: Self::f32s, c: Self::c32s) -> Self::c32s {
         Self::c32s {
             re: f32::mul_add(a.re, b, c.re),
             im: f32::mul_add(a.im, b, c.im),
         }
     }
+    #[inline(always)]
     fn mul_add_c64s_f64s(self, a: Self::c64s, b: Self::f64s, c: Self::c64s) -> Self::c64s {
         Self::c64s {
             re: f64::mul_add(a.re, b, c.re),
@@ -150,12 +138,14 @@ impl Simd for pulp::Scalar {
         }
     }
 
+    #[inline(always)]
     fn neg_mul_add_c32s_f32s(self, a: Self::c32s, b: Self::f32s, c: Self::c32s) -> Self::c32s {
         Self::c32s {
             re: f32::mul_add(-a.re, b, c.re),
             im: f32::mul_add(-a.im, b, c.im),
         }
     }
+    #[inline(always)]
     fn neg_mul_add_c64s_f64s(self, a: Self::c64s, b: Self::f64s, c: Self::c64s) -> Self::c64s {
         Self::c64s {
             re: f64::mul_add(-a.re, b, c.re),
@@ -163,22 +153,25 @@ impl Simd for pulp::Scalar {
         }
     }
 
+    #[inline(always)]
     fn mul_c32s_f32s(self, a: Self::c32s, b: Self::f32s) -> Self::c32s {
         a * b
     }
+    #[inline(always)]
     fn mul_c64s_f64s(self, a: Self::c64s, b: Self::f64s) -> Self::c64s {
         a * b
     }
+    #[inline(always)]
     fn div_c32s_f32s(self, a: Self::c32s, b: Self::f32s) -> Self::c32s {
         a / b
     }
+    #[inline(always)]
     fn div_c64s_f64s(self, a: Self::c64s, b: Self::f64s) -> Self::c64s {
         a / b
     }
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[cfg_attr(docsrs, doc(cfg(any(target_arch = "x86", target_arch = "x86_64"))))]
 mod x86 {
     use super::*;
     #[cfg(feature = "x86-v4")]
@@ -207,118 +200,15 @@ mod x86 {
             cast!(self.avx512f._mm512_fnmadd_pd(cast!(a), cast!(b), cast!(c)))
         }
     }
-
-    /// x86 arch
-    #[derive(Debug, Clone, Copy)]
-    #[non_exhaustive]
-    #[repr(u8)]
-    pub enum Arch {
-        /// Scalar (no SIMD) fallback, always available.
-        Scalar = 0,
-
-        #[cfg(feature = "x86-v3")]
-        #[cfg_attr(docsrs, doc(cfg(feature = "x86-v3")))]
-        /// AVX2 + FMA (x86-v3 feature level).
-        V3(V3) = 1,
-
-        #[cfg(feature = "x86-v4")]
-        #[cfg_attr(docsrs, doc(cfg(feature = "x86-v4")))]
-        /// AVX-512F (x86-v4 feature level).
-        V4(V4) = 2,
-    }
-
-    impl Arch {
-        /// Detects the best available instruction set.
-        #[inline]
-        pub fn new() -> Self {
-            #[cfg(feature = "x86-v4")]
-            if let Some(simd) = V4::try_new() {
-                return Self::V4(simd);
-            }
-            #[cfg(feature = "x86-v3")]
-            if let Some(simd) = V3::try_new() {
-                return Self::V3(simd);
-            }
-            Self::Scalar
-        }
-
-        /// Detects the best available instruction set.
-        #[inline(always)]
-        pub fn dispatch<Op: WithSimd>(self, op: Op) -> Op::Output {
-            match self {
-                #[cfg(feature = "x86-v4")]
-                Arch::V4(simd) => Simd::vectorize(simd, op),
-                #[cfg(feature = "x86-v3")]
-                Arch::V3(simd) => Simd::vectorize(simd, op),
-
-                Arch::Scalar => Simd::vectorize(pulp::Scalar, op),
-            }
-        }
-    }
-
-    impl Default for Arch {
-        #[inline]
-        fn default() -> Self {
-            Self::new()
-        }
-    }
 }
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-pub use x86::Arch;
 
 #[cfg(target_arch = "wasm32")]
-#[cfg_attr(docsrs, doc(cfg(target_arch = "wasm32")))]
 mod wasm {
     use super::*;
     use pulp::wasm::{RelaxedSimd, Simd128};
     impl Simd for Simd128 {}
     impl Simd for RelaxedSimd {}
-
-    /// wasm arch
-    #[derive(Debug, Clone, Copy)]
-    #[non_exhaustive]
-    #[repr(u8)]
-    pub enum Arch {
-        Scalar = 0,
-
-        RelaxedSimd(RelaxedSimd),
-        Simd128(Simd128),
-    }
-
-    impl Arch {
-        /// Detects the best available instruction set.
-        #[inline]
-        pub fn new() -> Self {
-            if let Some(simd) = RelaxedSimd::try_new() {
-                return Self::RelaxedSimd(simd);
-            }
-            if let Some(simd) = Simd128::try_new() {
-                return Self::Simd128(simd);
-            }
-            Self::Scalar
-        }
-
-        /// Detects the best available instruction set.
-        #[inline(always)]
-        pub fn dispatch<Op: WithSimd>(self, op: Op) -> Op::Output {
-            match self {
-                Arch::RelaxedSimd(simd) => Simd::vectorize(simd, op),
-                Arch::Simd128(simd) => Simd::vectorize(simd, op),
-
-                Arch::Scalar => Simd::vectorize(pulp::Scalar, op),
-            }
-        }
-    }
-
-    impl Default for Arch {
-        #[inline]
-        fn default() -> Self {
-            Self::new()
-        }
-    }
 }
-#[cfg(target_arch = "wasm32")]
-pub use wasm::Arch;
 
 #[cfg(target_arch = "aarch64")]
 mod aarch64 {
@@ -326,45 +216,63 @@ mod aarch64 {
     use pulp::aarch64::{Neon, NeonFcma};
     impl Simd for Neon {}
     impl Simd for NeonFcma {}
+}
 
-    /// aarch64 arch
-    #[derive(Debug, Clone, Copy)]
-    #[non_exhaustive]
-    #[repr(u8)]
-    pub enum Arch {
-        Scalar = 0,
-        Neon(Neon) = 1,
-    }
+/// Dispatches a [`WithSimd`] callback using the runtime-selected SIMD backend stored
+/// in [`ARCH`].
+///
+/// This extension trait is implemented for [`pulp::Arch`] on every supported platform.
+/// It bridges `pulp`'s own dispatch mechanism (which uses `pulp::WithSimd`) with the
+/// crate-local [`WithSimd`] trait, whose callbacks have the stronger
+/// `S: `[`Simd`] bound needed to call the mixed-type extension methods.
+///
+/// `pulp::Arch` is `#[non_exhaustive]`, so each platform impl uses a `_ =>` fallback
+/// that degrades to scalar; on all currently-supported hardware that branch is
+/// unreachable.
+pub(crate) trait ArchDispatch {
+    /// Run `op` on the best SIMD backend available at runtime.
+    ///
+    /// Named `dispatch_simd` (not `dispatch`) to avoid shadowing `pulp::Arch`'s
+    /// inherent `dispatch` method, which has a different — weaker — callback bound.
+    fn dispatch_simd<Op: WithSimd>(self, op: Op) -> Op::Output;
+}
 
-    impl Arch {
-        /// Detects the best available instruction set.
-        #[inline]
-        pub fn new() -> Self {
-            if let Some(simd) = Neon::try_new() {
-                return Self::Neon(simd);
-            }
-            Self::Scalar
-        }
-
-        /// Detects the best available instruction set.
-        #[inline(always)]
-        pub fn dispatch<Op: WithSimd>(self, op: Op) -> Op::Output {
-            match self {
-                Arch::Neon(simd) => Simd::vectorize(simd, op),
-                Arch::Scalar => Simd::vectorize(pulp::Scalar::new(), op),
-            }
-        }
-    }
-
-    impl Default for Arch {
-        #[inline]
-        fn default() -> Self {
-            Self::new()
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+impl ArchDispatch for pulp::Arch {
+    #[inline(always)]
+    fn dispatch_simd<Op: WithSimd>(self, op: Op) -> Op::Output {
+        match self {
+            #[cfg(feature = "x86-v4")]
+            pulp::Arch::V4(simd) => op.with_simd(simd),
+            #[cfg(feature = "x86-v3")]
+            pulp::Arch::V3(simd) => op.with_simd(simd),
+            _ => op.with_simd(pulp::Scalar),
         }
     }
 }
+
+#[cfg(target_arch = "wasm32")]
+impl ArchDispatch for pulp::Arch {
+    #[inline(always)]
+    fn dispatch_simd<Op: WithSimd>(self, op: Op) -> Op::Output {
+        match self {
+            pulp::Arch::RelaxedSimd(simd) => op.with_simd(simd),
+            pulp::Arch::Simd128(simd) => op.with_simd(simd),
+            _ => op.with_simd(pulp::Scalar),
+        }
+    }
+}
+
 #[cfg(target_arch = "aarch64")]
-pub use aarch64::Arch;
+impl ArchDispatch for pulp::Arch {
+    #[inline(always)]
+    fn dispatch_simd<Op: WithSimd>(self, op: Op) -> Op::Output {
+        match self {
+            pulp::Arch::Neon(simd) => op.with_simd(simd),
+            _ => op.with_simd(pulp::Scalar),
+        }
+    }
+}
 
 /// A [`Transformable`] type that can be processed with SIMD instructions.
 ///
@@ -658,4 +566,4 @@ impl SimdTransformable for num_complex::Complex64 {
 /// Runtime CPU feature detection singleton used to dispatch SIMD kernels.
 ///
 /// Initialised once on first access via [`std::sync::LazyLock`].
-pub static ARCH: LazyLock<Arch> = LazyLock::new(|| Arch::new());
+pub static ARCH: LazyLock<pulp::Arch> = LazyLock::new(pulp::Arch::new);

@@ -14,7 +14,7 @@ fn main() {
     let bc = ZeroBoundary {};
 
     // Construct the driver (N is inferred from the f64 ChunkWidth impl).
-    let trans: WaveletTransform<f64, _, _> = WaveletTransform::new(wvlt, bc);
+    let trans = WaveletTransform::new(wvlt, bc);
 
     // A simple ramp signal.
     let x: Vec<f64> = (0..128).map(|i| i as f64 / 127.0).collect();
@@ -35,7 +35,11 @@ fn main() {
     let mut x2 = vec![0.0_f64; shape.iter().product()];
     trans.inverse_multilevel_nd(&mut coeffs, &mut x2, &shape, &axes, level);
 
-    let max_err = x.iter().zip(&x2).map(|(a, b)| (a - b).abs()).fold(0.0_f64, f64::max);
+    let max_err = x
+        .iter()
+        .zip(&x2)
+        .map(|(a, b)| (a - b).abs())
+        .fold(0.0_f64, f64::max);
     println!("Max round-trip error: {:.2e}", max_err);
     assert!(max_err < 1e-10, "round-trip error too large: {max_err}");
     println!("Round-trip OK.");

@@ -99,7 +99,7 @@ mod _wavelets_ext {
                     wvlt.max_level(min_n)
                 });
 
-                let trans = driver::parallel::WaveletTransform::new(wvlt, bc);
+                let trans = driver::WaveletTransform::new(wvlt, bc);
 
                 trans.$trans_func(&x, &mut y, &axes, level);
             });
@@ -118,7 +118,7 @@ mod _wavelets_ext {
         axes: Option<Vec<isize>>,
         level: Option<usize>,
     ) -> PyResult<()> {
-        implement_transform! {forward_ndarray_multilevel, py, wavelet, x, y, bc, axes, level}
+        implement_transform! {par_forward_ndarray_multilevel, py, wavelet, x, y, bc, axes, level}
     }
 
     #[pyfunction]
@@ -131,7 +131,7 @@ mod _wavelets_ext {
         axes: Option<Vec<isize>>,
         level: Option<usize>,
     ) -> PyResult<()> {
-        implement_transform! {inverse_ndarray_multilevel, py, wavelet, x, y, bc, axes, level}
+        implement_transform! {par_inverse_ndarray_multilevel, py, wavelet, x, y, bc, axes, level}
     }
 
     #[pyfunction]
@@ -144,7 +144,7 @@ mod _wavelets_ext {
         axes: Option<Vec<isize>>,
         level: Option<usize>,
     ) -> PyResult<()> {
-        implement_transform! {adj_forward_ndarray_multilevel, py, wavelet, x, y, bc, axes, level}
+        implement_transform! {par_adj_forward_ndarray_multilevel, py, wavelet, x, y, bc, axes, level}
     }
 
     #[pyfunction]
@@ -157,7 +157,7 @@ mod _wavelets_ext {
         axes: Option<Vec<isize>>,
         level: Option<usize>,
     ) -> PyResult<()> {
-        implement_transform! {adj_inverse_ndarray_multilevel, py, wavelet, x, y, bc, axes, level}
+        implement_transform! {par_adj_inverse_ndarray_multilevel, py, wavelet, x, y, bc, axes, level}
     }
 
     #[pyfunction]
@@ -170,7 +170,7 @@ mod _wavelets_ext {
         axes: Option<Vec<isize>>,
         level: Option<usize>,
     ) -> PyResult<()> {
-        implement_transform! {forward_ndarray_multilevel, py, wavelet, x, y, bc, axes, level}
+        implement_transform! {par_forward_ndarray_multilevel, py, wavelet, x, y, bc, axes, level}
     }
 
     #[pyfunction]
@@ -183,7 +183,7 @@ mod _wavelets_ext {
         axes: Option<Vec<isize>>,
         level: Option<usize>,
     ) -> PyResult<()> {
-        implement_transform! {inverse_ndarray_multilevel, py, wavelet, x, y, bc, axes, level}
+        implement_transform! {par_inverse_ndarray_multilevel, py, wavelet, x, y, bc, axes, level}
     }
 
     #[pyfunction]
@@ -196,7 +196,7 @@ mod _wavelets_ext {
         axes: Option<Vec<isize>>,
         level: Option<usize>,
     ) -> PyResult<()> {
-        implement_transform! {adj_forward_ndarray_multilevel, py, wavelet, x, y, bc, axes, level}
+        implement_transform! {par_adj_forward_ndarray_multilevel, py, wavelet, x, y, bc, axes, level}
     }
 
     #[pyfunction]
@@ -209,6 +209,6 @@ mod _wavelets_ext {
         axes: Option<Vec<isize>>,
         level: Option<usize>,
     ) -> PyResult<()> {
-        implement_transform! {adj_inverse_ndarray_multilevel, py, wavelet, x, y, bc, axes, level}
+        implement_transform! {par_adj_inverse_ndarray_multilevel, py, wavelet, x, y, bc, axes, level}
     }
 }

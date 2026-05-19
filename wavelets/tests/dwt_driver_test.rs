@@ -822,19 +822,19 @@ pub fn test_dwt_driver_inv_db2_per_multi_level_2d() {
 #[rstest]
 #[case(Wavelets::Daubechies4, 1)]
 #[case(Wavelets::Daubechies4, 3)]
-#[case(Wavelets::Symlet4,     1)]
-#[case(Wavelets::Symlet4,     3)]
-#[case(Wavelets::Coiflet2,    1)]
-#[case(Wavelets::Coiflet2,    3)]
-#[case(Wavelets::Bior2_2,     1)]
-#[case(Wavelets::Bior2_2,     3)]
-#[case(Wavelets::CDF9_7,      1)]
-#[case(Wavelets::CDF9_7,      3)]
+#[case(Wavelets::Symlet4, 1)]
+#[case(Wavelets::Symlet4, 3)]
+#[case(Wavelets::Coiflet2, 1)]
+#[case(Wavelets::Coiflet2, 3)]
+#[case(Wavelets::Bior2_2, 1)]
+#[case(Wavelets::Bior2_2, 3)]
+#[case(Wavelets::CDF9_7, 1)]
+#[case(Wavelets::CDF9_7, 3)]
 pub fn test_round_trip_wavelet_families(#[case] wvlt: Wavelets, #[case] level: usize) {
     let shape = [30, 35];
     let axes = [1];
     let bc = ZeroBoundary {};
-    let trans: WaveletTransform<f64, _, _> = WaveletTransform::new(wvlt, bc);
+    let trans = WaveletTransform::new(wvlt, bc);
 
     let out_shape = get_transform_shape(&shape, &axes, level, wvlt.width(), false);
     let n_in = shape.iter().product::<usize>();
@@ -855,16 +855,16 @@ pub fn test_round_trip_wavelet_families(#[case] wvlt: Wavelets, #[case] level: u
 #[rstest]
 #[case(Wavelets::Daubechies4, 1)]
 #[case(Wavelets::Daubechies4, 3)]
-#[case(Wavelets::Symlet4,     1)]
-#[case(Wavelets::Coiflet2,    1)]
-#[case(Wavelets::Bior2_2,     1)]
-#[case(Wavelets::CDF9_7,      1)]
+#[case(Wavelets::Symlet4, 1)]
+#[case(Wavelets::Coiflet2, 1)]
+#[case(Wavelets::Bior2_2, 1)]
+#[case(Wavelets::CDF9_7, 1)]
 pub fn test_adj_forward_wavelet_families(#[case] wvlt: Wavelets, #[case] level: usize) {
     let n_signal: usize = 64;
     let shape = [n_signal];
     let axes = [0];
     let bc = ZeroBoundary {};
-    let trans: WaveletTransform<f64, _, _> = WaveletTransform::new(wvlt, bc);
+    let trans = WaveletTransform::new(wvlt, bc);
 
     let out_shape = get_transform_shape(&shape, &axes, level, wvlt.width(), false);
     let n_in = n_signal;

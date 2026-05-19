@@ -95,8 +95,7 @@ pub fn get_transform_shape<'a, IT: IntoIterator<Item = &'a usize>>(
 /// output buffer size.
 pub struct WaveletTransform<T, BC, const N: usize>
 where
-    T: Transformable + Zero + ChunkWidth<T, N>,
-    BC: BoundaryExtension,
+    T: ChunkWidth<T, N>,
 {
     dwt_forward: fn(&[T], &mut [T], &mut [T], &BC),
     dwt_inverse: fn(&[T], &[T], &mut [T]),
@@ -138,11 +137,7 @@ where
             {#wvlt::adjoint_inverse,}
         };
 
-        let width = generate_wavelet_match_arms! {
-            Wavelets,
-            wvlt,
-            {#wvlt::WIDTH,}
-        };
+        let width = wvlt.width();
         Self {
             dwt_forward,
             dwt_inverse,
@@ -199,7 +194,13 @@ where
     /// `shape` is the original signal shape; `input` must have the transform-expanded shape
     /// `get_transform_shape(shape, axes, 1, width, false)`.
     /// `input` is `&mut` for the same reason as [`adj_forward_multilevel_nd`](Self::adj_forward_multilevel_nd).
-    pub fn adj_forward_nd(&self, input: &mut [T], output: &mut [T], shape: &[usize], axes: &[usize]) {
+    pub fn adj_forward_nd(
+        &self,
+        input: &mut [T],
+        output: &mut [T],
+        shape: &[usize],
+        axes: &[usize],
+    ) {
         self.adj_forward_multilevel_nd(input, output, shape, &axes, 1);
     }
 
@@ -469,7 +470,7 @@ where
 /// * `N` — SIMD lane width (use `1` to disable SIMD).
 pub struct WaveletTransformPer<T, const N: usize>
 where
-    T: Transformable + Zero + ChunkWidth<T, N>,
+    T: ChunkWidth<T, N>,
 {
     dwt_forward: fn(&[T], &mut [T], &mut [T]),
     dwt_inverse: fn(&[T], &[T], &mut [T]),
@@ -508,11 +509,7 @@ where
             wvlt,
             {#wvlt::adjoint_inverse_per,}
         };
-        let width = generate_wavelet_match_arms! {
-            Wavelets,
-            wvlt,
-            {#wvlt::WIDTH,}
-        };
+        let width = wvlt.width();
         Self {
             dwt_forward,
             dwt_inverse,
@@ -1293,94 +1290,31 @@ pub mod parallel {
     use crate::iter::parallel::LanesParallelIterator;
     use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 
-    /// Parallel non-periodic DWT driver.
-    ///
-    /// Identical interface to [`super::super::WaveletTransform`] but uses Rayon to
-    /// process lanes in parallel.
-    pub struct WaveletTransform<T, BC, const N: usize> {
-        dwt_forward: fn(&[T], &mut [T], &mut [T], &BC),
-        dwt_inverse: fn(&[T], &[T], &mut [T]),
-        dwt_adj_inverse: fn(&[T], &mut [T], &mut [T]),
-        bc: BC,
-        width: usize,
-    }
-
     impl<T, BC, const N: usize> WaveletTransform<T, BC, N>
     where
         T: Transformable + Zero + ChunkWidth<T, N> + Sync + Send,
         BC: BoundaryExtension,
     {
-        /// Construct a new parallel DWT driver for the given wavelet family and boundary condition.
-        pub fn new(wvlt: Wavelets, bc: BC) -> Self {
-            use crate::dwt::bior::*;
-            use crate::dwt::coiflet::*;
-            use crate::dwt::daubechies::*;
-            use crate::dwt::symlet::*;
-            let dwt_forward: fn(&[T], &mut [T], &mut [T], &BC) = generate_wavelet_match_arms! {
-                Wavelets,
-                wvlt,
-                {#wvlt::forward,}
-            };
-            let dwt_inverse: fn(&[T], &[T], &mut [T]) = generate_wavelet_match_arms! {
-                Wavelets,
-                wvlt,
-                {#wvlt::inverse,}
-            };
-            let dwt_adj_inverse: fn(&[T], &mut [T], &mut [T]) = generate_wavelet_match_arms! {
-                Wavelets,
-                wvlt,
-                {#wvlt::adjoint_inverse,}
-            };
-
-            let width = generate_wavelet_match_arms! {
-                Wavelets,
-                wvlt,
-                {#wvlt::WIDTH,}
-            };
-            Self {
-                dwt_forward,
-                dwt_inverse,
-                dwt_adj_inverse,
-                bc,
-                width,
-            }
-        }
-
-        /// Forward DWT (parallel, 1-D).
-        pub fn forward_1d(&self, input: &[T], s: &mut [T], d: &mut [T]) {
-            (self.dwt_forward)(input, s, d, &self.bc);
-        }
-
-        /// Inverse DWT (parallel, 1-D).
-        pub fn inverse_1d(&self, s: &[T], d: &[T], output: &mut [T]) {
-            (self.dwt_inverse)(&s, &d, output);
-        }
-
-        // pub fn adj_forward_1d(&self, s: &[T], d: &[T], output: &mut [T]) {
-        //     let (mut s, mut d) = (s.to_owned(), d.to_owned());
-        //     (self.lwt_adj_forward)(&mut s, &mut d, &self.bc);
-        //     interleave(&s, &d, output);
-        // }
-
-        /// Adjoint inverse DWT (parallel, 1-D).
-        pub fn adj_inverse_1d(&self, input: &[T], s: &mut [T], d: &mut [T]) {
-            (self.dwt_adj_inverse)(input, s, d);
-        }
-
         /// Single-level parallel forward DWT along the given `axes`.
-        pub fn forward_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
-            self.forward_multilevel_nd(input, output, shape, &axes, 1);
+        pub fn par_forward_nd(
+            &self,
+            input: &[T],
+            output: &mut [T],
+            shape: &[usize],
+            axes: &[usize],
+        ) {
+            self.par_forward_multilevel_nd(input, output, shape, &axes, 1);
         }
 
         /// Single-level parallel inverse DWT along the given `axes`.
-        pub fn inverse_nd(
+        pub fn par_inverse_nd(
             &self,
             input: &mut [T],
             output: &mut [T],
             shape: &[usize],
             axes: &[usize],
         ) {
-            self.inverse_multilevel_nd(input, output, shape, &axes, 1);
+            self.par_inverse_multilevel_nd(input, output, shape, &axes, 1);
         }
 
         // pub fn adj_forward_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
@@ -1388,18 +1322,18 @@ pub mod parallel {
         // }
 
         /// Single-level parallel adjoint inverse DWT along the given `axes`.
-        pub fn adj_inverse_nd(
+        pub fn par_adj_inverse_nd(
             &self,
             input: &[T],
             output: &mut [T],
             shape: &[usize],
             axes: &[usize],
         ) {
-            self.adj_inverse_multilevel_nd(input, output, shape, &axes, 1);
+            self.par_adj_inverse_multilevel_nd(input, output, shape, &axes, 1);
         }
 
         /// Multi-level parallel forward DWT along the given `axes`.
-        pub fn forward_multilevel_nd(
+        pub fn par_forward_multilevel_nd(
             &self,
             input: &[T],
             output: &mut [T],
@@ -1424,7 +1358,7 @@ pub mod parallel {
         }
 
         /// Multi-level parallel inverse DWT along the given `axes`.
-        pub fn inverse_multilevel_nd(
+        pub fn par_inverse_multilevel_nd(
             &self,
             input: &mut [T],
             output: &mut [T],
@@ -1468,7 +1402,7 @@ pub mod parallel {
         // }
 
         /// Multi-level parallel adjoint inverse DWT along the given `axes`.
-        pub fn adj_inverse_multilevel_nd(
+        pub fn par_adj_inverse_multilevel_nd(
             &self,
             input: &[T],
             output: &mut [T],
@@ -1500,7 +1434,7 @@ pub mod parallel {
         BC: BoundaryExtension,
     {
         /// Forward DWT applied to an ndarray (parallel, multi-level).
-        pub fn forward_ndarray_multilevel<D: Dimension>(
+        pub fn par_forward_ndarray_multilevel<D: Dimension>(
             &self,
             input: &ArrayRef<T, D>,
             output: &mut ArrayRef<T, D>,
@@ -1529,7 +1463,7 @@ pub mod parallel {
         }
 
         /// Inverse DWT applied to an ndarray (parallel, multi-level).
-        pub fn inverse_ndarray_multilevel<D: Dimension>(
+        pub fn par_inverse_ndarray_multilevel<D: Dimension>(
             &self,
             input: &mut ArrayRef<T, D>,
             output: &mut ArrayRef<T, D>,
@@ -1558,7 +1492,7 @@ pub mod parallel {
         }
 
         /// Adjoint inverse DWT applied to an ndarray (parallel, multi-level).
-        pub fn adj_inverse_ndarray_multilevel<D: Dimension>(
+        pub fn par_adj_inverse_ndarray_multilevel<D: Dimension>(
             &self,
             input: &ArrayRef<T, D>,
             output: &mut ArrayRef<T, D>,
@@ -1587,94 +1521,34 @@ pub mod parallel {
         }
     }
 
-    /// Parallel periodic-boundary DWT driver.
-    ///
-    /// Identical interface to [`super::super::WaveletTransformPer`] but uses Rayon to
-    /// process independent lanes in parallel.
-    pub struct WaveletTransformPer<T, const N: usize> {
-        dwt_forward: fn(&[T], &mut [T], &mut [T]),
-        dwt_inverse: fn(&[T], &[T], &mut [T]),
-        dwt_adj_forward: fn(&[T], &[T], &mut [T]),
-        dwt_adj_inverse: fn(&[T], &mut [T], &mut [T]),
-        width: usize,
-    }
-
     impl<T, const N: usize> WaveletTransformPer<T, N>
     where
         T: Transformable + Zero + ChunkWidth<T, N> + Sync + Send,
     {
-        /// Construct a new parallel periodic DWT driver for the given wavelet family.
-        pub fn new(wvlt: Wavelets) -> Self {
-            use crate::dwt::bior::*;
-            use crate::dwt::coiflet::*;
-            use crate::dwt::daubechies::*;
-            use crate::dwt::symlet::*;
-            let dwt_forward: fn(&[T], &mut [T], &mut [T]) = generate_wavelet_match_arms! {
-                Wavelets,
-                wvlt,
-                {#wvlt::forward_per,}
-            };
-            let dwt_inverse: fn(&[T], &[T], &mut [T]) = generate_wavelet_match_arms! {
-                Wavelets,
-                wvlt,
-                {#wvlt::inverse_per,}
-            };
-            let dwt_adj_forward: fn(&[T], &[T], &mut [T]) = generate_wavelet_match_arms! {
-                Wavelets,
-                wvlt,
-                {#wvlt::adjoint_forward_per,}
-            };
-            let dwt_adj_inverse: fn(&[T], &mut [T], &mut [T]) = generate_wavelet_match_arms! {
-                Wavelets,
-                wvlt,
-                {#wvlt::adjoint_inverse_per,}
-            };
-            let width = generate_wavelet_match_arms! {
-                Wavelets,
-                wvlt,
-                {#wvlt::WIDTH,}
-            };
-            Self {
-                dwt_forward,
-                dwt_inverse,
-                dwt_adj_forward,
-                dwt_adj_inverse,
-                width,
-            }
-        }
-
-        /// Forward periodic DWT (parallel, 1-D).
-        pub fn forward_1d(&self, input: &[T], s: &mut [T], d: &mut [T]) {
-            (self.dwt_forward)(input, s, d);
-        }
-
-        /// Inverse periodic DWT (parallel, 1-D).
-        pub fn inverse_1d(&self, s: &[T], d: &[T], output: &mut [T]) {
-            (self.dwt_inverse)(&s, &d, output);
-        }
-
-        /// Adjoint forward periodic DWT (parallel, 1-D).
-        pub fn adj_forward_1d(&self, s: &[T], d: &[T], output: &mut [T]) {
-            (self.dwt_adj_forward)(s, d, output);
-        }
-
-        /// Adjoint inverse periodic DWT (parallel, 1-D).
-        pub fn adj_inverse_1d(&self, input: &[T], s: &mut [T], d: &mut [T]) {
-            (self.dwt_adj_inverse)(input, s, d);
-        }
-
         /// Single-level parallel periodic forward DWT along the given `axes`.
-        pub fn forward_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
+        pub fn par_forward_nd(
+            &self,
+            input: &[T],
+            output: &mut [T],
+            shape: &[usize],
+            axes: &[usize],
+        ) {
             self.forward_multilevel_nd(input, output, shape, &axes, 1);
         }
 
         /// Single-level parallel periodic inverse DWT along the given `axes`.
-        pub fn inverse_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
+        pub fn par_inverse_nd(
+            &self,
+            input: &[T],
+            output: &mut [T],
+            shape: &[usize],
+            axes: &[usize],
+        ) {
             self.inverse_multilevel_nd(input, output, shape, &axes, 1);
         }
 
         /// Single-level parallel periodic adjoint forward DWT along the given `axes`.
-        pub fn adj_forward_nd(
+        pub fn par_adj_forward_nd(
             &self,
             input: &[T],
             output: &mut [T],
@@ -1685,7 +1559,7 @@ pub mod parallel {
         }
 
         /// Single-level parallel periodic adjoint inverse DWT along the given `axes`.
-        pub fn adj_inverse_nd(
+        pub fn par_adj_inverse_nd(
             &self,
             input: &[T],
             output: &mut [T],
@@ -1696,7 +1570,7 @@ pub mod parallel {
         }
 
         /// Multi-level parallel periodic forward DWT along the given `axes`.
-        pub fn forward_multilevel_nd(
+        pub fn par_forward_multilevel_nd(
             &self,
             input: &[T],
             output: &mut [T],
@@ -1718,7 +1592,7 @@ pub mod parallel {
         }
 
         /// Multi-level parallel periodic inverse DWT along the given `axes`.
-        pub fn inverse_multilevel_nd(
+        pub fn par_inverse_multilevel_nd(
             &self,
             input: &[T],
             output: &mut [T],
@@ -1749,7 +1623,7 @@ pub mod parallel {
         }
 
         /// Multi-level parallel periodic adjoint forward DWT along the given `axes`.
-        pub fn adj_forward_multilevel_nd(
+        pub fn par_adj_forward_multilevel_nd(
             &self,
             input: &[T],
             output: &mut [T],
@@ -1779,7 +1653,7 @@ pub mod parallel {
         }
 
         /// Multi-level parallel periodic adjoint inverse DWT along the given `axes`.
-        pub fn adj_inverse_multilevel_nd(
+        pub fn par_adj_inverse_multilevel_nd(
             &self,
             input: &[T],
             output: &mut [T],
@@ -1807,7 +1681,7 @@ pub mod parallel {
         T: Transformable + Zero + ChunkWidth<T, N> + Sync + Send,
     {
         /// Forward periodic DWT applied to an ndarray (parallel, multi-level).
-        pub fn forward_ndarray_multilevel<D: Dimension>(
+        pub fn par_forward_ndarray_multilevel<D: Dimension>(
             &self,
             input: &ArrayRef<T, D>,
             output: &mut ArrayRef<T, D>,
@@ -1833,7 +1707,7 @@ pub mod parallel {
         }
 
         /// Inverse periodic DWT applied to an ndarray (parallel, multi-level).
-        pub fn inverse_ndarray_multilevel<D: Dimension>(
+        pub fn par_inverse_ndarray_multilevel<D: Dimension>(
             &self,
             input: &ArrayRef<T, D>,
             output: &mut ArrayRef<T, D>,
@@ -1859,7 +1733,7 @@ pub mod parallel {
         }
 
         /// Adjoint forward periodic DWT applied to an ndarray (parallel, multi-level).
-        pub fn adj_forward_ndarray_multilevel<D: Dimension>(
+        pub fn par_adj_forward_ndarray_multilevel<D: Dimension>(
             &self,
             input: &ArrayRef<T, D>,
             output: &mut ArrayRef<T, D>,
@@ -1885,7 +1759,7 @@ pub mod parallel {
         }
 
         /// Adjoint inverse periodic DWT applied to an ndarray (parallel, multi-level).
-        pub fn adj_inverse_ndarray_multilevel<D: Dimension>(
+        pub fn par_adj_inverse_ndarray_multilevel<D: Dimension>(
             &self,
             input: &ArrayRef<T, D>,
             output: &mut ArrayRef<T, D>,

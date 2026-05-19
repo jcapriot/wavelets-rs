@@ -1491,6 +1491,9 @@ fn generate_forward_op(steps: &[LiftingStep<LitFloat>]) -> TokenStream {
             BC: crate::boundarys::BoundaryExtension
         {
             use ::itertools::izip;
+
+            use crate::simd::ArchDispatch;
+
             struct Impl<'a, 'b, 'c, T, BC>(&'a mut [T], &'b mut [T], &'c BC);
             impl<'a, 'b, 'c, T, BC> crate::simd::WithSimd for Impl<'a, 'b, 'c, T, BC>
             where
@@ -1511,7 +1514,7 @@ fn generate_forward_op(steps: &[LiftingStep<LitFloat>]) -> TokenStream {
                 }
             }
 
-            crate::simd::ARCH.dispatch(Impl(s, d, bc));
+            crate::simd::ARCH.dispatch_simd(Impl(s, d, bc));
         }
     }
 }
@@ -1532,6 +1535,8 @@ fn generate_inverse_op(steps: &[LiftingStep<LitFloat>]) -> TokenStream {
             BC: crate::boundarys::BoundaryExtension
         {
             use ::itertools::izip;
+            use crate::simd::ArchDispatch;
+
             struct Impl<'a, 'b, 'c, T, BC>(&'a mut [T], &'b mut [T], &'c BC);
             impl<'a, 'b, 'c, T, BC> crate::simd::WithSimd for Impl<'a, 'b, 'c, T, BC>
             where
@@ -1552,7 +1557,7 @@ fn generate_inverse_op(steps: &[LiftingStep<LitFloat>]) -> TokenStream {
                 }
             }
 
-            crate::simd::ARCH.dispatch(Impl(s, d, bc));
+            crate::simd::ARCH.dispatch_simd(Impl(s, d, bc));
         }
     }
 }
@@ -1573,6 +1578,8 @@ fn generate_adjoint_inverse_op(steps: &[LiftingStep<LitFloat>]) -> TokenStream {
             BC: crate::boundarys::BoundaryExtension
         {
             use ::itertools::izip;
+            use crate::simd::ArchDispatch;
+
             struct Impl<'a, 'b, 'c, T, BC>(&'a mut [T], &'b mut [T], &'c BC);
             impl<'a, 'b, 'c, T, BC> crate::simd::WithSimd for Impl<'a, 'b, 'c, T, BC>
             where
@@ -1593,7 +1600,7 @@ fn generate_adjoint_inverse_op(steps: &[LiftingStep<LitFloat>]) -> TokenStream {
                 }
             }
 
-            crate::simd::ARCH.dispatch(Impl(s, d, bc));
+            crate::simd::ARCH.dispatch_simd(Impl(s, d, bc));
         }
     }
 }
@@ -1614,6 +1621,8 @@ fn generate_adjoint_forward_op(steps: &[LiftingStep<LitFloat>]) -> TokenStream {
             BC: crate::boundarys::BoundaryExtension
         {
             use ::itertools::izip;
+            use crate::simd::ArchDispatch;
+
             struct Impl<'a, 'b, 'c, T, BC>(&'a mut [T], &'b mut [T], &'c BC);
             impl<'a, 'b, 'c, T, BC> crate::simd::WithSimd for Impl<'a, 'b, 'c, T, BC>
             where
@@ -1634,7 +1643,8 @@ fn generate_adjoint_forward_op(steps: &[LiftingStep<LitFloat>]) -> TokenStream {
                 }
             }
 
-            crate::simd::ARCH.dispatch(Impl(s, d, bc));
+            //use crate::simd::ArchDispatch as _;
+            crate::simd::ARCH.dispatch_simd(Impl(s, d, bc));
         }
     }
 }

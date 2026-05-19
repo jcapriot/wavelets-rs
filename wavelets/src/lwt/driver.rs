@@ -16,7 +16,7 @@ use crate::utils::{
 use crate::utils::{
     interleave, interleave_strided, interleave_strided_chunk, split_strided, split_strided_chunk,
 };
-use crate::{ChunkWidth, simd::SimdTransformable};
+use crate::{ChunkWidth, max_level_nd, simd::SimdTransformable};
 
 use wavelets_macros::generate_wavelet_match_arms;
 
@@ -41,15 +41,14 @@ use wavelets_macros::generate_wavelet_match_arms;
 /// ```
 pub struct WaveletTransform<T, BC, const N: usize>
 where
-    T: SimdTransformable + Zero + ChunkWidth<T, N>,
-    BC: BoundaryExtension,
+    T: ChunkWidth<T, N>,
 {
-    wvlt: Wavelets,
     lwt_forward: fn(&mut [T], &mut [T], &BC),
     lwt_inverse: fn(&mut [T], &mut [T], &BC),
     lwt_adj_forward: fn(&mut [T], &mut [T], &BC),
     lwt_adj_inverse: fn(&mut [T], &mut [T], &BC),
     bc: BC,
+    width: usize,
 }
 
 impl<T, BC, const N: usize> WaveletTransform<T, BC, N>
@@ -87,14 +86,24 @@ where
             wvlt,
             {#wvlt::adjoint_inverse,}
         };
+
+        let width = wvlt.width();
         Self {
-            wvlt,
             lwt_forward,
             lwt_inverse,
             lwt_adj_forward,
             lwt_adj_inverse,
             bc,
+            width,
         }
+    }
+
+    /// Get the maximum recommended decomposition of the LWT forward transform.
+    ///
+    /// For a given shape and transformed axes, determine the maximum "useful" decomposition
+    /// level for the transform.
+    pub fn max_level_nd(&self, shape: &[usize], axes: &[usize]) -> usize {
+        max_level_nd(self.width, shape, axes)
     }
 
     /// Single-level forward LWT of a 1-D signal.
@@ -155,7 +164,8 @@ where
     /// Multi-level forward LWT on an N-D array.
     ///
     /// Applies `level` successive single-level forward transforms along each axis in
-    /// `axes`.  The approximation sub-band is recursively decomposed at each level.
+    /// `axes`.  The approximation sub-band is recursively decomposed at each level. If `level==0`
+    /// then it will compute to the maximum level suggested by `max_level_nd`.
     pub fn forward_multilevel_nd(
         &self,
         input: &[T],
@@ -164,13 +174,17 @@ where
         axes: &[usize],
         level: usize,
     ) {
-        let axes = HashSet::from_iter(axes.iter().cloned());
+        let level = if level == 0 {
+            max_level_nd(self.width, shape, axes)
+        } else {
+            level
+        };
         general_nd_forward_multilevel(
             |s, d| (self.lwt_forward)(s, d, &self.bc),
             input,
             output,
             shape,
-            &axes,
+            axes,
             level,
         );
     }
@@ -186,13 +200,17 @@ where
         axes: &[usize],
         level: usize,
     ) {
-        let axes = HashSet::from_iter(axes.iter().cloned());
+        let level = if level == 0 {
+            max_level_nd(self.width, shape, axes)
+        } else {
+            level
+        };
         general_nd_inverse_multilevel(
             |s, d| (self.lwt_inverse)(s, d, &self.bc),
             input,
             output,
             shape,
-            &axes,
+            axes,
             level,
         );
     }
@@ -206,13 +224,17 @@ where
         axes: &[usize],
         level: usize,
     ) {
-        let axes = HashSet::from_iter(axes.iter().cloned());
+        let level = if level == 0 {
+            max_level_nd(self.width, shape, axes)
+        } else {
+            level
+        };
         general_nd_inverse_multilevel(
             |s, d| (self.lwt_adj_forward)(s, d, &self.bc),
             input,
             output,
             shape,
-            &axes,
+            axes,
             level,
         );
     }
@@ -226,13 +248,17 @@ where
         axes: &[usize],
         level: usize,
     ) {
-        let axes = HashSet::from_iter(axes.iter().cloned());
+        let level = if level == 0 {
+            max_level_nd(self.width, shape, axes)
+        } else {
+            level
+        };
         general_nd_forward_multilevel(
             |s, d| (self.lwt_adj_inverse)(s, d, &self.bc),
             input,
             output,
             shape,
-            &axes,
+            axes,
             level,
         );
     }
@@ -252,8 +278,12 @@ where
         axes: &[usize],
         level: usize,
     ) {
-        let axes = HashSet::from_iter(axes.iter().cloned());
         let shape = input.shape();
+        let level = if level == 0 {
+            max_level_nd(self.width, shape, axes)
+        } else {
+            level
+        };
         assert_eq!(
             shape,
             output.shape(),
@@ -265,7 +295,7 @@ where
             input,
             output,
             shape,
-            &axes,
+            axes,
             level,
         );
     }
@@ -278,8 +308,12 @@ where
         axes: &[usize],
         level: usize,
     ) {
-        let axes = HashSet::from_iter(axes.iter().cloned());
         let shape = input.shape();
+        let level = if level == 0 {
+            max_level_nd(self.width, shape, axes)
+        } else {
+            level
+        };
         assert_eq!(
             shape,
             output.shape(),
@@ -291,7 +325,7 @@ where
             input,
             output,
             shape,
-            &axes,
+            axes,
             level,
         );
     }
@@ -304,8 +338,12 @@ where
         axes: &[usize],
         level: usize,
     ) {
-        let axes = HashSet::from_iter(axes.iter().cloned());
         let shape = input.shape();
+        let level = if level == 0 {
+            max_level_nd(self.width, shape, axes)
+        } else {
+            level
+        };
         assert_eq!(
             shape,
             output.shape(),
@@ -317,7 +355,7 @@ where
             input,
             output,
             shape,
-            &axes,
+            axes,
             level,
         );
     }
@@ -330,8 +368,12 @@ where
         axes: &[usize],
         level: usize,
     ) {
-        let axes = HashSet::from_iter(axes.iter().cloned());
         let shape = input.shape();
+        let level = if level == 0 {
+            max_level_nd(self.width, shape, axes)
+        } else {
+            level
+        };
         assert_eq!(
             shape,
             output.shape(),
@@ -343,7 +385,7 @@ where
             input,
             output,
             shape,
-            &axes,
+            axes,
             level,
         );
     }
@@ -354,7 +396,7 @@ fn general_nd_forward_multilevel<F, T, L, const N: usize>(
     input: &L,
     output: &mut L,
     shape: &[usize],
-    axes: &HashSet<usize>,
+    axes: &[usize],
     level: usize,
 ) where
     F: Fn(&mut [T], &mut [T]),
@@ -362,6 +404,7 @@ fn general_nd_forward_multilevel<F, T, L, const N: usize>(
     T: Clone + Zero + ChunkWidth<T, N>,
 {
     let ndim = shape.len();
+    let axes = HashSet::<_>::from_iter(axes.iter().cloned());
     assert!(axes.iter().all(|i| *i < ndim));
     // note that axes is a HashSet, so they are gauranteed to be different axes.
 
@@ -369,7 +412,7 @@ fn general_nd_forward_multilevel<F, T, L, const N: usize>(
 
     let mut sub_shape = shape.to_owned();
     for _level in 0..level {
-        for &ax in axes {
+        for &ax in &axes {
             let n_ax = sub_shape[ax];
 
             let n_d = n_ax / 2;
@@ -453,7 +496,7 @@ fn general_nd_forward_multilevel<F, T, L, const N: usize>(
         }
 
         // shrink shape for each axis we used.
-        for &ax in axes {
+        for &ax in &axes {
             if sub_shape[ax] > 1 {
                 sub_shape[ax] = (sub_shape[ax] + 1) / 2;
             }
@@ -466,7 +509,7 @@ fn general_nd_inverse_multilevel<F, T, L, const N: usize>(
     input: &L,
     output: &mut L,
     shape: &[usize],
-    axes: &HashSet<usize>,
+    axes: &[usize],
     level: usize,
 ) where
     F: Fn(&mut [T], &mut [T]),
@@ -474,6 +517,7 @@ fn general_nd_inverse_multilevel<F, T, L, const N: usize>(
     T: Clone + Zero + ChunkWidth<T, N>,
 {
     let ndim = shape.len();
+    let axes = HashSet::<_>::from_iter(axes.iter().cloned());
     assert!(axes.iter().all(|i| *i < ndim));
     // note that axes is a HashSet, so they are gauranteed to be different axes.
 
@@ -501,7 +545,7 @@ fn general_nd_inverse_multilevel<F, T, L, const N: usize>(
     let shape_levels = (0..level)
         .map(|_| {
             let next_shape = sub_shape.clone();
-            for &ax in axes {
+            for &ax in &axes {
                 if sub_shape[ax] > 1 {
                     sub_shape[ax] = (sub_shape[ax] + 1) / 2;
                 }
@@ -512,7 +556,7 @@ fn general_nd_inverse_multilevel<F, T, L, const N: usize>(
 
     for lvl in (0..level).rev() {
         let sub_shape = &shape_levels[lvl];
-        for &ax in axes {
+        for &ax in &axes {
             let n_ax = sub_shape[ax];
 
             let n_d = n_ax / 2;
@@ -557,133 +601,69 @@ pub mod parallel {
     use crate::iter::parallel::LanesParallelIterator;
     use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 
-    /// Parallel LWT driver.
-    ///
-    /// Identical interface to [`super::super::WaveletTransform`] but uses Rayon to
-    /// process lanes in parallel.
-    pub struct WaveletTransform<T, BC, const N: usize>
-    where
-        T: SimdTransformable + Zero + ChunkWidth<T, N> + Sync + Send,
-        BC: BoundaryExtension,
-    {
-        lwt_forward: fn(&mut [T], &mut [T], &BC),
-        lwt_inverse: fn(&mut [T], &mut [T], &BC),
-        lwt_adj_forward: fn(&mut [T], &mut [T], &BC),
-        lwt_adj_inverse: fn(&mut [T], &mut [T], &BC),
-        bc: BC,
-    }
-
     impl<T, BC, const N: usize> WaveletTransform<T, BC, N>
     where
         T: SimdTransformable + Zero + ChunkWidth<T, N> + Sync + Send,
         BC: BoundaryExtension,
     {
-        /// Construct a new parallel LWT driver for the given wavelet family and boundary condition.
-        pub fn new(wvlt: Wavelets, bc: BC) -> Self {
-            use crate::lwt::bior::*;
-            use crate::lwt::coiflet::*;
-            use crate::lwt::daubechies::*;
-            use crate::lwt::symlet::*;
-            let lwt_forward: fn(&mut [T], &mut [T], &BC) = generate_wavelet_match_arms! {
-                Wavelets,
-                wvlt,
-                {#wvlt::forward,}
-            };
-            let lwt_inverse: fn(&mut [T], &mut [T], &BC) = generate_wavelet_match_arms! {
-                Wavelets,
-                wvlt,
-                {#wvlt::inverse,}
-            };
-            let lwt_adj_forward: fn(&mut [T], &mut [T], &BC) = generate_wavelet_match_arms! {
-                Wavelets,
-                wvlt,
-                {#wvlt::adjoint_forward,}
-            };
-            let lwt_adj_inverse: fn(&mut [T], &mut [T], &BC) = generate_wavelet_match_arms! {
-                Wavelets,
-                wvlt,
-                {#wvlt::adjoint_inverse,}
-            };
-            Self {
-                lwt_forward,
-                lwt_inverse,
-                lwt_adj_forward,
-                lwt_adj_inverse,
-                bc,
-            }
-        }
-
-        /// Forward LWT (parallel, 1-D).
-        pub fn forward_1d(&self, input: &[T], s: &mut [T], d: &mut [T]) {
-            deinterleave(input, s, d);
-            (self.lwt_forward)(s, d, &self.bc);
-        }
-
-        /// Inverse LWT (parallel, 1-D).
-        pub fn inverse_1d(&self, s: &[T], d: &[T], output: &mut [T]) {
-            let (mut s, mut d) = (s.to_owned(), d.to_owned());
-            (self.lwt_inverse)(&mut s, &mut d, &self.bc);
-            interleave(&s, &d, output);
-        }
-
-        /// Adjoint forward LWT (parallel, 1-D).
-        pub fn adj_forward_1d(&self, s: &[T], d: &[T], output: &mut [T]) {
-            let (mut s, mut d) = (s.to_owned(), d.to_owned());
-            (self.lwt_adj_forward)(&mut s, &mut d, &self.bc);
-            interleave(&s, &d, output);
-        }
-
-        /// Adjoint inverse LWT (parallel, 1-D).
-        pub fn adj_inverse_1d(&self, input: &[T], s: &mut [T], d: &mut [T]) {
-            deinterleave(input, s, d);
-            (self.lwt_adj_inverse)(s, d, &self.bc);
-        }
-
         /// Single-level parallel forward LWT along the given `axes`.
-        pub fn forward_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
-            let axes = HashSet::from_iter(axes.iter().cloned());
-            self.forward_multilevel_nd(input, output, shape, &axes, 1);
+        pub fn par_forward_nd(
+            &self,
+            input: &[T],
+            output: &mut [T],
+            shape: &[usize],
+            axes: &[usize],
+        ) {
+            self.par_forward_multilevel_nd(input, output, shape, &axes, 1);
         }
 
         /// Single-level parallel inverse LWT along the given `axes`.
-        pub fn inverse_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
-            let axes = HashSet::from_iter(axes.iter().cloned());
-            self.inverse_multilevel_nd(input, output, shape, &axes, 1);
+        pub fn par_inverse_nd(
+            &self,
+            input: &[T],
+            output: &mut [T],
+            shape: &[usize],
+            axes: &[usize],
+        ) {
+            self.par_inverse_multilevel_nd(input, output, shape, axes, 1);
         }
 
         /// Single-level parallel adjoint forward LWT along the given `axes`.
-        pub fn adj_forward_nd(
+        pub fn par_adj_forward_nd(
             &self,
             input: &[T],
             output: &mut [T],
             shape: &[usize],
             axes: &[usize],
         ) {
-            let axes = HashSet::from_iter(axes.iter().cloned());
-            self.adj_forward_multilevel_nd(input, output, shape, &axes, 1);
+            self.par_adj_forward_multilevel_nd(input, output, shape, axes, 1);
         }
 
         /// Single-level parallel adjoint inverse LWT along the given `axes`.
-        pub fn adj_inverse_nd(
+        pub fn par_adj_inverse_nd(
             &self,
             input: &[T],
             output: &mut [T],
             shape: &[usize],
             axes: &[usize],
         ) {
-            let axes = HashSet::from_iter(axes.iter().cloned());
-            self.adj_inverse_multilevel_nd(input, output, shape, &axes, 1);
+            self.par_adj_inverse_multilevel_nd(input, output, shape, axes, 1);
         }
 
         /// Multi-level parallel forward LWT along the given `axes`.
-        pub fn forward_multilevel_nd(
+        pub fn par_forward_multilevel_nd(
             &self,
             input: &[T],
             output: &mut [T],
             shape: &[usize],
-            axes: &HashSet<usize>,
+            axes: &[usize],
             level: usize,
         ) {
+            let level = if level == 0 {
+                max_level_nd(self.width, shape, axes)
+            } else {
+                level
+            };
             general_nd_forward_multilevel(
                 |s, d| (self.lwt_forward)(s, d, &self.bc),
                 input,
@@ -695,14 +675,19 @@ pub mod parallel {
         }
 
         /// Multi-level parallel inverse LWT along the given `axes`.
-        pub fn inverse_multilevel_nd(
+        pub fn par_inverse_multilevel_nd(
             &self,
             input: &[T],
             output: &mut [T],
             shape: &[usize],
-            axes: &HashSet<usize>,
+            axes: &[usize],
             level: usize,
         ) {
+            let level = if level == 0 {
+                max_level_nd(self.width, shape, axes)
+            } else {
+                level
+            };
             general_nd_inverse_multilevel(
                 |s, d| (self.lwt_inverse)(s, d, &self.bc),
                 input,
@@ -714,14 +699,19 @@ pub mod parallel {
         }
 
         /// Multi-level parallel adjoint forward LWT along the given `axes`.
-        pub fn adj_forward_multilevel_nd(
+        pub fn par_adj_forward_multilevel_nd(
             &self,
             input: &[T],
             output: &mut [T],
             shape: &[usize],
-            axes: &HashSet<usize>,
+            axes: &[usize],
             level: usize,
         ) {
+            let level = if level == 0 {
+                max_level_nd(self.width, shape, axes)
+            } else {
+                level
+            };
             general_nd_inverse_multilevel(
                 |s, d| (self.lwt_adj_forward)(s, d, &self.bc),
                 input,
@@ -733,14 +723,19 @@ pub mod parallel {
         }
 
         /// Multi-level parallel adjoint inverse LWT along the given `axes`.
-        pub fn adj_inverse_multilevel_nd(
+        pub fn par_adj_inverse_multilevel_nd(
             &self,
             input: &[T],
             output: &mut [T],
             shape: &[usize],
-            axes: &HashSet<usize>,
+            axes: &[usize],
             level: usize,
         ) {
+            let level = if level == 0 {
+                max_level_nd(self.width, shape, axes)
+            } else {
+                level
+            };
             general_nd_forward_multilevel(
                 |s, d| (self.lwt_adj_inverse)(s, d, &self.bc),
                 input,
@@ -759,15 +754,19 @@ pub mod parallel {
         BC: BoundaryExtension,
     {
         /// Forward LWT applied to an ndarray (parallel, multi-level).
-        pub fn forward_ndarray_multilevel<D: Dimension>(
+        pub fn par_forward_ndarray_multilevel<D: Dimension>(
             &self,
             input: &ArrayRef<T, D>,
             output: &mut ArrayRef<T, D>,
             axes: &[usize],
             level: usize,
         ) {
-            let axes = HashSet::from_iter(axes.iter().cloned());
             let shape = input.shape();
+            let level = if level == 0 {
+                max_level_nd(self.width, shape, axes)
+            } else {
+                level
+            };
             assert_eq!(
                 shape,
                 output.shape(),
@@ -779,21 +778,25 @@ pub mod parallel {
                 input,
                 output,
                 shape,
-                &axes,
+                axes,
                 level,
             );
         }
 
         /// Inverse LWT applied to an ndarray (parallel, multi-level).
-        pub fn inverse_ndarray_multilevel<D: Dimension>(
+        pub fn par_inverse_ndarray_multilevel<D: Dimension>(
             &self,
             input: &ArrayRef<T, D>,
             output: &mut ArrayRef<T, D>,
             axes: &[usize],
             level: usize,
         ) {
-            let axes = HashSet::from_iter(axes.iter().cloned());
             let shape = input.shape();
+            let level = if level == 0 {
+                max_level_nd(self.width, shape, axes)
+            } else {
+                level
+            };
             assert_eq!(
                 shape,
                 output.shape(),
@@ -805,20 +808,24 @@ pub mod parallel {
                 input,
                 output,
                 shape,
-                &axes,
+                axes,
                 level,
             );
         }
         /// Adjoint forward LWT applied to an ndarray (parallel, multi-level).
-        pub fn adj_forward_ndarray_multilevel<D: Dimension>(
+        pub fn par_adj_forward_ndarray_multilevel<D: Dimension>(
             &self,
             input: &ArrayRef<T, D>,
             output: &mut ArrayRef<T, D>,
             axes: &[usize],
             level: usize,
         ) {
-            let axes = HashSet::from_iter(axes.iter().cloned());
             let shape = input.shape();
+            let level = if level == 0 {
+                max_level_nd(self.width, shape, axes)
+            } else {
+                level
+            };
             assert_eq!(
                 shape,
                 output.shape(),
@@ -830,20 +837,19 @@ pub mod parallel {
                 input,
                 output,
                 shape,
-                &axes,
+                axes,
                 level,
             );
         }
 
         /// Adjoint inverse LWT applied to an ndarray (parallel, multi-level).
-        pub fn adj_inverse_ndarray_multilevel<D: Dimension>(
+        pub fn par_adj_inverse_ndarray_multilevel<D: Dimension>(
             &self,
             input: &ArrayRef<T, D>,
             output: &mut ArrayRef<T, D>,
             axes: &[usize],
             level: usize,
         ) {
-            let axes = HashSet::from_iter(axes.iter().cloned());
             let shape = input.shape();
             assert_eq!(
                 shape,
@@ -856,7 +862,7 @@ pub mod parallel {
                 input,
                 output,
                 shape,
-                &axes,
+                axes,
                 level,
             );
         }
@@ -867,7 +873,7 @@ pub mod parallel {
         input: &L,
         output: &mut L,
         shape: &[usize],
-        axes: &HashSet<usize>,
+        axes: &[usize],
         level: usize,
     ) where
         F: Fn(&mut [T], &mut [T]) + Sync,
@@ -875,6 +881,7 @@ pub mod parallel {
         T: Clone + Zero + ChunkWidth<T, N> + Send + Sync,
     {
         let ndim = shape.len();
+        let axes = HashSet::<_>::from_iter(axes.iter().cloned());
         assert!(axes.iter().all(|i| *i < ndim));
         // note that axes is a HashSet, so they are gauranteed to be different axes.
 
@@ -882,7 +889,7 @@ pub mod parallel {
 
         let mut sub_shape = shape.to_owned();
         for _level in 0..level {
-            for &ax in axes {
+            for &ax in &axes {
                 let n_ax = sub_shape[ax];
 
                 let n_d = n_ax / 2;
@@ -973,7 +980,7 @@ pub mod parallel {
                 }
             }
             // shrink shape for each axis we used.
-            for &ax in axes {
+            for &ax in &axes {
                 if sub_shape[ax] > 1 {
                     sub_shape[ax] = (sub_shape[ax] + 1) / 2;
                 }
@@ -986,7 +993,7 @@ pub mod parallel {
         input: &L,
         output: &mut L,
         shape: &[usize],
-        axes: &HashSet<usize>,
+        axes: &[usize],
         level: usize,
     ) where
         F: Fn(&mut [T], &mut [T]) + Sync,
@@ -994,6 +1001,7 @@ pub mod parallel {
         T: Clone + Zero + ChunkWidth<T, N> + Send + Sync,
     {
         let ndim = shape.len();
+        let axes = HashSet::<_>::from_iter(axes.iter().cloned());
         assert!(axes.iter().all(|i| *i < ndim));
         // note that axes is a HashSet, so they are gauranteed to be different axes.
 
@@ -1021,7 +1029,7 @@ pub mod parallel {
         let shape_levels = (0..level)
             .map(|_| {
                 let next_shape = sub_shape.clone();
-                for &ax in axes {
+                for &ax in &axes {
                     if sub_shape[ax] > 1 {
                         sub_shape[ax] = (sub_shape[ax] + 1) / 2;
                     }
@@ -1032,7 +1040,7 @@ pub mod parallel {
 
         for lvl in (0..level).rev() {
             let sub_shape = &shape_levels[lvl];
-            for &ax in axes {
+            for &ax in &axes {
                 let n_ax = sub_shape[ax];
 
                 let n_d = n_ax / 2;
@@ -1093,7 +1101,7 @@ mod tests {
     ) {
         let shape = vec![n; dim];
 
-        let axes = HashSet::from_iter(0..dim);
+        let axes = (0..dim).collect_vec();
         let n_total = shape.iter().product();
         let v1 = (0..n_total).map(|i| i as f64).collect_vec();
         let mut v2 = vec![0.0; n_total];
@@ -1133,7 +1141,7 @@ mod tests {
     ) {
         let shape = vec![n; dim];
 
-        let axes = HashSet::from_iter(0..dim);
+        let axes = (0..dim).collect_vec();
         let n_total = shape.iter().product();
         let v1 = (0..n_total).map(|i| i as f64).collect_vec();
         let mut v2 = vec![0.0; n_total];

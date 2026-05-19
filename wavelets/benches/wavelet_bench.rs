@@ -311,7 +311,7 @@ fn broadcasted_vs_strided_db2(c: &mut Criterion) {
     use wavelets::Wavelets;
     use wavelets::boundarys::ZeroBoundary;
     use wavelets::lwt::LiftingTransform;
-    use wavelets::lwt::driver::parallel::WaveletTransform;
+    use wavelets::lwt::driver::WaveletTransform;
     use wavelets::utils::deinterleave_nd;
 
     let n = 500;
@@ -330,7 +330,7 @@ fn broadcasted_vs_strided_db2(c: &mut Criterion) {
 
     group.bench_function("using driver", |b| {
         b.iter(|| {
-            trans.forward_nd(&x, &mut sd, &shape, &axes);
+            trans.par_forward_nd(&x, &mut sd, &shape, &axes);
         })
     });
 
@@ -357,7 +357,7 @@ fn broadcasted_vs_strided_db4(c: &mut Criterion) {
     use wavelets::Wavelets;
     use wavelets::boundarys::ZeroBoundary;
     use wavelets::lwt::LiftingTransform;
-    use wavelets::lwt::driver::parallel::WaveletTransform;
+    use wavelets::lwt::driver::WaveletTransform;
     use wavelets::utils::deinterleave_nd;
 
     let n = 500;
@@ -376,7 +376,7 @@ fn broadcasted_vs_strided_db4(c: &mut Criterion) {
 
     group.bench_function("using driver", |b| {
         b.iter(|| {
-            trans.forward_nd(&x, &mut sd, &shape, &axes);
+            trans.par_forward_nd(&x, &mut sd, &shape, &axes);
         })
     });
 
@@ -404,7 +404,7 @@ fn broadcasted_vs_strided_db6(c: &mut Criterion) {
     use wavelets::Wavelets;
     use wavelets::boundarys::ZeroBoundary;
     use wavelets::lwt::LiftingTransform;
-    use wavelets::lwt::driver::parallel::WaveletTransform;
+    use wavelets::lwt::driver::WaveletTransform;
     use wavelets::utils::deinterleave_nd;
 
     let n = 500;
@@ -423,7 +423,7 @@ fn broadcasted_vs_strided_db6(c: &mut Criterion) {
 
     group.bench_function("using driver", |b| {
         b.iter(|| {
-            trans.forward_nd(&x, &mut sd, &shape, &axes);
+            trans.par_forward_nd(&x, &mut sd, &shape, &axes);
         })
     });
 

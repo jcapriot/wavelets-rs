@@ -16,7 +16,7 @@ pub fn test_lwt_driver_db2_single_level_1d_along() {
     let axes = [1];
     let wvlt = Wavelets::Daubechies2;
     let bc = BoundaryCondition::Periodic;
-    let trans: WaveletTransform<f64, _, _> = WaveletTransform::new(wvlt, bc);
+    let trans = WaveletTransform::new(wvlt, bc);
 
     let n_ax = shape[axes[0]]; // 35
     let ns = (n_ax + 1) / 2; // 18
@@ -49,7 +49,7 @@ pub fn test_lwt_driver_db2_single_level_1d_across() {
     let axes = [0];
     let wvlt = Wavelets::Daubechies2;
     let bc = BoundaryCondition::Periodic;
-    let trans: WaveletTransform<f64, _, _> = WaveletTransform::new(wvlt, bc);
+    let trans = WaveletTransform::new(wvlt, bc);
 
     let n_ax = shape[axes[0]]; // 30
     let ns = (n_ax + 1) / 2; // 15
@@ -84,7 +84,7 @@ pub fn test_lwt_driver_db2_single_2d() {
     let axes = [0, 1];
     let wvlt = Wavelets::Daubechies2;
     let bc = BoundaryCondition::Periodic;
-    let trans: WaveletTransform<f64, _, _> = WaveletTransform::new(wvlt, bc);
+    let trans = WaveletTransform::new(wvlt, bc);
 
     let n_total = shape.iter().product();
     let x: Vec<f64> = (0..n_total).map(|i| (i * i) as f64 / 3.0).collect();
@@ -109,7 +109,7 @@ pub fn test_lwt_driver_db2_multi_level_1d() {
     let level = 3;
     let wvlt = Wavelets::Daubechies2;
     let bc = BoundaryCondition::Periodic;
-    let trans: WaveletTransform<f64, _, _> = WaveletTransform::new(wvlt, bc);
+    let trans = WaveletTransform::new(wvlt, bc);
 
     let n_ax = shape[axes[0]]; // 35
     let ns1 = (n_ax + 1) / 2; // 18
@@ -161,7 +161,7 @@ pub fn test_lwt_driver_inv_db2_single_level_1d_along() {
     let axes = [1];
     let wvlt = Wavelets::Daubechies2;
     let bc = BoundaryCondition::Periodic;
-    let trans: WaveletTransform<f64, _, _> = WaveletTransform::new(wvlt, bc);
+    let trans = WaveletTransform::new(wvlt, bc);
 
     let n_total = shape.iter().product();
     let x: Vec<f64> = (0..n_total).map(|i| (i + 1) as f64).collect();
@@ -181,7 +181,7 @@ pub fn test_lwt_driver_inv_db2_single_level_1d_across() {
     let axes = [0];
     let wvlt = Wavelets::Daubechies2;
     let bc = BoundaryCondition::Periodic;
-    let trans: WaveletTransform<f64, _, _> = WaveletTransform::new(wvlt, bc);
+    let trans = WaveletTransform::new(wvlt, bc);
 
     let n_total = shape.iter().product();
     let x: Vec<f64> = (0..n_total).map(|i| (i + 1) as f64).collect();
@@ -201,7 +201,7 @@ pub fn test_lwt_driver_inv_db2_single_level_2d() {
     let axes = [0, 1];
     let wvlt = Wavelets::Daubechies2;
     let bc = BoundaryCondition::Periodic;
-    let trans: WaveletTransform<f64, _, _> = WaveletTransform::new(wvlt, bc);
+    let trans = WaveletTransform::new(wvlt, bc);
 
     let n_total = shape.iter().product();
     let x: Vec<f64> = (0..n_total).map(|i| (i + 1) as f64).collect();
@@ -222,7 +222,7 @@ pub fn test_lwt_driver_inv_db2_multi_level_1d() {
     let level = 3;
     let wvlt = Wavelets::Daubechies2;
     let bc = BoundaryCondition::Periodic;
-    let trans: WaveletTransform<f64, _, _> = WaveletTransform::new(wvlt, bc);
+    let trans = WaveletTransform::new(wvlt, bc);
 
     let n_total = shape.iter().product();
     let x: Vec<f64> = (0..n_total).map(|i| (i + 1) as f64).collect();
@@ -243,7 +243,7 @@ pub fn test_lwt_driver_inv_db2_multi_level_2d() {
     let level = 3;
     let wvlt = Wavelets::Daubechies2;
     let bc = BoundaryCondition::Periodic;
-    let trans: WaveletTransform<f64, _, _> = WaveletTransform::new(wvlt, bc);
+    let trans = WaveletTransform::new(wvlt, bc);
 
     let n_total = shape.iter().product();
     let x: Vec<f64> = (0..n_total).map(|i| (i + 1) as f64).collect();
@@ -267,7 +267,7 @@ pub fn test_lwt_driver_inv_db2_zero_bc_multi_level_1d() {
     let axes = [1];
     let level = 3;
     let wvlt = Wavelets::Daubechies2;
-    let trans: WaveletTransform<f64, _, _> = WaveletTransform::new(wvlt, ZeroBoundary {});
+    let trans = WaveletTransform::new(wvlt, ZeroBoundary {});
 
     let n_total = shape.iter().product();
     let x: Vec<f64> = (0..n_total).map(|i| (i + 1) as f64).collect();
@@ -291,19 +291,19 @@ pub fn test_lwt_driver_inv_db2_zero_bc_multi_level_1d() {
 #[case(Wavelets::Daubechies2, 1)]
 #[case(Wavelets::Daubechies4, 1)]
 #[case(Wavelets::Daubechies4, 3)]
-#[case(Wavelets::Symlet4,     1)]
-#[case(Wavelets::Symlet4,     3)]
-#[case(Wavelets::Coiflet2,    1)]
-#[case(Wavelets::Coiflet2,    3)]
-#[case(Wavelets::Bior2_2,     1)]
-#[case(Wavelets::Bior2_2,     3)]
-#[case(Wavelets::CDF9_7,      1)]
-#[case(Wavelets::CDF9_7,      3)]
+#[case(Wavelets::Symlet4, 1)]
+#[case(Wavelets::Symlet4, 3)]
+#[case(Wavelets::Coiflet2, 1)]
+#[case(Wavelets::Coiflet2, 3)]
+#[case(Wavelets::Bior2_2, 1)]
+#[case(Wavelets::Bior2_2, 3)]
+#[case(Wavelets::CDF9_7, 1)]
+#[case(Wavelets::CDF9_7, 3)]
 pub fn test_round_trip_wavelet_families(#[case] wvlt: Wavelets, #[case] level: usize) {
     let shape = [30, 35];
     let axes = [1];
     let bc = BoundaryCondition::Periodic;
-    let trans: WaveletTransform<f64, _, _> = WaveletTransform::new(wvlt, bc);
+    let trans = WaveletTransform::new(wvlt, bc);
 
     let n_total = shape.iter().product();
     let x: Vec<f64> = (0..n_total).map(|i| (i as f64 + 1.0) * 0.37).collect();
@@ -325,16 +325,16 @@ pub fn test_round_trip_wavelet_families(#[case] wvlt: Wavelets, #[case] level: u
 #[case(Wavelets::Daubechies2, 1)]
 #[case(Wavelets::Daubechies4, 1)]
 #[case(Wavelets::Daubechies4, 3)]
-#[case(Wavelets::Symlet4,     1)]
-#[case(Wavelets::Coiflet2,    1)]
-#[case(Wavelets::Bior2_2,     1)]
-#[case(Wavelets::CDF9_7,      1)]
+#[case(Wavelets::Symlet4, 1)]
+#[case(Wavelets::Coiflet2, 1)]
+#[case(Wavelets::Bior2_2, 1)]
+#[case(Wavelets::CDF9_7, 1)]
 pub fn test_adj_forward_wavelet_families(#[case] wvlt: Wavelets, #[case] level: usize) {
     let n: usize = 64;
     let shape = [n];
     let axes = [0];
     let bc = BoundaryCondition::Periodic;
-    let trans: WaveletTransform<f64, _, _> = WaveletTransform::new(wvlt, bc);
+    let trans = WaveletTransform::new(wvlt, bc);
 
     let u: Vec<f64> = (0..n).map(|i| (i as f64 * 0.31 + 1.0).sin()).collect();
     let v: Vec<f64> = (0..n).map(|i| (i as f64 * 0.17 + 0.5).cos()).collect();
@@ -355,16 +355,16 @@ pub fn test_adj_forward_wavelet_families(#[case] wvlt: Wavelets, #[case] level: 
 #[case(Wavelets::Daubechies2, 1)]
 #[case(Wavelets::Daubechies4, 1)]
 #[case(Wavelets::Daubechies4, 3)]
-#[case(Wavelets::Symlet4,     1)]
-#[case(Wavelets::Coiflet2,    1)]
-#[case(Wavelets::Bior2_2,     1)]
-#[case(Wavelets::CDF9_7,      1)]
+#[case(Wavelets::Symlet4, 1)]
+#[case(Wavelets::Coiflet2, 1)]
+#[case(Wavelets::Bior2_2, 1)]
+#[case(Wavelets::CDF9_7, 1)]
 pub fn test_adj_inverse_wavelet_families(#[case] wvlt: Wavelets, #[case] level: usize) {
     let n: usize = 64;
     let shape = [n];
     let axes = [0];
     let bc = BoundaryCondition::Periodic;
-    let trans: WaveletTransform<f64, _, _> = WaveletTransform::new(wvlt, bc);
+    let trans = WaveletTransform::new(wvlt, bc);
 
     let u: Vec<f64> = (0..n).map(|i| (i as f64 * 0.31 + 1.0).sin()).collect();
     let v: Vec<f64> = (0..n).map(|i| (i as f64 * 0.17 + 0.5).cos()).collect();
@@ -443,4 +443,3 @@ pub fn test_round_trip_complex64() {
     wavelets::tests::test_approx_equal(&x2_re, &x_re, 1e-12, 1e-10);
     wavelets::tests::test_approx_equal(&x2_im, &x_im, 1e-12, 1e-10);
 }
-
