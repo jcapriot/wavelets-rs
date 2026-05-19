@@ -1,3 +1,5 @@
+use num_complex::{Complex32, Complex64};
+use rstest::rstest;
 use wavelets::Wavelets;
 use wavelets::boundarys::{PeriodicBoundary, ZeroBoundary};
 use wavelets::dwt::driver::{WaveletTransform, WaveletTransformPer, get_transform_shape};
@@ -809,4 +811,143 @@ pub fn test_dwt_driver_inv_db2_per_multi_level_2d() {
     trans.inverse_multilevel_nd(&mut sd, &mut x2, &shape, &axes, level);
 
     wavelets::tests::test_approx_equal(&x2, &x, 1E-12, 1E-10);
+}
+
+// ── Parametrised wavelet-family tests ──────────────────────────────────────────
+
+/// Forward + inverse round-trip for the non-periodic DWT.
+///
+/// For all wavelet families and levels 1 and 3, checks that
+/// `inverse(forward(x)) ≈ x` on a 2-D signal with the default zero boundary.
+#[rstest]
+#[case(Wavelets::Daubechies4, 1)]
+#[case(Wavelets::Daubechies4, 3)]
+#[case(Wavelets::Symlet4,     1)]
+#[case(Wavelets::Symlet4,     3)]
+#[case(Wavelets::Coiflet2,    1)]
+#[case(Wavelets::Coiflet2,    3)]
+#[case(Wavelets::Bior2_2,     1)]
+#[case(Wavelets::Bior2_2,     3)]
+#[case(Wavelets::CDF9_7,      1)]
+#[case(Wavelets::CDF9_7,      3)]
+pub fn test_round_trip_wavelet_families(#[case] wvlt: Wavelets, #[case] level: usize) {
+    let shape = [30, 35];
+    let axes = [1];
+    let bc = ZeroBoundary {};
+    let trans: WaveletTransform<f64, _, _> = WaveletTransform::new(wvlt, bc);
+
+    let out_shape = get_transform_shape(&shape, &axes, level, wvlt.width(), false);
+    let n_in = shape.iter().product::<usize>();
+    let n_out = out_shape.iter().product::<usize>();
+
+    let x: Vec<f64> = (0..n_in).map(|i| (i as f64 + 1.0) * 0.37).collect();
+    let mut sd = vec![0.0f64; n_out];
+    trans.forward_multilevel_nd(&x, &mut sd, &shape, &axes, level);
+
+    let mut x2 = vec![0.0f64; n_in];
+    trans.inverse_multilevel_nd(&mut sd, &mut x2, &shape, &axes, level);
+
+    wavelets::tests::test_approx_equal(&x2, &x, 1e-12, 1e-10);
+}
+
+/// Adjoint property: `<v, T(u)> ≈ <T*(v), u>` where `T` is the forward DWT and
+/// `T*` is `adj_forward`.
+#[rstest]
+#[case(Wavelets::Daubechies4, 1)]
+#[case(Wavelets::Daubechies4, 3)]
+#[case(Wavelets::Symlet4,     1)]
+#[case(Wavelets::Coiflet2,    1)]
+#[case(Wavelets::Bior2_2,     1)]
+#[case(Wavelets::CDF9_7,      1)]
+pub fn test_adj_forward_wavelet_families(#[case] wvlt: Wavelets, #[case] level: usize) {
+    let n_signal: usize = 64;
+    let shape = [n_signal];
+    let axes = [0];
+    let bc = ZeroBoundary {};
+    let trans: WaveletTransform<f64, _, _> = WaveletTransform::new(wvlt, bc);
+
+    let out_shape = get_transform_shape(&shape, &axes, level, wvlt.width(), false);
+    let n_in = n_signal;
+    let n_out = out_shape.iter().product::<usize>();
+
+    let u: Vec<f64> = (0..n_in).map(|i| (i as f64 * 0.31 + 1.0).sin()).collect();
+    let v: Vec<f64> = (0..n_out).map(|i| (i as f64 * 0.17 + 0.5).cos()).collect();
+
+    wavelets::tests::test_approx_adjoint(
+        |u, fu| trans.forward_multilevel_nd(u, fu, &shape, &axes, level),
+        |v, atv| {
+            let mut tmp = v.to_owned();
+            trans.adj_forward_multilevel_nd(&mut tmp, atv, &shape, &axes, level)
+        },
+        &u,
+        &v,
+        1e-12,
+        1e-10,
+    );
+}
+
+/// Round-trip test using `Complex32` element type.
+#[test]
+pub fn test_round_trip_complex32() {
+    let wvlt = Wavelets::Daubechies4;
+    let shape = [32];
+    let axes = [0];
+    let level = 2;
+    let bc = ZeroBoundary {};
+
+    let out_shape = get_transform_shape(&shape, &axes, level, wvlt.width(), false);
+    let n_in = shape.iter().product::<usize>();
+    let n_out = out_shape.iter().product::<usize>();
+
+    let x: Vec<Complex32> = (0..n_in)
+        .map(|i| Complex32::new(i as f32 * 0.5, -(i as f32) * 0.3))
+        .collect();
+    let mut sd = vec![Complex32::new(0.0, 0.0); n_out];
+
+    // Let the compiler infer the correct SIMD chunk width N for Complex32.
+    let trans = WaveletTransform::new(wvlt, bc);
+    trans.forward_multilevel_nd(&x, &mut sd, &shape, &axes, level);
+
+    let mut x2 = vec![Complex32::new(0.0, 0.0); n_in];
+    trans.inverse_multilevel_nd(&mut sd, &mut x2, &shape, &axes, level);
+
+    let x_re: Vec<f32> = x.iter().map(|c| c.re).collect();
+    let x2_re: Vec<f32> = x2.iter().map(|c| c.re).collect();
+    let x_im: Vec<f32> = x.iter().map(|c| c.im).collect();
+    let x2_im: Vec<f32> = x2.iter().map(|c| c.im).collect();
+    wavelets::tests::test_approx_equal(&x2_re, &x_re, 1e-5, 1e-4);
+    wavelets::tests::test_approx_equal(&x2_im, &x_im, 1e-5, 1e-4);
+}
+
+/// Round-trip test using `Complex64` element type.
+#[test]
+pub fn test_round_trip_complex64() {
+    let wvlt = Wavelets::Daubechies4;
+    let shape = [32];
+    let axes = [0];
+    let level = 2;
+    let bc = ZeroBoundary {};
+
+    let out_shape = get_transform_shape(&shape, &axes, level, wvlt.width(), false);
+    let n_in = shape.iter().product::<usize>();
+    let n_out = out_shape.iter().product::<usize>();
+
+    let x: Vec<Complex64> = (0..n_in)
+        .map(|i| Complex64::new(i as f64 * 0.5, -(i as f64) * 0.3))
+        .collect();
+    let mut sd = vec![Complex64::new(0.0, 0.0); n_out];
+
+    // Let the compiler infer the correct SIMD chunk width N for Complex64.
+    let trans = WaveletTransform::new(wvlt, bc);
+    trans.forward_multilevel_nd(&x, &mut sd, &shape, &axes, level);
+
+    let mut x2 = vec![Complex64::new(0.0, 0.0); n_in];
+    trans.inverse_multilevel_nd(&mut sd, &mut x2, &shape, &axes, level);
+
+    let x_re: Vec<f64> = x.iter().map(|c| c.re).collect();
+    let x2_re: Vec<f64> = x2.iter().map(|c| c.re).collect();
+    let x_im: Vec<f64> = x.iter().map(|c| c.im).collect();
+    let x2_im: Vec<f64> = x2.iter().map(|c| c.im).collect();
+    wavelets::tests::test_approx_equal(&x2_re, &x_re, 1e-12, 1e-10);
+    wavelets::tests::test_approx_equal(&x2_im, &x_im, 1e-12, 1e-10);
 }

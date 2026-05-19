@@ -94,11 +94,19 @@ pub fn generate_wavelet_enum(input: proc_macro::TokenStream) -> proc_macro::Toke
         extras,
     } = parse_macro_input!(input as WaveletEnum);
     let wvlts = wavelet_idents();
+    let docs: Vec<String> = WVLTS
+        .iter()
+        .map(|v| format!("The {} wavelet.", v))
+        .collect();
     quote! {
         #extras
+        /// Wavelet family selector.
+        ///
+        /// Pass one of these variants to [`dwt::driver::WaveletTransform::new`] or
+        /// [`lwt::driver::WaveletTransform::new`] to select the filter coefficients.
         #[derive(#(#derives),*)]
-        pub enum #enum_name{
-            #(#wvlts), *
+        pub enum #enum_name {
+            #(#[doc = #docs] #wvlts),*
         }
     }
     .into()
@@ -1479,19 +1487,19 @@ fn generate_forward_op(steps: &[LiftingStep<LitFloat>]) -> TokenStream {
     quote! {
         fn forward<T, BC>(s: &mut [T], d: &mut [T], bc: &BC)
         where
-            T: crate::SimdTransformable,
+            T: crate::simd::SimdTransformable,
             BC: crate::boundarys::BoundaryExtension
         {
             use ::itertools::izip;
             struct Impl<'a, 'b, 'c, T, BC>(&'a mut [T], &'b mut [T], &'c BC);
-            impl<'a, 'b, 'c, T, BC> ::pulp::WithSimd for Impl<'a, 'b, 'c, T, BC>
+            impl<'a, 'b, 'c, T, BC> crate::simd::WithSimd for Impl<'a, 'b, 'c, T, BC>
             where
-                T: crate::SimdTransformable,
+                T: crate::simd::SimdTransformable,
                 BC: crate::boundarys::BoundaryExtension
             {
                 type Output = ();
                 #[inline(always)]
-                fn with_simd<S: ::pulp::Simd>(self, simd: S) -> Self::Output {
+                fn with_simd<S: crate::simd::Simd>(self, simd: S) -> Self::Output {
                     let s = self.0;
                     let d = self.1;
                     let bc = self.2;
@@ -1503,7 +1511,7 @@ fn generate_forward_op(steps: &[LiftingStep<LitFloat>]) -> TokenStream {
                 }
             }
 
-            crate::ARCH.dispatch(Impl(s, d, bc));
+            crate::simd::ARCH.dispatch(Impl(s, d, bc));
         }
     }
 }
@@ -1520,19 +1528,19 @@ fn generate_inverse_op(steps: &[LiftingStep<LitFloat>]) -> TokenStream {
     quote! {
         fn inverse<T, BC>(s: &mut [T], d: &mut [T], bc: &BC)
         where
-            T: crate::SimdTransformable,
+            T: crate::simd::SimdTransformable,
             BC: crate::boundarys::BoundaryExtension
         {
             use ::itertools::izip;
             struct Impl<'a, 'b, 'c, T, BC>(&'a mut [T], &'b mut [T], &'c BC);
-            impl<'a, 'b, 'c, T, BC> ::pulp::WithSimd for Impl<'a, 'b, 'c, T, BC>
+            impl<'a, 'b, 'c, T, BC> crate::simd::WithSimd for Impl<'a, 'b, 'c, T, BC>
             where
-                T: crate::SimdTransformable,
+                T: crate::simd::SimdTransformable,
                 BC: crate::boundarys::BoundaryExtension
             {
                 type Output = ();
                 #[inline(always)]
-                fn with_simd<S: ::pulp::Simd>(self, simd: S) -> Self::Output {
+                fn with_simd<S: crate::simd::Simd>(self, simd: S) -> Self::Output {
                     let s = self.0;
                     let d = self.1;
                     let bc = self.2;
@@ -1544,7 +1552,7 @@ fn generate_inverse_op(steps: &[LiftingStep<LitFloat>]) -> TokenStream {
                 }
             }
 
-            crate::ARCH.dispatch(Impl(s, d, bc));
+            crate::simd::ARCH.dispatch(Impl(s, d, bc));
         }
     }
 }
@@ -1561,19 +1569,19 @@ fn generate_adjoint_inverse_op(steps: &[LiftingStep<LitFloat>]) -> TokenStream {
     quote! {
         fn adjoint_inverse<T, BC>(s: &mut [T], d: &mut [T], bc: &BC)
         where
-            T: crate::SimdTransformable,
+            T: crate::simd::SimdTransformable,
             BC: crate::boundarys::BoundaryExtension
         {
             use ::itertools::izip;
             struct Impl<'a, 'b, 'c, T, BC>(&'a mut [T], &'b mut [T], &'c BC);
-            impl<'a, 'b, 'c, T, BC> ::pulp::WithSimd for Impl<'a, 'b, 'c, T, BC>
+            impl<'a, 'b, 'c, T, BC> crate::simd::WithSimd for Impl<'a, 'b, 'c, T, BC>
             where
-                T: crate::SimdTransformable,
+                T: crate::simd::SimdTransformable,
                 BC: crate::boundarys::BoundaryExtension
             {
                 type Output = ();
                 #[inline(always)]
-                fn with_simd<S: ::pulp::Simd>(self, simd: S) -> Self::Output {
+                fn with_simd<S: crate::simd::Simd>(self, simd: S) -> Self::Output {
                     let s = self.0;
                     let d = self.1;
                     let bc = self.2;
@@ -1585,7 +1593,7 @@ fn generate_adjoint_inverse_op(steps: &[LiftingStep<LitFloat>]) -> TokenStream {
                 }
             }
 
-            crate::ARCH.dispatch(Impl(s, d, bc));
+            crate::simd::ARCH.dispatch(Impl(s, d, bc));
         }
     }
 }
@@ -1602,19 +1610,19 @@ fn generate_adjoint_forward_op(steps: &[LiftingStep<LitFloat>]) -> TokenStream {
     quote! {
         fn adjoint_forward<T, BC>(s: &mut [T], d: &mut [T], bc: &BC)
         where
-            T: crate::SimdTransformable,
+            T: crate::simd::SimdTransformable,
             BC: crate::boundarys::BoundaryExtension
         {
             use ::itertools::izip;
             struct Impl<'a, 'b, 'c, T, BC>(&'a mut [T], &'b mut [T], &'c BC);
-            impl<'a, 'b, 'c, T, BC> ::pulp::WithSimd for Impl<'a, 'b, 'c, T, BC>
+            impl<'a, 'b, 'c, T, BC> crate::simd::WithSimd for Impl<'a, 'b, 'c, T, BC>
             where
-                T: crate::SimdTransformable,
+                T: crate::simd::SimdTransformable,
                 BC: crate::boundarys::BoundaryExtension
             {
                 type Output = ();
                 #[inline(always)]
-                fn with_simd<S: ::pulp::Simd>(self, simd: S) -> Self::Output {
+                fn with_simd<S: crate::simd::Simd>(self, simd: S) -> Self::Output {
                     let s = self.0;
                     let d = self.1;
                     let bc = self.2;
@@ -1626,7 +1634,7 @@ fn generate_adjoint_forward_op(steps: &[LiftingStep<LitFloat>]) -> TokenStream {
                 }
             }
 
-            crate::ARCH.dispatch(Impl(s, d, bc));
+            crate::simd::ARCH.dispatch(Impl(s, d, bc));
         }
     }
 }

@@ -28,10 +28,15 @@ use num_traits::Zero;
 use crate::Transformable;
 use crate::boundarys::{BoundaryExtension, PeriodicBoundary, ZeroBoundary};
 
+/// Biorthogonal wavelet coefficient tables.
 pub mod bior;
+/// Coiflet wavelet coefficient tables.
 pub mod coiflet;
+/// Daubechies wavelet coefficient tables.
 pub mod daubechies;
+/// High-level DWT driver: [`driver::WaveletTransform`] and [`driver::WaveletTransformPer`].
 pub mod driver;
+/// Symlet wavelet coefficient tables.
 pub mod symlet;
 
 /// Compile-time filter coefficients and default transform methods for a specific wavelet.
@@ -69,6 +74,17 @@ pub trait DiscreteTransform<const N: usize> {
     #[inline]
     fn inverse<T: Transformable + Zero>(s: &[T], d: &[T], x: &mut [T]) {
         dwt_inverse(&Self::GI, &Self::HI, s, d, x);
+    }
+
+    /// Adjoint (transpose) of the forward DWT.
+    ///
+    /// Applies reversed analysis filters via [`dwt_inverse`], which is the
+    /// mathematical transpose of the forward convolution-downsample operation.
+    #[inline]
+    fn adjoint_forward<T: Transformable + Zero>(s: &[T], d: &[T], x: &mut [T]) {
+        let ga: [_; N] = Self::G.clone().into_iter().rev().collect_array().unwrap();
+        let ha: [_; N] = Self::H.clone().into_iter().rev().collect_array().unwrap();
+        dwt_inverse(&ga, &ha, s, d, x);
     }
 
     /// Adjoint (transpose) of the inverse DWT.
@@ -126,15 +142,19 @@ pub fn get_outlen(width: usize, n: usize) -> usize {
 /// Compile-time assertion that `N` is a valid filter length (≥ 2 and even).
 ///
 /// Evaluate `CheckCoefLen::<N>::VALID` in a const context to trigger the assert.
-pub struct CheckCoefLen<const N: usize>();
+struct CheckCoefLen<const N: usize>();
 impl<const N: usize> CheckCoefLen<N> {
     /// Asserts at compile time that `N >= 2` and `N % 2 == 0`.
-    pub const VALID: () = {
+    const VALID: () = {
         assert!(N >= 2, "Coefficient length must be 2 or more.");
         assert!(N % 2 == 0, "Coefficient length must be even.");
     };
 }
 
+/// Assert at compile time that a wavelet coefficient length `N` is valid (even and ≥ 2).
+///
+/// Emits a compile error if `N` is odd or less than 2.  Call this inside `const` blocks that
+/// accept a coefficient-length type parameter to get a clearer error message.
 #[macro_export]
 macro_rules! static_assert_valid_coefficient_length {
     ($N: ty) => {
@@ -143,7 +163,7 @@ macro_rules! static_assert_valid_coefficient_length {
 }
 
 /// Filter offset used to centre the convolution window for a filter of width `n`.
-pub const fn get_offset(n: usize) -> usize {
+const fn get_offset(n: usize) -> usize {
     (n - 2) / 2
 }
 

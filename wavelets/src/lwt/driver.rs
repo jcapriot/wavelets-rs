@@ -16,7 +16,7 @@ use crate::utils::{
 use crate::utils::{
     interleave, interleave_strided, interleave_strided_chunk, split_strided, split_strided_chunk,
 };
-use crate::{ChunkWidth, SimdTransformable};
+use crate::{ChunkWidth, simd::SimdTransformable};
 
 use wavelets_macros::generate_wavelet_match_arms;
 
@@ -44,6 +44,7 @@ where
     T: SimdTransformable + Zero + ChunkWidth<T, N>,
     BC: BoundaryExtension,
 {
+    wvlt: Wavelets,
     lwt_forward: fn(&mut [T], &mut [T], &BC),
     lwt_inverse: fn(&mut [T], &mut [T], &BC),
     lwt_adj_forward: fn(&mut [T], &mut [T], &BC),
@@ -87,6 +88,7 @@ where
             {#wvlt::adjoint_inverse,}
         };
         Self {
+            wvlt,
             lwt_forward,
             lwt_inverse,
             lwt_adj_forward,
@@ -242,6 +244,7 @@ where
     T: SimdTransformable + Zero + ChunkWidth<T, N>,
     BC: BoundaryExtension,
 {
+    /// Forward LWT applied to an ndarray (multi-level).
     pub fn forward_ndarray_multilevel<D: Dimension>(
         &self,
         input: &ArrayRef<T, D>,
@@ -266,6 +269,8 @@ where
             level,
         );
     }
+
+    /// Inverse LWT applied to an ndarray (multi-level).
     pub fn inverse_ndarray_multilevel<D: Dimension>(
         &self,
         input: &ArrayRef<T, D>,
@@ -290,6 +295,8 @@ where
             level,
         );
     }
+
+    /// Adjoint forward LWT applied to an ndarray (multi-level).
     pub fn adj_forward_ndarray_multilevel<D: Dimension>(
         &self,
         input: &ArrayRef<T, D>,
@@ -314,6 +321,8 @@ where
             level,
         );
     }
+
+    /// Adjoint inverse LWT applied to an ndarray (multi-level).
     pub fn adj_inverse_ndarray_multilevel<D: Dimension>(
         &self,
         input: &ArrayRef<T, D>,
@@ -538,12 +547,20 @@ fn general_nd_inverse_multilevel<F, T, L, const N: usize>(
 }
 
 #[cfg(feature = "rayon")]
+/// Rayon-parallel LWT drivers.
+///
+/// Mirrors the sequential [`super::WaveletTransform`] API but processes independent lanes
+/// on multiple threads via Rayon.
 pub mod parallel {
     use super::*;
 
     use crate::iter::parallel::LanesParallelIterator;
     use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 
+    /// Parallel LWT driver.
+    ///
+    /// Identical interface to [`super::super::WaveletTransform`] but uses Rayon to
+    /// process lanes in parallel.
     pub struct WaveletTransform<T, BC, const N: usize>
     where
         T: SimdTransformable + Zero + ChunkWidth<T, N> + Sync + Send,
@@ -561,6 +578,7 @@ pub mod parallel {
         T: SimdTransformable + Zero + ChunkWidth<T, N> + Sync + Send,
         BC: BoundaryExtension,
     {
+        /// Construct a new parallel LWT driver for the given wavelet family and boundary condition.
         pub fn new(wvlt: Wavelets, bc: BC) -> Self {
             use crate::lwt::bior::*;
             use crate::lwt::coiflet::*;
@@ -595,38 +613,45 @@ pub mod parallel {
             }
         }
 
+        /// Forward LWT (parallel, 1-D).
         pub fn forward_1d(&self, input: &[T], s: &mut [T], d: &mut [T]) {
             deinterleave(input, s, d);
             (self.lwt_forward)(s, d, &self.bc);
         }
 
+        /// Inverse LWT (parallel, 1-D).
         pub fn inverse_1d(&self, s: &[T], d: &[T], output: &mut [T]) {
             let (mut s, mut d) = (s.to_owned(), d.to_owned());
             (self.lwt_inverse)(&mut s, &mut d, &self.bc);
             interleave(&s, &d, output);
         }
 
+        /// Adjoint forward LWT (parallel, 1-D).
         pub fn adj_forward_1d(&self, s: &[T], d: &[T], output: &mut [T]) {
             let (mut s, mut d) = (s.to_owned(), d.to_owned());
             (self.lwt_adj_forward)(&mut s, &mut d, &self.bc);
             interleave(&s, &d, output);
         }
 
+        /// Adjoint inverse LWT (parallel, 1-D).
         pub fn adj_inverse_1d(&self, input: &[T], s: &mut [T], d: &mut [T]) {
             deinterleave(input, s, d);
             (self.lwt_adj_inverse)(s, d, &self.bc);
         }
 
+        /// Single-level parallel forward LWT along the given `axes`.
         pub fn forward_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
             let axes = HashSet::from_iter(axes.iter().cloned());
             self.forward_multilevel_nd(input, output, shape, &axes, 1);
         }
 
+        /// Single-level parallel inverse LWT along the given `axes`.
         pub fn inverse_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
             let axes = HashSet::from_iter(axes.iter().cloned());
             self.inverse_multilevel_nd(input, output, shape, &axes, 1);
         }
 
+        /// Single-level parallel adjoint forward LWT along the given `axes`.
         pub fn adj_forward_nd(
             &self,
             input: &[T],
@@ -638,6 +663,7 @@ pub mod parallel {
             self.adj_forward_multilevel_nd(input, output, shape, &axes, 1);
         }
 
+        /// Single-level parallel adjoint inverse LWT along the given `axes`.
         pub fn adj_inverse_nd(
             &self,
             input: &[T],
@@ -649,6 +675,7 @@ pub mod parallel {
             self.adj_inverse_multilevel_nd(input, output, shape, &axes, 1);
         }
 
+        /// Multi-level parallel forward LWT along the given `axes`.
         pub fn forward_multilevel_nd(
             &self,
             input: &[T],
@@ -667,6 +694,7 @@ pub mod parallel {
             );
         }
 
+        /// Multi-level parallel inverse LWT along the given `axes`.
         pub fn inverse_multilevel_nd(
             &self,
             input: &[T],
@@ -685,6 +713,7 @@ pub mod parallel {
             );
         }
 
+        /// Multi-level parallel adjoint forward LWT along the given `axes`.
         pub fn adj_forward_multilevel_nd(
             &self,
             input: &[T],
@@ -703,6 +732,7 @@ pub mod parallel {
             );
         }
 
+        /// Multi-level parallel adjoint inverse LWT along the given `axes`.
         pub fn adj_inverse_multilevel_nd(
             &self,
             input: &[T],
@@ -728,6 +758,7 @@ pub mod parallel {
         T: SimdTransformable + Zero + ChunkWidth<T, N> + Sync + Send,
         BC: BoundaryExtension,
     {
+        /// Forward LWT applied to an ndarray (parallel, multi-level).
         pub fn forward_ndarray_multilevel<D: Dimension>(
             &self,
             input: &ArrayRef<T, D>,
@@ -752,6 +783,8 @@ pub mod parallel {
                 level,
             );
         }
+
+        /// Inverse LWT applied to an ndarray (parallel, multi-level).
         pub fn inverse_ndarray_multilevel<D: Dimension>(
             &self,
             input: &ArrayRef<T, D>,
@@ -776,6 +809,7 @@ pub mod parallel {
                 level,
             );
         }
+        /// Adjoint forward LWT applied to an ndarray (parallel, multi-level).
         pub fn adj_forward_ndarray_multilevel<D: Dimension>(
             &self,
             input: &ArrayRef<T, D>,
@@ -800,6 +834,8 @@ pub mod parallel {
                 level,
             );
         }
+
+        /// Adjoint inverse LWT applied to an ndarray (parallel, multi-level).
         pub fn adj_inverse_ndarray_multilevel<D: Dimension>(
             &self,
             input: &ArrayRef<T, D>,

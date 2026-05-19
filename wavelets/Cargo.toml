@@ -15,7 +15,9 @@ pulp = "0.22.2"
 aligned-vec = "0.6.4"
 
 [features]
-default = ["rayon", "ndarray"]
+default = ["rayon", "ndarray", "x86-v3"]
+x86-v3 = ["pulp/x86-v3"]
+x86-v4 = ["pulp/x86-v4"]
 
 [dev-dependencies]
 criterion = "0.8.2"

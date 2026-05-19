@@ -17,14 +17,20 @@
 //! - [`driver`] — high-level [`driver::WaveletTransform`] for 1-D and N-D transforms.
 //! - [`daubechies`], [`symlet`], [`coiflet`], [`bior`] — per-family lifting steps.
 
+/// Biorthogonal lifting-scheme coefficient tables.
 pub mod bior;
+/// Coiflet lifting-scheme coefficient tables.
 pub mod coiflet;
+/// Daubechies lifting-scheme coefficient tables.
 pub mod daubechies;
+/// High-level LWT driver: [`driver::WaveletTransform`].
 pub mod driver;
+/// Symlet lifting-scheme coefficient tables.
 pub mod symlet;
 
+use crate::Transformable;
 use crate::boundarys::BoundaryExtension;
-use crate::{SimdTransformable, Transformable};
+use crate::simd::SimdTransformable;
 
 /// Lifting-scheme transform for a specific wavelet.
 ///

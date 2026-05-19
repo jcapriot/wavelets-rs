@@ -1,3 +1,9 @@
+//! Strided slice views and lane iterators over flat multi-dimensional arrays.
+//!
+//! This module provides [`StridedSliceRef`] — a lightweight non-owning view into a
+//! strided region of memory — and the concrete iterator types returned by
+//! [`super::LanesIterator`] and [`super::parallel::LanesParallelIterator`].
+
 use crate::utils::stride_from_shape;
 use std::ops::{ControlFlow, Deref, DerefMut};
 use std::{marker::PhantomData, ptr::NonNull};
@@ -38,14 +44,24 @@ pub(crate) fn unravel(flat_index: usize, shape: &[usize]) -> Vec<usize> {
     inds
 }
 
-// Some marker traits to track mutability
+/// Marker trait for readable strided data containers.
+///
+/// # Safety
+/// Implementors must guarantee that the underlying memory is valid for reads for the
+/// declared element type.
 pub unsafe trait Data: Sized {
+    /// The element type stored in the container.
     type Elem;
 }
 
+/// Marker trait for writable strided data containers.
+///
+/// # Safety
+/// Implementors must guarantee that the underlying memory is valid for reads and writes
+/// for the declared element type, and that no other reference aliases the same memory.
 pub unsafe trait DataMut: Data {}
 
-//struct to track the lifetime of the slice, which is not actually stored in the struct
+/// Phantom type used to attach lifetime information to strided slice views.
 pub struct SliceLifetime<T> {
     _member: PhantomData<T>,
 }
@@ -60,13 +76,14 @@ unsafe impl<'a, T> Data for SliceLifetime<&'a mut T> {
 
 unsafe impl<'a, T> DataMut for SliceLifetime<&'a mut T> {}
 
-// Methods for a single strided slice of data (inspired by `ndarray::ArrayView and ArrayRef`, but with only the needed methods for our use case, and with a more efficient implementation of iterators based on std::slice::Iter).
-pub struct StrideParts<T> {
+/// Raw pointer + length + stride triplet backing a strided slice view.
+struct StrideParts<T> {
     base: NonNull<T>,
     length: usize,
     stride: isize,
 }
 
+/// Owned strided slice view parameterised by a lifetime marker `L`.
 pub struct StridedSliceBase<L, T = <L as Data>::Elem>
 where
     L: Data<Elem = T>,
@@ -75,23 +92,36 @@ where
     _member: SliceLifetime<L>,
 }
 
+/// Non-owning strided view into a contiguous or strided memory region.
+///
+/// Provides indexed access and iteration over `length` elements spaced `stride`
+/// elements apart in memory.  The stride may be 1 (contiguous) or larger.
+///
+/// This type is used internally by lane iterators so that a single iterator
+/// implementation can handle both row-major flat slices and ndarray's arbitrary
+/// memory layouts.
 #[repr(transparent)]
 pub struct StridedSliceRef<T>(StrideParts<T>);
 impl<T> StridedSliceRef<T> {
+    /// Return a raw read-only pointer to the first element.
     #[inline]
     pub fn as_ptr(&self) -> *const T {
         self.0.base.as_ptr()
     }
+
+    /// Return a raw mutable pointer to the first element.
     #[inline]
     pub fn as_ptr_mut(&mut self) -> *mut T {
         self.0.base.as_ptr()
     }
 
+    /// Number of elements in this strided view.
     #[inline]
     pub fn len(&self) -> usize {
         self.0.length
     }
 
+    /// Return a reference to the element at `index`, or `None` if out of bounds.
     #[inline]
     pub fn get(&self, index: usize) -> Option<&T> {
         if index >= self.0.length {
@@ -101,12 +131,17 @@ impl<T> StridedSliceRef<T> {
         }
     }
 
+    /// Return a reference to the element at `index` without bounds checking.
+    ///
+    /// # Safety
+    /// `index` must be less than `self.len()`.
     #[inline]
     pub unsafe fn get_unchecked(&self, index: usize) -> &T {
         // SAFETY: index must be within bounds.
         unsafe { &*self.as_ptr().offset(index as isize * self.0.stride) }
     }
 
+    /// Return a mutable reference to the element at `index`, or `None` if out of bounds.
     #[inline]
     pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
         if index >= self.0.length {
@@ -117,11 +152,18 @@ impl<T> StridedSliceRef<T> {
     }
 
     #[inline]
+    /// Return a mutable reference to element `index` without bounds checking.
+    ///
+    /// # Safety
+    /// `index` must be less than `self.len()`.
     pub unsafe fn get_unchecked_mut(&mut self, index: usize) -> &mut T {
         // SAFETY: index must be within bounds.
         unsafe { &mut *self.as_ptr_mut().offset(index as isize * self.0.stride) }
     }
 
+    /// Return the underlying data as a regular `&[T]` slice, if the stride is 1.
+    ///
+    /// Returns `None` when the stride is greater than 1 (non-contiguous layout).
     #[inline]
     pub fn as_slice(&self) -> Option<&[T]> {
         if self.0.stride == 1 {
@@ -133,6 +175,9 @@ impl<T> StridedSliceRef<T> {
         }
     }
 
+    /// Return the underlying data as a mutable `&mut [T]` slice, if the stride is 1.
+    ///
+    /// Returns `None` when the stride is greater than 1.
     #[inline]
     pub fn as_slice_mut(&mut self) -> Option<&mut [T]> {
         if self.0.stride == 1 {
@@ -149,6 +194,7 @@ impl<T> StridedSliceRef<T> {
         }
     }
 
+    /// Iterate over elements in this strided view (read-only).
     #[inline]
     pub fn iter(&self) -> StridedIter<'_, T> {
         let start = self.0.base;
@@ -165,6 +211,7 @@ impl<T> StridedSliceRef<T> {
         }
     }
 
+    /// Iterate mutably over elements in this strided view.
     #[inline]
     pub fn iter_mut(&mut self) -> StridedIterMut<'_, T> {
         let start = self.0.base;
@@ -182,10 +229,13 @@ impl<T> StridedSliceRef<T> {
     }
 }
 
+/// Read-only strided slice view with an explicit lifetime.
 pub type StridedSlice<'a, T> = StridedSliceBase<SliceLifetime<&'a T>, T>;
+/// Mutable strided slice view with an explicit lifetime.
 pub type StridedSliceMut<'a, T> = StridedSliceBase<SliceLifetime<&'a mut T>, T>;
 
 impl<'a, T> StridedSlice<'a, T> {
+    /// Create a strided view over `slice` sampling every `stride` elements.
     pub fn from_slice(slice: &'a [T], stride: usize) -> Self {
         assert_ne!(slice.len(), 0);
         Self {
@@ -203,6 +253,7 @@ impl<'a, T> StridedSlice<'a, T> {
 }
 
 impl<'a, T> StridedSliceMut<'a, T> {
+    /// Create a mutable strided view over `slice` sampling every `stride` elements.
     pub fn from_slice_mut(slice: &'a mut [T], stride: usize) -> Self {
         assert_ne!(slice.len(), 0);
 
@@ -222,6 +273,7 @@ impl<'a, T> StridedSliceMut<'a, T> {
 
 macro_rules! implement_strided_iter {
     ($name:ident -> $ptr:ty, $elem:ty, {$( $mut_:tt )?}, $into_ref:ident) => {
+        /// Iterator over a [`StridedSliceRef`] that traverses elements with a fixed stride.
         pub struct $name<'a, T> {
             ptr: NonNull<T>,
             end: $ptr,
@@ -265,6 +317,7 @@ macro_rules! implement_strided_iter {
                 *end
             }
 
+            /// Return `true` if the iterator has been exhausted.
             #[inline(always)]
             pub fn is_iter_empty(&self) -> bool {
                 unsafe { self.ptr == std::mem::transmute::<$ptr, NonNull<T>>(self.end) }
@@ -408,14 +461,18 @@ where
     }
 }
 
-// Chunk
-pub struct ChunkStrideParts<T, const N: usize> {
+/// Raw backing storage for a chunk-strided slice of `N` parallel lanes.
+struct ChunkStrideParts<T, const N: usize> {
     base: NonNull<T>,
     offsets: [isize; N],
     length: usize,
     stride: isize,
 }
 
+/// `N`-lane parallel strided slice view parameterised by a lifetime marker `L`.
+///
+/// This is used to traverse `N` lanes simultaneously, enabling SIMD gather/scatter
+/// operations over non-contiguous memory layouts.
 pub struct ChunkStridedSliceBase<L, const N: usize, T = <L as Data>::Elem>
 where
     L: Data<Elem = T>,
@@ -424,12 +481,15 @@ where
     _member: SliceLifetime<L>,
 }
 
+/// Read-only `N`-lane parallel strided view with an explicit lifetime.
 pub type ChunkStridedSlice<'a, T, const N: usize> =
     ChunkStridedSliceBase<SliceLifetime<&'a T>, N, T>;
+/// Mutable `N`-lane parallel strided view with an explicit lifetime.
 pub type ChunkStridedSliceMut<'a, T, const N: usize> =
     ChunkStridedSliceBase<SliceLifetime<&'a mut T>, N, T>;
 
 impl<'a, T, const N: usize> ChunkStridedSlice<'a, T, N> {
+    /// Create an `N`-lane strided view for the `ind`-th group of lanes along axis `ax`.
     pub fn from_slice(slice: &'a [T], shape: &[usize], ax: usize, ind: usize) -> Self {
         assert_ne!(slice.len(), 0);
         assert_eq!(shape.iter().product::<usize>(), slice.len());
@@ -467,6 +527,7 @@ impl<'a, T, const N: usize> ChunkStridedSlice<'a, T, N> {
 }
 
 impl<'a, T, const N: usize> ChunkStridedSliceMut<'a, T, N> {
+    /// Create a mutable `N`-lane strided view for the `ind`-th group of lanes along axis `ax`.
     pub fn from_slice_mut(slice: &'a [T], shape: &[usize], ax: usize, ind: usize) -> Self {
         assert_ne!(slice.len(), 0);
         assert_eq!(shape.iter().cloned().product::<usize>(), slice.len());
@@ -679,6 +740,7 @@ fn lane_parts_from_ndarray<T, D: Dimension>(
 
 macro_rules! implement_lane_iter {
     ($name:ident -> $ptr:ty, $memb:ty, $elem:ty, {$( $mut_:tt )?}, $into_ref:ident) => {
+        /// Iterator that yields successive 1-D lanes of an N-dimensional array.
         pub struct $name<'a, T> {
             base: NonNull<T>,
             arr_info: ArrayInfo,
@@ -694,11 +756,14 @@ macro_rules! implement_lane_iter {
         unsafe impl<T: Sync> Sync for $name<'_, T> {}
 
         impl<'a, T> $name<'a, T> {
+            /// Create a lane iterator over the flat slice `arr` interpreted as an
+            /// N-dimensional array with the given `shape`, iterating lanes along `axis`.
             pub fn from_slice(arr: &'a $( $mut_ )? [T], shape: &[usize], axis: usize) -> Self {
                 let (ptr, arr_info) = lane_parts_from_slice(arr, shape, axis);
                 Self::new(ptr, arr_info)
             }
 
+            /// Create a lane iterator over the leading `sub_shape` elements of `arr`.
             pub fn from_sub_slice(
                 arr: &'a $( $mut_ )? [T],
                 shape: &[usize],
@@ -709,6 +774,7 @@ macro_rules! implement_lane_iter {
                 Self::new(ptr, arr_info)
             }
 
+            /// Create a lane iterator from an ndarray `ArrayRef`, using its strides.
             #[cfg(feature="ndarray")]
             pub fn from_ndarray<D: Dimension>(
                 arr: &'a $( $mut_ )? ArrayRef<T, D>,
@@ -886,11 +952,21 @@ macro_rules! implement_lane_iter {
 implement_lane_iter!(LaneSliceIter -> *const T, &'a T, StridedSlice<'a, T>, {}, as_ref);
 implement_lane_iter!(LaneSliceIterMut -> *mut T, &'a mut T, StridedSliceMut<'a, T>, {mut}, as_mut);
 
+/// Non-owning strided view over `N` interleaved lanes in a flat buffer.
+///
+/// `ChunkStridedSliceRef<T, N>` presents `N` parallel lanes of `T` values that step
+/// through memory with a common `stride`.  It is the `N`-lane analogue of
+/// [`StridedSliceRef`]: element `(i, j)` lives at `base + i * stride + offsets[j]`.
+///
+/// This type is `#[repr(transparent)]` over its internal [`ChunkStrideParts`], so it
+/// can be safely constructed via pointer casts inside [`ChunkStridedSliceBase`].
 #[repr(transparent)]
 pub struct ChunkStridedSliceRef<T, const N: usize>(ChunkStrideParts<T, N>);
 
 macro_rules! implement_chunk_strided_iter {
     ($name:ident -> $ptr:ty, $elem:ty, {$( $mut_:tt )?}, $into_ref:ident) => {
+        /// Iterator over `N`-element chunks within a strided lane, yielding non-contiguous
+        /// element references.
         pub struct $name<'a, T, const N: usize> {
             ptr: NonNull<T>,
             end: $ptr,
@@ -946,11 +1022,14 @@ macro_rules! implement_chunk_strided_iter {
                 *end
             }
 
+            /// Return `true` if the iterator has been exhausted.
             #[inline(always)]
             pub fn is_iter_empty(&self) -> bool {
                 unsafe { self.ptr == std::mem::transmute::<$ptr, NonNull<T>>(self.end) }
             }
 
+            /// Advance by `M` items and return them as an array, or return `None` if fewer
+            /// than `M` items remain.
             #[inline(always)]
             pub fn next_chunk<const M: usize>(&mut self) -> Option<[$elem; M]> {
                 if M > self.len() {
@@ -1066,6 +1145,8 @@ implement_chunk_strided_iter!(ChunkStridedIterMut -> *mut T, [&'a mut T; N], {},
 
 macro_rules! implement_continuous_chunk_strided_iter {
     ($name:ident -> $ptr:ty, $elem:ty, {$( $mut_:tt )?}, $into_ref:ident) => {
+        /// Iterator over `N`-element contiguous chunks within a strided lane, yielding
+        /// `&[T; N]` (or `&mut [T; N]`) slices.
         pub struct $name<'a, T, const N: usize> {
             ptr: NonNull<T>,
             end: $ptr,
@@ -1109,11 +1190,14 @@ macro_rules! implement_continuous_chunk_strided_iter {
                 *end
             }
 
+            /// Return `true` if the iterator has been exhausted.
             #[inline(always)]
             pub fn is_iter_empty(&self) -> bool {
                 unsafe { self.ptr == std::mem::transmute::<$ptr, NonNull<T>>(self.end) }
             }
 
+            /// Advance by `M` contiguous chunks and return them as an array, or return `None`
+            /// if fewer than `M` chunks remain.
             #[inline(always)]
             pub fn next_chunk<const M: usize>(&mut self) -> Option<[$elem; M]> {
                 if M > self.len() {
@@ -1228,20 +1312,25 @@ implement_continuous_chunk_strided_iter!(ContiguousChunkStridedIter -> *const T,
 implement_continuous_chunk_strided_iter!(ContiguousChunkStridedIterMut -> *mut T, &'a mut [T; N], {}, as_mut);
 
 impl<T, const N: usize> ChunkStridedSliceRef<T, N> {
+    /// Return a const pointer to the base element of this view.
     #[inline]
     pub fn as_ptr(&self) -> *const T {
         self.0.base.as_ptr()
     }
+
+    /// Return a mut pointer to the base element of this view.
     #[inline]
     pub fn as_ptr_mut(&mut self) -> *mut T {
         self.0.base.as_ptr()
     }
 
+    /// Number of positions (rows) in the view.  Each position holds `N` elements.
     #[inline]
     pub fn len(&self) -> usize {
         self.0.length
     }
 
+    /// Return a reference to element `(i0, i1)`, or `None` if either index is out of bounds.
     #[inline]
     pub fn get(&self, (i0, i1): (usize, usize)) -> Option<&T> {
         if (i0 >= self.0.length) || (i1 >= N) {
@@ -1251,6 +1340,10 @@ impl<T, const N: usize> ChunkStridedSliceRef<T, N> {
         }
     }
 
+    /// Return a reference to element `(i0, i1)` without bounds checking.
+    ///
+    /// # Safety
+    /// `i0 < self.len()` and `i1 < N` must both hold.
     #[inline]
     pub unsafe fn get_unchecked(&self, (i0, i1): (usize, usize)) -> &T {
         // SAFETY: Caller gaurantees that i0 is less than the slice length, and i1 is less than the chunk size N
@@ -1262,6 +1355,7 @@ impl<T, const N: usize> ChunkStridedSliceRef<T, N> {
         }
     }
 
+    /// Return a mutable reference to element `(i0, i1)`, or `None` if either index is out of bounds.
     #[inline]
     pub fn get_mut(&mut self, (i0, i1): (usize, usize)) -> Option<&mut T> {
         if (i0 >= self.0.length) || (i1 >= N) {
@@ -1271,6 +1365,10 @@ impl<T, const N: usize> ChunkStridedSliceRef<T, N> {
         }
     }
 
+    /// Return a mutable reference to element `(i0, i1)` without bounds checking.
+    ///
+    /// # Safety
+    /// `i0 < self.len()` and `i1 < N` must both hold.
     #[inline]
     pub unsafe fn get_unchecked_mut(&mut self, (i0, i1): (usize, usize)) -> &mut T {
         unsafe {
@@ -1280,16 +1378,21 @@ impl<T, const N: usize> ChunkStridedSliceRef<T, N> {
         }
     }
 
+    /// Return `true` if the `N` elements at each position are stored at consecutive addresses.
     #[inline(always)]
     pub fn is_chunk_contiguous(&self) -> bool {
         self.0.offsets.windows(2).all(|v| v[0] + 1 == v[1])
     }
 
+    /// Return `true` if both the inter-position stride equals `N` and the chunk is contiguous,
+    /// meaning the entire view is a flat `&[[T; N]]`.
     #[inline(always)]
     pub fn is_contiguous(&self) -> bool {
         (self.0.stride == N as isize) && self.is_chunk_contiguous()
     }
 
+    /// Reinterpret the view as a slice of `[T; N]` chunks, or `None` if the memory is not
+    /// fully contiguous.
     #[inline]
     pub fn as_chunks(&self) -> Option<&[[T; N]]> {
         if self.is_contiguous() {
@@ -1302,6 +1405,8 @@ impl<T, const N: usize> ChunkStridedSliceRef<T, N> {
         }
     }
 
+    /// Reinterpret the view as a mutable slice of `[T; N]` chunks, or `None` if not fully
+    /// contiguous.
     #[inline]
     pub fn as_chunks_mut(&mut self) -> Option<&mut [[T; N]]> {
         if self.is_contiguous() {
@@ -1316,6 +1421,7 @@ impl<T, const N: usize> ChunkStridedSliceRef<T, N> {
         }
     }
 
+    /// Return an iterator that yields `N`-element arrays at each position.
     #[inline]
     pub fn iter(&self) -> ChunkStridedIter<'_, T, N> {
         let start = self.0.base;
@@ -1333,6 +1439,8 @@ impl<T, const N: usize> ChunkStridedSliceRef<T, N> {
         }
     }
 
+    /// Return an iterator over contiguous `&[T; N]` slices when the chunk is contiguous,
+    /// or `None` otherwise.
     #[inline]
     pub fn slices(&self) -> Option<ContiguousChunkStridedIter<'_, T, N>> {
         if self.is_chunk_contiguous() {
@@ -1353,6 +1461,7 @@ impl<T, const N: usize> ChunkStridedSliceRef<T, N> {
         }
     }
 
+    /// Return a mutable iterator that yields `N`-element arrays at each position.
     #[inline]
     pub fn iter_mut(&mut self) -> ChunkStridedIterMut<'_, T, N> {
         let start = self.0.base;
@@ -1370,6 +1479,7 @@ impl<T, const N: usize> ChunkStridedSliceRef<T, N> {
         }
     }
 
+    /// Return a mutable iterator over contiguous `&mut [T; N]` slices when contiguous, or `None`.
     #[inline]
     pub fn slices_mut(&mut self) -> Option<ContiguousChunkStridedIterMut<'_, T, N>> {
         if self.is_chunk_contiguous() {
@@ -1427,6 +1537,11 @@ where
 
 macro_rules! implement_lane_chunk_iter {
     ($name:ident -> $ptr:ty, $memb:ty, $elem:ty, { $rem:tt }, {$( $mut_:tt )?}, $into_ref:ident) => {
+        /// Iterator over groups of `N` consecutive lanes within an N-dimensional array.
+        ///
+        /// Each item is a [`ChunkStridedSlice`] (or mutable variant) representing `N` parallel
+        /// lanes along the chosen axis.  Use [`remainder`](Self::remainder) to obtain the
+        /// leftover lanes when the total is not divisible by `N`.
         pub struct $name<'a, T, const N: usize> {
             base: NonNull<T>,
             arr_info: ArrayInfo,
@@ -1442,11 +1557,14 @@ macro_rules! implement_lane_chunk_iter {
         unsafe impl<T: Sync, const N: usize> Sync for $name<'_, T, N> {}
 
         impl<'a, T, const N: usize> $name<'a, T, N> {
+            /// Construct from a flat slice with the given `shape`, iterating chunks along `axis`.
             pub fn from_slice(arr: &'a $( $mut_ )? [T], shape: &[usize], axis: usize) -> Self {
                 let (ptr, arr_info) = lane_parts_from_slice(arr,  shape, axis);
                 Self::new(ptr, arr_info)
             }
 
+            /// Construct from a sub-region of a flat slice: the outer layout is `shape`, but
+            /// only the first `sub_shape[axis]` elements along `axis` are iterated.
             pub fn from_sub_slice(
                 arr: &'a $( $mut_ )? [T],
                 shape: &[usize],
@@ -1457,6 +1575,7 @@ macro_rules! implement_lane_chunk_iter {
                 Self::new(ptr, arr_info)
             }
 
+            /// Construct from an ndarray, iterating lane chunks along `axis`.
             #[cfg(feature="ndarray")]
             pub fn from_ndarray<D: Dimension>(
                 arr: &'a $( $mut_ )? ArrayRef<T, D>,
@@ -1518,6 +1637,7 @@ macro_rules! implement_lane_chunk_iter {
                 unsafe{self.base.offset(self.rear_offset)}
             }
 
+            /// Return an iterator over the leftover lanes that do not fill a complete chunk of `N`.
             pub fn remainder(&self) -> $rem<'a, T>{
                 let n_lanes = self.arr_info.n_lanes();
                 let n_remainder = n_lanes % N;
@@ -1679,6 +1799,7 @@ unsafe impl<T: Sync, const N: usize> Sync for ChunkStridedSliceRef<T, N> {}
 unsafe impl<T: Send, const N: usize> Send for ChunkStridedSliceRef<T, N> {}
 
 #[cfg(feature = "rayon")]
+/// Rayon-parallel lane iterators for flat slices and ndarray arrays.
 pub mod parallel {
     use super::*;
 
@@ -1687,6 +1808,7 @@ pub mod parallel {
 
     macro_rules! implement_lane_par_iter {
         ($par_name:ident, $prod_name:ident, $memb:ty, $item:ident, $into_iter:ident, {$( $mut_:tt )?}) => {
+            /// Rayon parallel iterator over 1-D lanes of an N-dimensional array.
             pub struct $par_name<'a, T> {
                 base: NonNull<T>,
                 arr_info: ArrayInfo,
@@ -1698,11 +1820,13 @@ pub mod parallel {
             unsafe impl<T: Sync> Sync for $par_name<'_, T> {}
 
             impl<'a, T> $par_name<'a, T> {
+                /// Construct from a flat slice with the given `shape`, iterating lanes along `axis`.
                 pub fn from_slice(arr: &'a $( $mut_ )? [T], shape: &[usize], axis: usize) -> Self {
                     let (ptr, arr_info) = lane_parts_from_slice(arr, shape, axis);
                     Self::new(ptr, arr_info)
                 }
 
+                /// Construct from a sub-region of a flat slice.
                 pub fn from_sub_slice(
                     arr: &'a $( $mut_ )? [T],
                     shape: &[usize],
@@ -1713,6 +1837,7 @@ pub mod parallel {
                     Self::new(ptr, arr_info)
                 }
 
+                /// Construct from an ndarray.
                 #[cfg(feature="ndarray")]
                 pub fn from_ndarray<D: Dimension>(
                     arr: &'a $( $mut_ )? ArrayRef<T, D>,
@@ -1844,6 +1969,7 @@ pub mod parallel {
 
     macro_rules! implement_lane_chunk_par_iter {
         ($par_name:ident, $prod_name:ident, $memb:ty, $item:ident, $into_iter:ident, {$rem_iter:tt}, {$( $mut_:tt )?}) => {
+            /// Rayon parallel iterator over groups of `N` lanes in an N-dimensional array.
             pub struct $par_name<'a, T, const N: usize> {
                 base: NonNull<T>,
                 arr_info: ArrayInfo,
@@ -1853,11 +1979,13 @@ pub mod parallel {
             unsafe impl<T: Sync, const N: usize> Sync for $par_name<'_, T, N> {}
 
             impl<'a, T, const N: usize> $par_name<'a, T, N> {
+                /// Construct from a flat slice with the given `shape`, chunking lanes along `axis`.
                 pub fn from_slice(arr: &'a $( $mut_ )? [T], shape: &[usize], axis: usize) -> Self {
                     let (ptr, arr_info) = lane_parts_from_slice(arr, shape, axis);
                     Self::new(ptr, arr_info)
                 }
 
+                /// Construct from a sub-region of a flat slice.
                 pub fn from_sub_slice(
                     arr: &'a $( $mut_ )? [T],
                     shape: &[usize],
@@ -1868,6 +1996,7 @@ pub mod parallel {
                     Self::new(ptr, arr_info)
                 }
 
+                /// Construct from an ndarray.
                 #[cfg(feature="ndarray")]
                 pub fn from_ndarray<D: Dimension>(
                     arr: &'a $( $mut_ )? ArrayRef<T, D>,
@@ -1887,6 +2016,7 @@ pub mod parallel {
                     }
                 }
 
+                /// Return a parallel iterator over the leftover lanes that do not fill a chunk of `N`.
                 pub fn remainder(&self) -> $rem_iter<'a, T>{
                     let n_lanes = self.arr_info.n_lanes();
                     let n_remainder = n_lanes % N;

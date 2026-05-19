@@ -58,6 +58,11 @@ pub fn deinterleave<T: Clone>(x: &[T], evens: &mut [T], odds: &mut [T]) {
     }
 }
 
+/// Deinterleave a 2-D row-major array: separate even- and odd-indexed elements along the
+/// first axis, then recursively along the second axis.
+///
+/// `shape` is `[rows, cols]`.  `output` receives the same total number of elements rearranged
+/// so that approximation coefficients precede detail coefficients along each axis.
 #[inline]
 pub fn deinterleave_2d<T: Clone>(input: &[T], output: &mut [T], shape: &[usize; 2]) {
     let n_total: usize = shape.iter().product();
@@ -90,6 +95,10 @@ pub fn deinterleave_2d<T: Clone>(input: &[T], output: &mut [T], shape: &[usize; 
     });
 }
 
+/// Deinterleave an N-D row-major array along the first axis at every level of the shape.
+///
+/// Dispatches to [`deinterleave`], [`deinterleave_2d`], or a recursive N-D implementation
+/// based on `shape.len()`.
 #[inline]
 pub fn deinterleave_nd<T: Clone>(input: &[T], output: &mut [T], shape: &[usize]) {
     match shape.len() {
@@ -154,6 +163,10 @@ fn deinterleave_nd_unchecked<T: Clone>(input: &[T], output: &mut [T], shape: &[u
     }
 }
 
+/// Deinterleave a strided lane into even- and odd-indexed flat buffers.
+///
+/// Equivalent to [`deinterleave`] but reads from a [`StridedSliceRef`] instead of a plain
+/// slice; takes a fast path when the view happens to be contiguous.
 #[inline]
 pub fn deinterleave_strided<T: Clone>(x: &StridedSliceRef<T>, evens: &mut [T], odds: &mut [T]) {
     if let Some(x) = x.as_slice() {
@@ -181,6 +194,11 @@ pub fn deinterleave_strided<T: Clone>(x: &StridedSliceRef<T>, evens: &mut [T], o
     }
 }
 
+/// Deinterleave `N` parallel strided lanes into `N` aligned even-buffer and odd-buffer arrays.
+///
+/// `x` presents `N` interleaved lanes; `evens[j]` and `odds[j]` receive the even- and
+/// odd-indexed elements of lane `j`, respectively.  Takes a fast path when the chunk is
+/// contiguous.
 #[inline]
 pub fn deinterleave_strided_chunk<T: Clone, const N: usize, A: aligned_vec::Alignment>(
     x: &ChunkStridedSliceRef<T, N>,
@@ -245,6 +263,10 @@ pub fn deinterleave_strided_chunk<T: Clone, const N: usize, A: aligned_vec::Alig
     }
 }
 
+/// Write `first` at the start of `out` and `second` at the very end, zero-filling the gap.
+///
+/// Unlike a simple concatenation, the second half is placed at the tail of `out` rather than
+/// immediately after `first`.  This matches the layout expected by the inverse LWT.
 #[inline]
 pub fn stack<T: Clone + Zero>(first: &[T], second: &[T], out: &mut [T]) {
     // stacks first and second into out, but with the second half at the very end of out, instead of immediately after the first half.
@@ -270,6 +292,7 @@ pub fn stack<T: Clone + Zero>(first: &[T], second: &[T], out: &mut [T]) {
         .for_each(|(a, b)| *a = b);
 }
 
+/// Strided variant of [`stack`]: write `first` and `second` into a [`StridedSliceRef`] lane.
 #[inline]
 pub fn stack_to_strided<T: Clone + Zero>(first: &[T], second: &[T], out: &mut StridedSliceRef<T>) {
     if let Some(out) = out.as_slice_mut() {
@@ -296,6 +319,7 @@ pub fn stack_to_strided<T: Clone + Zero>(first: &[T], second: &[T], out: &mut St
     }
 }
 
+/// Chunk-strided variant of [`stack`]: write `N` aligned lanes into a [`ChunkStridedSliceRef`].
 #[inline]
 pub fn stack_to_strided_chunk<T: Clone + Zero, const N: usize, A: aligned_vec::Alignment>(
     first: &[AVec<T, A>; N],
@@ -353,6 +377,9 @@ pub fn stack_to_strided_chunk<T: Clone + Zero, const N: usize, A: aligned_vec::A
     }
 }
 
+/// Interleave even- and odd-indexed elements back into a single flat slice.
+///
+/// Inverse of [`deinterleave`]: `x[2*i] = evens[i]`, `x[2*i+1] = odds[i]`.
 #[inline]
 pub fn interleave<T: Clone>(evens: &[T], odds: &[T], x: &mut [T]) {
     let nx = x.len();
@@ -375,6 +402,7 @@ pub fn interleave<T: Clone>(evens: &[T], odds: &[T], x: &mut [T]) {
     }
 }
 
+/// Strided variant of [`interleave`]: write interleaved values into a [`StridedSliceRef`] lane.
 #[inline]
 pub fn interleave_strided<T: Clone>(evens: &[T], odds: &[T], x: &mut StridedSliceRef<T>) {
     if let Some(x) = x.as_slice_mut() {
@@ -393,6 +421,8 @@ pub fn interleave_strided<T: Clone>(evens: &[T], odds: &[T], x: &mut StridedSlic
     }
 }
 
+/// Chunk-strided variant of [`interleave`]: write `N` aligned lanes interleaved into a
+/// [`ChunkStridedSliceRef`].
 #[inline]
 pub fn interleave_strided_chunk<T: Clone, const N: usize, A: aligned_vec::Alignment>(
     evens: &[AVec<T, A>; N],
@@ -450,6 +480,10 @@ pub fn interleave_strided_chunk<T: Clone, const N: usize, A: aligned_vec::Alignm
     }
 }
 
+/// Split `x` into a leading `first` segment and a trailing `second` segment, skipping the gap.
+///
+/// `second` is taken from the tail of `x`, not from immediately after `first`.  This is the
+/// inverse of [`stack`].
 #[inline]
 pub fn split<T: Clone>(x: &[T], first: &mut [T], second: &mut [T]) {
     // splits x into first and second, but with the second at the very end of x, instead of immediately after the first.
@@ -470,6 +504,7 @@ pub fn split<T: Clone>(x: &[T], first: &mut [T], second: &mut [T]) {
     xs.iter().cloned().zip(second).for_each(|(a, b)| *b = a);
 }
 
+/// Strided variant of [`split`]: read from a [`StridedSliceRef`] lane.
 #[inline]
 pub fn split_strided<T: Clone>(x: &StridedSliceRef<T>, first: &mut [T], second: &mut [T]) {
     if let Some(x) = x.as_slice() {
@@ -493,6 +528,7 @@ pub fn split_strided<T: Clone>(x: &StridedSliceRef<T>, first: &mut [T], second: 
     }
 }
 
+/// Chunk-strided variant of [`split`]: read `N` interleaved lanes from a [`ChunkStridedSliceRef`].
 #[inline]
 pub fn split_strided_chunk<T: Clone, const N: usize, A: aligned_vec::Alignment>(
     x: &ChunkStridedSliceRef<T, N>,
@@ -558,6 +594,10 @@ pub fn split_strided_chunk<T: Clone, const N: usize, A: aligned_vec::Alignment>(
     }
 }
 
+/// In-place interleave of a slice: rearranges so that the even-half and odd-half are merged.
+///
+/// The first half of `x` is treated as even elements and the second half as odd elements;
+/// after the call `x[2*i] == old_x[i]` and `x[2*i+1] == old_x[n/2 + i]`.
 #[inline]
 pub fn interleave_inplace<T: Clone>(x: &mut [T]) {
     let n = x.len();
@@ -587,12 +627,14 @@ pub fn interleave_inplace<T: Clone>(x: &mut [T]) {
     }
 }
 
+/// Copy elements of `x` into `out`, stopping at whichever slice is shorter.
 #[inline]
 pub fn clone_slice<T: Clone>(x: &[T], out: &mut [T]) {
     // clones x into out, based on the shorter of the two slices' lengths.
     x.iter().cloned().zip(out).for_each(|(a, b)| *b = a);
 }
 
+/// Copy elements of a [`StridedSliceRef`] lane into a flat slice.
 #[inline]
 pub fn clone_strided_to_slice<T: Clone>(x: &StridedSliceRef<T>, out: &mut [T]) {
     // clones x into out, based on the shorter of the two slices' lengths.
@@ -603,6 +645,7 @@ pub fn clone_strided_to_slice<T: Clone>(x: &StridedSliceRef<T>, out: &mut [T]) {
     }
 }
 
+/// Copy the first `out[0].len()` positions from a [`ChunkStridedSliceRef`] into `N` aligned vecs.
 #[inline]
 pub fn clone_strided_chunk_to_avecs<T: Clone, const N: usize, A: aligned_vec::Alignment>(
     x: &ChunkStridedSliceRef<T, N>,
@@ -640,6 +683,7 @@ pub fn clone_strided_chunk_to_avecs<T: Clone, const N: usize, A: aligned_vec::Al
     }
 }
 
+/// Copy elements of a flat slice into a [`StridedSliceRef`] lane.
 #[inline]
 pub fn clone_slice_to_strided<T: Clone>(x: &[T], out: &mut StridedSliceRef<T>) {
     if let Some(out) = out.as_slice_mut() {
@@ -652,6 +696,9 @@ pub fn clone_slice_to_strided<T: Clone>(x: &[T], out: &mut StridedSliceRef<T>) {
     }
 }
 
+/// Copy `N` aligned vecs into a [`ChunkStridedSliceRef`] lane.
+///
+/// `x[j][i]` is written to position `(i, j)` of `out`.  Writes exactly `x[0].len()` positions.
 #[inline]
 pub fn clone_avecs_to_strided_chunk<T: Clone, const N: usize, A: aligned_vec::Alignment>(
     x: &[AVec<T, A>; N],
