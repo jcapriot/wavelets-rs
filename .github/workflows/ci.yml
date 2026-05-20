@@ -52,3 +52,6 @@ jobs:
       - name: Test (no default features)
         if: matrix.os == 'ubuntu-latest'
         run: cargo test -p wavelets --no-default-features
+      - name: Build (x86-v4)
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo build -p wavelets --features x86-v4
