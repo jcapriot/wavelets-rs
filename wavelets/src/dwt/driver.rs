@@ -236,9 +236,11 @@ where
             output,
             in_shape,
             &out_shape,
-            axes,
-            level,
-            self.width,
+            TransformParams {
+                axes,
+                level,
+                width: self.width,
+            },
         );
     }
 
@@ -269,9 +271,11 @@ where
             output,
             &in_shape,
             out_shape,
-            axes,
-            level,
-            self.width,
+            TransformParams {
+                axes,
+                level,
+                width: self.width,
+            },
         );
     }
 
@@ -306,9 +310,11 @@ where
             output,
             &in_shape,
             out_shape,
-            axes,
-            level,
-            self.width,
+            TransformParams {
+                axes,
+                level,
+                width: self.width,
+            },
         );
     }
 
@@ -335,9 +341,11 @@ where
             output,
             in_shape,
             &out_shape,
-            axes,
-            level,
-            self.width,
+            TransformParams {
+                axes,
+                level,
+                width: self.width,
+            },
         );
     }
 }
@@ -377,9 +385,11 @@ where
             output,
             in_shape,
             &out_shape,
-            axes,
-            level,
-            self.width,
+            TransformParams {
+                axes,
+                level,
+                width: self.width,
+            },
         );
     }
 
@@ -413,9 +423,11 @@ where
             output,
             &in_shape,
             &out_shape,
-            axes,
-            level,
-            self.width,
+            TransformParams {
+                axes,
+                level,
+                width: self.width,
+            },
         );
     }
 
@@ -450,9 +462,11 @@ where
             output,
             &in_shape,
             &out_shape,
-            axes,
-            level,
-            self.width,
+            TransformParams {
+                axes,
+                level,
+                width: self.width,
+            },
         );
     }
 
@@ -485,9 +499,11 @@ where
             output,
             in_shape,
             &out_shape,
-            axes,
-            level,
-            self.width,
+            TransformParams {
+                axes,
+                level,
+                width: self.width,
+            },
         );
     }
 }
@@ -830,20 +846,25 @@ where
     }
 }
 
+struct TransformParams<'a> {
+    axes: &'a [usize],
+    level: usize,
+    width: usize,
+}
+
 fn general_nd_forward_multilevel<F, T, L, const N: usize>(
     func: F,
     input: &L,
     output: &mut L,
     in_shape: &[usize],
     out_shape: &[usize],
-    axes: &[usize],
-    level: usize,
-    width: usize,
+    params: TransformParams,
 ) where
     F: Fn(&[T], &mut [T], &mut [T]),
     L: LanesIterator<Item = T> + ?Sized,
     T: Clone + Zero + ChunkWidth<T, N>,
 {
+    let TransformParams { axes, level, width } = params;
     let ndim = in_shape.len();
     let axes = HashSet::<_>::from_iter(axes.iter().cloned());
     assert_eq!(
@@ -960,7 +981,7 @@ fn general_nd_forward_multilevel<F, T, L, const N: usize>(
             let n_ax = in_sub_shape[ax];
             let n_sd = get_outlen(width, n_ax);
             if n_sd > 1 {
-                out_sub_shape[ax] = out_sub_shape[ax] - n_sd;
+                out_sub_shape[ax] -= n_sd;
                 in_sub_shape[ax] = n_sd;
             }
         }
@@ -973,14 +994,13 @@ fn general_nd_inverse_multilevel<F, T, L, const N: usize>(
     output: &mut L,
     in_shape: &[usize],
     out_shape: &[usize],
-    axes: &[usize],
-    level: usize,
-    width: usize,
+    params: TransformParams,
 ) where
     F: Fn(&[T], &[T], &mut [T]),
     L: LanesIterator<Item = T> + ?Sized,
     T: Clone + Zero + ChunkWidth<T, N>,
 {
+    let TransformParams { axes, level, width } = params;
     let ndim = in_shape.len();
     let axes = HashSet::<_>::from_iter(axes.iter().cloned());
     assert_eq!(
@@ -1211,7 +1231,7 @@ fn general_nd_per_forward_multilevel<F, T, L, const N: usize>(
             let n_d = n_ax / 2;
             let n_s = n_ax - n_d;
             if n_s > 1 {
-                out_sub_shape[ax] = out_sub_shape[ax] - n_d;
+                out_sub_shape[ax] -= n_d;
                 in_sub_shape[ax] = n_s;
             }
         }
@@ -1362,7 +1382,7 @@ pub mod parallel {
             shape: &[usize],
             axes: &[usize],
         ) {
-            self.par_forward_multilevel_nd(input, output, shape, &axes, 1);
+            self.par_forward_multilevel_nd(input, output, shape, axes, 1);
         }
 
         /// Single-level parallel inverse DWT along the given `axes`.
@@ -1373,7 +1393,7 @@ pub mod parallel {
             shape: &[usize],
             axes: &[usize],
         ) {
-            self.par_inverse_multilevel_nd(input, output, shape, &axes, 1);
+            self.par_inverse_multilevel_nd(input, output, shape, axes, 1);
         }
 
         /// Single-level parallel adjoint forward DWT along the given `axes`.
@@ -1387,7 +1407,7 @@ pub mod parallel {
             shape: &[usize],
             axes: &[usize],
         ) {
-            self.par_adj_forward_multilevel_nd(input, output, shape, &axes, 1);
+            self.par_adj_forward_multilevel_nd(input, output, shape, axes, 1);
         }
 
         /// Single-level parallel adjoint inverse DWT along the given `axes`.
@@ -1398,7 +1418,7 @@ pub mod parallel {
             shape: &[usize],
             axes: &[usize],
         ) {
-            self.par_adj_inverse_multilevel_nd(input, output, shape, &axes, 1);
+            self.par_adj_inverse_multilevel_nd(input, output, shape, axes, 1);
         }
 
         /// Multi-level parallel forward DWT along the given `axes`.
@@ -1424,9 +1444,11 @@ pub mod parallel {
                 output,
                 in_shape,
                 &out_shape,
-                axes,
-                level,
-                self.width,
+                TransformParams {
+                    axes,
+                    level,
+                    width: self.width,
+                },
             );
         }
 
@@ -1459,9 +1481,11 @@ pub mod parallel {
                 output,
                 &in_shape,
                 out_shape,
-                axes,
-                level,
-                self.width,
+                TransformParams {
+                    axes,
+                    level,
+                    width: self.width,
+                },
             );
         }
 
@@ -1494,9 +1518,11 @@ pub mod parallel {
                 output,
                 &in_shape,
                 out_shape,
-                axes,
-                level,
-                self.width,
+                TransformParams {
+                    axes,
+                    level,
+                    width: self.width,
+                },
             );
         }
 
@@ -1523,9 +1549,11 @@ pub mod parallel {
                 output,
                 in_shape,
                 &out_shape,
-                axes,
-                level,
-                self.width,
+                TransformParams {
+                    axes,
+                    level,
+                    width: self.width,
+                },
             );
         }
     }
@@ -1563,9 +1591,11 @@ pub mod parallel {
                 output,
                 in_shape,
                 &out_shape,
-                axes,
-                level,
-                self.width,
+                TransformParams {
+                    axes,
+                    level,
+                    width: self.width,
+                },
             );
         }
 
@@ -1599,9 +1629,11 @@ pub mod parallel {
                 output,
                 &in_shape,
                 &out_shape,
-                axes,
-                level,
-                self.width,
+                TransformParams {
+                    axes,
+                    level,
+                    width: self.width,
+                },
             );
         }
 
@@ -1635,9 +1667,11 @@ pub mod parallel {
                 output,
                 &in_shape,
                 &out_shape,
-                axes,
-                level,
-                self.width,
+                TransformParams {
+                    axes,
+                    level,
+                    width: self.width,
+                },
             );
         }
 
@@ -1668,9 +1702,11 @@ pub mod parallel {
                 output,
                 in_shape,
                 &out_shape,
-                axes,
-                level,
-                self.width,
+                TransformParams {
+                    axes,
+                    level,
+                    width: self.width,
+                },
             );
         }
     }
@@ -1687,7 +1723,7 @@ pub mod parallel {
             shape: &[usize],
             axes: &[usize],
         ) {
-            self.forward_multilevel_nd(input, output, shape, &axes, 1);
+            self.forward_multilevel_nd(input, output, shape, axes, 1);
         }
 
         /// Single-level parallel periodic inverse DWT along the given `axes`.
@@ -1698,7 +1734,7 @@ pub mod parallel {
             shape: &[usize],
             axes: &[usize],
         ) {
-            self.inverse_multilevel_nd(input, output, shape, &axes, 1);
+            self.inverse_multilevel_nd(input, output, shape, axes, 1);
         }
 
         /// Single-level parallel periodic adjoint forward DWT along the given `axes`.
@@ -1709,7 +1745,7 @@ pub mod parallel {
             shape: &[usize],
             axes: &[usize],
         ) {
-            self.adj_forward_multilevel_nd(input, output, shape, &axes, 1);
+            self.adj_forward_multilevel_nd(input, output, shape, axes, 1);
         }
 
         /// Single-level parallel periodic adjoint inverse DWT along the given `axes`.
@@ -1720,7 +1756,7 @@ pub mod parallel {
             shape: &[usize],
             axes: &[usize],
         ) {
-            self.adj_inverse_multilevel_nd(input, output, shape, &axes, 1);
+            self.adj_inverse_multilevel_nd(input, output, shape, axes, 1);
         }
 
         /// Multi-level parallel periodic forward DWT along the given `axes`.
@@ -1941,14 +1977,13 @@ pub mod parallel {
         output: &mut L,
         in_shape: &[usize],
         out_shape: &[usize],
-        axes: &[usize],
-        level: usize,
-        width: usize,
+        params: TransformParams,
     ) where
         F: Fn(&[T], &mut [T], &mut [T]) + Sync,
         L: LanesParallelIterator<Item = T> + ?Sized,
         T: Clone + Zero + ChunkWidth<T, N> + Send + Sync,
     {
+        let TransformParams { axes, level, width } = params;
         let ndim = in_shape.len();
         assert_eq!(
             in_shape.len(),
@@ -2002,7 +2037,7 @@ pub mod parallel {
                                         },
                                     );
                                     // clone local storage to the output
-                                    stack_to_strided_chunk(&s, &d, &mut out_chunk);
+                                    stack_to_strided_chunk(s, d, &mut out_chunk);
                                 },
                             );
                             in_rem.zip(out_rem).for_each_init(
@@ -2077,7 +2112,7 @@ pub mod parallel {
                 let n_ax = in_sub_shape[ax];
                 let n_sd = get_outlen(width, n_ax);
                 if n_sd > 1 {
-                    out_sub_shape[ax] = out_sub_shape[ax] - n_sd;
+                    out_sub_shape[ax] -= n_sd;
                     in_sub_shape[ax] = n_sd;
                 }
             }
@@ -2090,14 +2125,13 @@ pub mod parallel {
         output: &mut L,
         in_shape: &[usize],
         out_shape: &[usize],
-        axes: &[usize],
-        level: usize,
-        width: usize,
+        params: TransformParams,
     ) where
         F: Fn(&[T], &[T], &mut [T]) + Sync,
         L: LanesParallelIterator<Item = T> + ?Sized,
         T: Clone + Zero + ChunkWidth<T, N> + Send + Sync,
     {
+        let TransformParams { axes, level, width } = params;
         let ndim = in_shape.len();
         assert_eq!(
             in_shape.len(),
@@ -2355,7 +2389,7 @@ pub mod parallel {
                 let n_d = n_ax / 2;
                 let n_s = n_ax - n_d;
                 if n_s > 1 {
-                    out_sub_shape[ax] = out_sub_shape[ax] - n_d;
+                    out_sub_shape[ax] -= n_d;
                     in_sub_shape[ax] = n_s;
                 }
             }

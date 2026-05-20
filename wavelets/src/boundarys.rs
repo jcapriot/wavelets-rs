@@ -142,7 +142,7 @@ impl BoundaryExtension for BoundaryCondition {
                     let scale = T::scalar_type_from_isize(i - (data.len() as isize - 1));
                     Some(vs[1].clone() + (vs[1].clone() - vs[0].clone()) * scale)
                 } else {
-                    return data.get(i as usize).cloned();
+                    data.get(i as usize).cloned()
                 }
             }
             Self::Antireflect => {

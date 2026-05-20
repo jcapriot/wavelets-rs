@@ -66,15 +66,15 @@ pub struct SliceLifetime<T> {
     _member: PhantomData<T>,
 }
 
-unsafe impl<'a, T> Data for SliceLifetime<&'a T> {
+unsafe impl<T> Data for SliceLifetime<&T> {
     type Elem = T;
 }
 
-unsafe impl<'a, T> Data for SliceLifetime<&'a mut T> {
+unsafe impl<T> Data for SliceLifetime<&mut T> {
     type Elem = T;
 }
 
-unsafe impl<'a, T> DataMut for SliceLifetime<&'a mut T> {}
+unsafe impl<T> DataMut for SliceLifetime<&mut T> {}
 
 /// Raw pointer + length + stride triplet backing a strided slice view.
 struct StrideParts<T> {
@@ -119,6 +119,12 @@ impl<T> StridedSliceRef<T> {
     #[inline]
     pub fn len(&self) -> usize {
         self.0.length
+    }
+
+    /// Whether or not this strided slice has any elements.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.0.length == 0
     }
 
     /// Return a reference to the element at `index`, or `None` if out of bounds.
@@ -242,7 +248,7 @@ impl<'a, T> StridedSlice<'a, T> {
             // SAFETY: slice length > 0 so ptr is non-null.
             parts: StrideParts {
                 base: unsafe { NonNull::new_unchecked(slice.as_ptr() as *mut T) },
-                length: (slice.len() + stride - 1) / stride,
+                length: slice.len().div_ceil(stride),
                 stride: stride as isize,
             },
             _member: SliceLifetime {
@@ -261,7 +267,7 @@ impl<'a, T> StridedSliceMut<'a, T> {
         Self {
             parts: StrideParts {
                 base: unsafe { NonNull::new_unchecked(slice.as_ptr() as *mut T) },
-                length: (slice.len() + stride - 1) / stride,
+                length: slice.len().div_ceil(stride),
                 stride: stride as isize,
             },
             _member: SliceLifetime {
@@ -645,11 +651,11 @@ impl ArrayInfo {
                 if *pos == 0 {
                     *pos = *shp - 1;
                     *offset += *pos as isize * str;
-                    return ControlFlow::Continue(());
+                    ControlFlow::Continue(())
                 } else {
                     *pos -= 1;
                     *offset -= *str;
-                    return ControlFlow::Break(());
+                    ControlFlow::Break(())
                 }
             });
     }
@@ -1328,6 +1334,12 @@ impl<T, const N: usize> ChunkStridedSliceRef<T, N> {
     #[inline]
     pub fn len(&self) -> usize {
         self.0.length
+    }
+
+    /// Whether or not this chunk of strided slices has any elements.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.0.length == 0
     }
 
     /// Return a reference to element `(i0, i1)`, or `None` if either index is out of bounds.
