@@ -246,9 +246,11 @@ pub fn deinterleave_strided_chunk<T: Clone, const N: usize, A: aligned_vec::Alig
             });
             i += 1;
         }
-        if let Some(x) = x_iter.next() { x.iter().cloned().zip(evens.iter_mut()).for_each(|(x, v)| {
+        if let Some(x) = x_iter.next() {
+            x.iter().cloned().zip(evens.iter_mut()).for_each(|(x, v)| {
                 *unsafe { v.get_unchecked_mut(no) } = x;
-            }); }
+            });
+        }
     } else {
         let mut x_iter = x.iter();
 
@@ -270,13 +272,15 @@ pub fn deinterleave_strided_chunk<T: Clone, const N: usize, A: aligned_vec::Alig
                 });
             i += 1;
         }
-        if let Some(x) = x_iter.next() { x.into_iter()
+        if let Some(x) = x_iter.next() {
+            x.into_iter()
                 .cloned()
                 .zip(evens.iter_mut())
                 .for_each(|(x, v)| {
                     // SAFETY: no < v.len() since v has length ne = no + 1 if there are any leftover slice chunks.
                     *unsafe { v.get_unchecked_mut(no) } = x;
-                }); }
+                });
+        }
     }
 }
 
@@ -467,10 +471,12 @@ pub fn interleave_strided_chunk<T: Clone, const N: usize, A: aligned_vec::Alignm
             });
             i += 1;
         }
-        if let Some(x) = x_iter.next() { x.iter_mut().zip(evens.iter()).for_each(|(x, v)| {
+        if let Some(x) = x_iter.next() {
+            x.iter_mut().zip(evens.iter()).for_each(|(x, v)| {
                 // SAFETY: no < v.len() since v has length ne = no + 1 if there are any leftover slice chunks.
                 *x = unsafe { v.get_unchecked(no) }.clone();
-            }); }
+            });
+        }
     } else {
         let mut x_iter = x.iter_mut();
         let mut i = 0;
@@ -485,10 +491,12 @@ pub fn interleave_strided_chunk<T: Clone, const N: usize, A: aligned_vec::Alignm
             });
             i += 1;
         }
-        if let Some(x) = x_iter.next() { x.into_iter().zip(evens.iter()).for_each(|(x, v)| {
+        if let Some(x) = x_iter.next() {
+            x.into_iter().zip(evens.iter()).for_each(|(x, v)| {
                 // SAFETY: Same as above (chunks branch remainder, evens).
                 *x = unsafe { v.get_unchecked(no) }.clone();
-            }); }
+            });
+        }
     }
 }
 

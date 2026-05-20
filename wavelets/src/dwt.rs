@@ -340,9 +340,7 @@ pub fn dwt_inverse<T: Transformable + Zero, const N: usize, const NH: usize>(
         gh_chunks
             .iter()
             .zip(s.iter().zip(d.iter()))
-            .for_each(|([[g0, h0], _], (s, d))| {
-                *x1 += s.clone() * *g0 + d.clone() * *h0
-            });
+            .for_each(|([[g0, h0], _], (s, d))| *x1 += s.clone() * *g0 + d.clone() * *h0);
     }
 
     x_chunks
