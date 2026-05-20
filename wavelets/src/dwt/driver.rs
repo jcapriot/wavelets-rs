@@ -5,7 +5,6 @@ use std::collections::HashSet;
 
 use aligned_vec::{AVec, avec};
 
-use crate::Wavelets;
 use crate::boundarys::BoundaryExtension;
 use crate::dwt::{DiscreteTransform, get_outlen};
 use crate::iter::LanesIterator;
@@ -14,6 +13,7 @@ use crate::utils::{
     clone_strided_to_slice, split_strided, split_strided_chunk, stack_to_strided,
     stack_to_strided_chunk,
 };
+use crate::{Wavelets, max_level_nd};
 
 use crate::{ChunkWidth, Transformable};
 use wavelets_macros::generate_wavelet_match_arms;
@@ -221,6 +221,11 @@ where
         axes: &[usize],
         level: usize,
     ) {
+        let level = if level == 0 {
+            max_level_nd(self.width, in_shape, axes)
+        } else {
+            level
+        };
         let out_shape = get_transform_shape(in_shape, axes, level, self.width, false);
         assert_slice_matches_shape!("input", input, in_shape);
         assert_slice_matches_shape!("output", output, out_shape);
@@ -249,6 +254,11 @@ where
         axes: &[usize],
         level: usize,
     ) {
+        let level = if level == 0 {
+            max_level_nd(self.width, out_shape, axes)
+        } else {
+            level
+        };
         let in_shape = get_transform_shape(out_shape, axes, level, self.width, false);
         assert_slice_matches_shape!("input", input, in_shape);
         assert_slice_matches_shape!("output", output, out_shape);
@@ -281,6 +291,11 @@ where
         axes: &[usize],
         level: usize,
     ) {
+        let level = if level == 0 {
+            max_level_nd(self.width, out_shape, axes)
+        } else {
+            level
+        };
         let in_shape = get_transform_shape(out_shape, axes, level, self.width, false);
         assert_slice_matches_shape!("input", input, in_shape);
         assert_slice_matches_shape!("output", output, out_shape);
@@ -305,6 +320,11 @@ where
         axes: &[usize],
         level: usize,
     ) {
+        let level = if level == 0 {
+            max_level_nd(self.width, in_shape, axes)
+        } else {
+            level
+        };
         let out_shape = get_transform_shape(in_shape, axes, level, self.width, false);
         assert_slice_matches_shape!("input", input, in_shape);
         assert_slice_matches_shape!("output", output, out_shape);
@@ -338,6 +358,11 @@ where
         level: usize,
     ) {
         let in_shape = input.shape();
+        let level = if level == 0 {
+            max_level_nd(self.width, in_shape, axes)
+        } else {
+            level
+        };
         let out_shape = get_transform_shape(in_shape, axes, level, self.width, false);
         assert_eq!(
             out_shape,
@@ -369,6 +394,11 @@ where
         level: usize,
     ) {
         let out_shape = output.shape().to_owned();
+        let level = if level == 0 {
+            max_level_nd(self.width, &out_shape, axes)
+        } else {
+            level
+        };
         let in_shape = get_transform_shape(&out_shape, axes, level, self.width, false);
         assert_eq!(
             in_shape,
@@ -401,6 +431,11 @@ where
         level: usize,
     ) {
         let out_shape = output.shape().to_owned();
+        let level = if level == 0 {
+            max_level_nd(self.width, &out_shape, axes)
+        } else {
+            level
+        };
         let in_shape = get_transform_shape(&out_shape, axes, level, self.width, false);
         assert_eq!(
             in_shape,
@@ -431,6 +466,11 @@ where
         level: usize,
     ) {
         let in_shape = input.shape();
+        let level = if level == 0 {
+            max_level_nd(self.width, in_shape, axes)
+        } else {
+            level
+        };
         let out_shape = get_transform_shape(in_shape, axes, level, self.width, false);
         assert_eq!(
             out_shape,
@@ -562,6 +602,11 @@ where
     ) {
         assert_slice_matches_shape!("input", input, shape);
         assert_slice_matches_shape!("output", output, shape);
+        let level = if level == 0 {
+            max_level_nd(self.width, shape, axes)
+        } else {
+            level
+        };
         general_nd_per_forward_multilevel(
             |x, s, d| (self.dwt_forward)(x, s, d),
             input,
@@ -581,16 +626,13 @@ where
         axes: &[usize],
         level: usize,
     ) {
-        let ptr = input.as_ptr() as *mut T;
-
-        //SAFETY:: We mark input as mutable here for the following reasons
-        // 1) It cannot alias output.
-        // 2) The private general_nd_inverse_multilevel function requires input to be mutable,
-        //    But it does not actually mutate the input when ran in "per" mode.
-        // 3) using the same function reduces the code duplication and (potentially) binary size.
-        let input = unsafe { std::slice::from_raw_parts_mut(ptr, input.len()) };
         assert_slice_matches_shape!("input", input, shape);
         assert_slice_matches_shape!("output", output, shape);
+        let level = if level == 0 {
+            max_level_nd(self.width, shape, axes)
+        } else {
+            level
+        };
 
         general_nd_per_inverse_multilevel(
             |s, d, x| (self.dwt_inverse)(s, d, x),
@@ -611,16 +653,14 @@ where
         axes: &[usize],
         level: usize,
     ) {
-        let ptr = input.as_ptr() as *mut T;
-
-        //SAFETY:: We mark input as mutable here for the following reasons
-        // 1) It cannot alias output.
-        // 2) The private general_nd_inverse_multilevel function requires input to be mutable,
-        //    But it does not actually mutate the input when ran in "per" mode.
-        // 3) using the same function reduces the code duplication and (potentially) binary size.
-        let input = unsafe { std::slice::from_raw_parts_mut(ptr, input.len()) };
         assert_slice_matches_shape!("input", input, shape);
         assert_slice_matches_shape!("output", output, shape);
+
+        let level = if level == 0 {
+            max_level_nd(self.width, shape, axes)
+        } else {
+            level
+        };
         general_nd_per_inverse_multilevel(
             |s, d, x| (self.dwt_adj_forward)(s, d, x),
             input,
@@ -642,6 +682,12 @@ where
     ) {
         assert_slice_matches_shape!("input", input, shape);
         assert_slice_matches_shape!("output", output, shape);
+
+        let level = if level == 0 {
+            max_level_nd(self.width, shape, axes)
+        } else {
+            level
+        };
         general_nd_per_forward_multilevel(
             |x, s, d| (self.dwt_adj_inverse)(x, s, d),
             input,
@@ -673,6 +719,12 @@ where
             "input and output shapes must be the same."
         );
 
+        let level = if level == 0 {
+            max_level_nd(self.width, shape, axes)
+        } else {
+            level
+        };
+
         general_nd_per_forward_multilevel(
             |x, s, d| (self.dwt_forward)(x, s, d),
             input,
@@ -697,6 +749,12 @@ where
             output.shape(),
             "input and output shapes must be the same."
         );
+
+        let level = if level == 0 {
+            max_level_nd(self.width, shape, axes)
+        } else {
+            level
+        };
 
         general_nd_per_inverse_multilevel(
             |s, d, x| (self.dwt_inverse)(s, d, x),
@@ -723,6 +781,12 @@ where
             "input and output shapes must be the same."
         );
 
+        let level = if level == 0 {
+            max_level_nd(self.width, shape, axes)
+        } else {
+            level
+        };
+
         general_nd_per_inverse_multilevel(
             |s, d, x| (self.dwt_inverse)(s, d, x),
             input,
@@ -747,6 +811,12 @@ where
             output.shape(),
             "input and output shapes must be the same."
         );
+
+        let level = if level == 0 {
+            max_level_nd(self.width, shape, axes)
+        } else {
+            level
+        };
 
         general_nd_per_forward_multilevel(
             |x, s, d| (self.dwt_adj_inverse)(x, s, d),
@@ -1329,6 +1399,11 @@ pub mod parallel {
             axes: &[usize],
             level: usize,
         ) {
+            let level = if level == 0 {
+                max_level_nd(self.width, in_shape, axes)
+            } else {
+                level
+            };
             let out_shape = get_transform_shape(in_shape, axes, level, self.width, false);
             assert_slice_matches_shape!("input", input, in_shape);
             assert_slice_matches_shape!("output", output, out_shape);
@@ -1353,6 +1428,11 @@ pub mod parallel {
             axes: &[usize],
             level: usize,
         ) {
+            let level = if level == 0 {
+                max_level_nd(self.width, out_shape, axes)
+            } else {
+                level
+            };
             let in_shape = get_transform_shape(out_shape, axes, level, self.width, false);
             assert_slice_matches_shape!("input", input, in_shape);
             assert_slice_matches_shape!("output", output, out_shape);
@@ -1396,6 +1476,11 @@ pub mod parallel {
             axes: &[usize],
             level: usize,
         ) {
+            let level = if level == 0 {
+                max_level_nd(self.width, in_shape, axes)
+            } else {
+                level
+            };
             let out_shape = get_transform_shape(in_shape, axes, level, self.width, false);
             assert_slice_matches_shape!("input", input, in_shape);
             assert_slice_matches_shape!("output", output, out_shape);
@@ -1427,6 +1512,11 @@ pub mod parallel {
             level: usize,
         ) {
             let in_shape = input.shape();
+            let level = if level == 0 {
+                max_level_nd(self.width, in_shape, axes)
+            } else {
+                level
+            };
             let out_shape = get_transform_shape(in_shape, axes, level, self.width, false);
             assert_eq!(
                 out_shape,
@@ -1455,6 +1545,11 @@ pub mod parallel {
             level: usize,
         ) {
             let out_shape = output.shape().to_owned();
+            let level = if level == 0 {
+                max_level_nd(self.width, &out_shape, axes)
+            } else {
+                level
+            };
             let in_shape = get_transform_shape(&out_shape, axes, level, self.width, false);
             assert_eq!(
                 in_shape,
@@ -1483,6 +1578,11 @@ pub mod parallel {
             level: usize,
         ) {
             let in_shape = input.shape();
+            let level = if level == 0 {
+                max_level_nd(self.width, in_shape, axes)
+            } else {
+                level
+            };
             let out_shape = get_transform_shape(in_shape, axes, level, self.width, false);
             assert_eq!(
                 out_shape,
@@ -1562,6 +1662,11 @@ pub mod parallel {
         ) {
             assert_slice_matches_shape!("input", input, shape);
             assert_slice_matches_shape!("output", output, shape);
+            let level = if level == 0 {
+                max_level_nd(self.width, shape, axes)
+            } else {
+                level
+            };
             general_nd_per_forward_multilevel(
                 |x, s, d| (self.dwt_forward)(x, s, d),
                 input,
@@ -1583,6 +1688,11 @@ pub mod parallel {
         ) {
             assert_slice_matches_shape!("input", input, shape);
             assert_slice_matches_shape!("output", output, shape);
+            let level = if level == 0 {
+                max_level_nd(self.width, shape, axes)
+            } else {
+                level
+            };
 
             general_nd_per_inverse_multilevel(
                 |s, d, x| (self.dwt_inverse)(s, d, x),
@@ -1605,6 +1715,11 @@ pub mod parallel {
         ) {
             assert_slice_matches_shape!("input", input, shape);
             assert_slice_matches_shape!("output", output, shape);
+            let level = if level == 0 {
+                max_level_nd(self.width, shape, axes)
+            } else {
+                level
+            };
             general_nd_per_inverse_multilevel(
                 |s, d, x| (self.dwt_adj_forward)(s, d, x),
                 input,
@@ -1626,6 +1741,11 @@ pub mod parallel {
         ) {
             assert_slice_matches_shape!("input", input, shape);
             assert_slice_matches_shape!("output", output, shape);
+            let level = if level == 0 {
+                max_level_nd(self.width, shape, axes)
+            } else {
+                level
+            };
             general_nd_per_forward_multilevel(
                 |x, s, d| (self.dwt_adj_inverse)(x, s, d),
                 input,
