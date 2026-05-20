@@ -233,13 +233,31 @@ mod x86 {
         }
 
         /// Detects the best available instruction set.
+        ///
+        /// Each SIMD arm runs inside a `#[target_feature]` inner function so that the
+        /// compiler knows AVX2/FMA (or AVX-512) are available and can emit native
+        /// vector instructions rather than library-function calls.
         #[inline(always)]
         pub(crate) fn dispatch<Op: WithSimd>(self, op: Op) -> Op::Output {
             match self {
                 #[cfg(feature = "x86-v4")]
-                Arch::V4(simd) => op.with_simd(simd),
+                Arch::V4(simd) => {
+                    #[target_feature(enable = "avx512f,avx512bw,avx512cd,avx512dq,avx512vl,avx2,fma")]
+                    unsafe fn run_v4<Op: WithSimd>(simd: V4, op: Op) -> Op::Output {
+                        op.with_simd(simd)
+                    }
+                    // SAFETY: V4::try_new() succeeded, so avx512/avx2/fma are available.
+                    unsafe { run_v4(simd, op) }
+                }
                 #[cfg(feature = "x86-v3")]
-                Arch::V3(simd) => op.with_simd(simd),
+                Arch::V3(simd) => {
+                    #[target_feature(enable = "avx,avx2,fma")]
+                    unsafe fn run_v3<Op: WithSimd>(simd: V3, op: Op) -> Op::Output {
+                        op.with_simd(simd)
+                    }
+                    // SAFETY: V3::try_new() succeeded, so avx/avx2/fma are available.
+                    unsafe { run_v3(simd, op) }
+                }
                 Arch::Scalar => op.with_simd(pulp::Scalar),
             }
         }
