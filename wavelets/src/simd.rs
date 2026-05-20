@@ -27,7 +27,7 @@ pub trait Alignable {
                 T::simd_lanes(simd)
             }
         }
-        crate::simd::ARCH.dispatch_simd(Impl(PhantomData::<Self>))
+        crate::simd::ARCH.dispatch(Impl(PhantomData::<Self>))
     }
 }
 
@@ -200,6 +200,57 @@ mod x86 {
             cast!(self.avx512f._mm512_fnmadd_pd(cast!(a), cast!(b), cast!(c)))
         }
     }
+
+    /// x86 arch
+    #[derive(Debug, Clone, Copy)]
+    #[non_exhaustive]
+    #[repr(u8)]
+    pub(crate) enum Arch {
+        Scalar = 0,
+
+        #[cfg(feature = "x86-v3")]
+        #[cfg_attr(docsrs, doc(cfg(feature = "x86-v3")))]
+        V3(V3) = 1,
+
+        #[cfg(feature = "x86-v4")]
+        #[cfg_attr(docsrs, doc(cfg(feature = "x86-v4")))]
+        V4(V4) = 2,
+    }
+
+    impl Arch {
+        /// Detects the best available instruction set.
+        #[inline]
+        pub(crate) fn new() -> Self {
+            #[cfg(feature = "x86-v4")]
+            if let Some(simd) = V4::try_new() {
+                return Self::V4(simd);
+            }
+            #[cfg(feature = "x86-v3")]
+            if let Some(simd) = V3::try_new() {
+                return Self::V3(simd);
+            }
+            Self::Scalar
+        }
+
+        /// Detects the best available instruction set.
+        #[inline(always)]
+        pub(crate) fn dispatch<Op: WithSimd>(self, op: Op) -> Op::Output {
+            match self {
+                #[cfg(feature = "x86-v4")]
+                Arch::V4(simd) => op.with_simd(simd),
+                #[cfg(feature = "x86-v3")]
+                Arch::V3(simd) => op.with_simd(simd),
+                Arch::Scalar => op.with_simd(pulp::Scalar),
+            }
+        }
+    }
+
+    impl Default for Arch {
+        #[inline]
+        fn default() -> Self {
+            Self::new()
+        }
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -208,6 +259,49 @@ mod wasm {
     use pulp::wasm::{RelaxedSimd, Simd128};
     impl Simd for Simd128 {}
     impl Simd for RelaxedSimd {}
+
+    /// wasm arch
+    #[derive(Debug, Clone, Copy)]
+    #[non_exhaustive]
+    #[repr(u8)]
+    pub(crate) enum Arch {
+        Scalar = 0,
+
+        RelaxedSimd(RelaxedSimd),
+        Simd128(Simd128),
+    }
+
+    impl Arch {
+        /// Detects the best available instruction set.
+        #[inline]
+        pub(crate) fn new() -> Self {
+            if let Some(simd) = RelaxedSimd::try_new() {
+                return Self::RelaxedSimd(simd);
+            }
+            if let Some(simd) = Simd128::try_new() {
+                return Self::Simd128(simd);
+            }
+            Self::Scalar
+        }
+
+        /// Detects the best available instruction set.
+        #[inline(always)]
+        pub(crate) fn dispatch<Op: WithSimd>(self, op: Op) -> Op::Output {
+            match self {
+                Arch::RelaxedSimd(simd) => op.with_simd(simd),
+                Arch::Simd128(simd) => op.with_simd(simd),
+
+                Arch::Scalar => op.with_simd(pulp::Scalar),
+            }
+        }
+    }
+
+    impl Default for Arch {
+        #[inline]
+        fn default() -> Self {
+            Self::new()
+        }
+    }
 }
 
 #[cfg(target_arch = "aarch64")]
@@ -216,63 +310,68 @@ mod aarch64 {
     use pulp::aarch64::{Neon, NeonFcma};
     impl Simd for Neon {}
     impl Simd for NeonFcma {}
+
+    /// aarch64 arch
+    #[derive(Debug, Clone, Copy)]
+    #[non_exhaustive]
+    #[repr(u8)]
+    pub(crate) enum Arch {
+        Scalar = 0,
+        Neon(Neon) = 1,
+    }
+
+    impl Arch {
+        /// Detects the best available instruction set.
+        #[inline]
+        pub(crate) fn new() -> Self {
+            if let Some(simd) = Neon::try_new() {
+                return Self::Neon(simd);
+            }
+            Self::Scalar
+        }
+
+        /// Detects the best available instruction set.
+        #[inline(always)]
+        pub(crate) fn dispatch<Op: WithSimd>(self, op: Op) -> Op::Output {
+            match self {
+                Arch::Neon(simd) => op.with_simd(simd),
+                Arch::Scalar => op.with_simd(pulp::Scalar),
+            }
+        }
+    }
+
+    impl Default for Arch {
+        #[inline]
+        fn default() -> Self {
+            Self::new()
+        }
+    }
 }
 
-/// Dispatches a [`WithSimd`] callback using the runtime-selected SIMD backend stored
-/// in [`ARCH`].
+/// CPU instruction-set selector for SIMD dispatch.
 ///
-/// This extension trait is implemented for [`pulp::Arch`] on every supported platform.
-/// It bridges `pulp`'s own dispatch mechanism (which uses `pulp::WithSimd`) with the
-/// crate-local [`WithSimd`] trait, whose callbacks have the stronger
-/// `S: `[`Simd`] bound needed to call the mixed-type extension methods.
-///
-/// `pulp::Arch` is `#[non_exhaustive]`, so each platform impl uses a `_ =>` fallback
-/// that degrades to scalar; on all currently-supported hardware that branch is
-/// unreachable.
-pub(crate) trait ArchDispatch {
-    /// Run `op` on the best SIMD backend available at runtime.
-    ///
-    /// Named `dispatch_simd` (not `dispatch`) to avoid shadowing `pulp::Arch`'s
-    /// inherent `dispatch` method, which has a different — weaker — callback bound.
-    fn dispatch_simd<Op: WithSimd>(self, op: Op) -> Op::Output;
-}
-
+/// Resolved **once** at program start from [`pulp::Arch::new`] and cached in [`ARCH`].
+/// Unlike [`pulp::Arch`], this enum is *not* `#[non_exhaustive]`, so the compiler can
+/// generate tight branch code for [`dispatch_simd`](Arch::dispatch_simd) — in
+/// particular, when the call site is visible the branch can be hoisted or constant-
+/// folded away entirely.  When `forward` / `inverse` are called through a function
+/// pointer (e.g. from [`crate::lwt::driver::WaveletTransform`]) the exhaustive match
+/// also lets LLVM produce a single conditional jump rather than a potentially-larger
+/// switch table.
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-impl ArchDispatch for pulp::Arch {
-    #[inline(always)]
-    fn dispatch_simd<Op: WithSimd>(self, op: Op) -> Op::Output {
-        match self {
-            #[cfg(feature = "x86-v4")]
-            pulp::Arch::V4(simd) => op.with_simd(simd),
-            #[cfg(feature = "x86-v3")]
-            pulp::Arch::V3(simd) => op.with_simd(simd),
-            _ => op.with_simd(pulp::Scalar),
-        }
-    }
-}
+pub(crate) use x86::Arch;
 
+/// CPU instruction-set selector for SIMD dispatch.
+///
+/// Resolved **once** at program start from [`pulp::Arch::new`] and cached in [`ARCH`].
 #[cfg(target_arch = "wasm32")]
-impl ArchDispatch for pulp::Arch {
-    #[inline(always)]
-    fn dispatch_simd<Op: WithSimd>(self, op: Op) -> Op::Output {
-        match self {
-            pulp::Arch::RelaxedSimd(simd) => op.with_simd(simd),
-            pulp::Arch::Simd128(simd) => op.with_simd(simd),
-            _ => op.with_simd(pulp::Scalar),
-        }
-    }
-}
+pub(crate) use wasm::Arch;
 
+/// CPU instruction-set selector for SIMD dispatch.
+///
+/// Resolved **once** at program start from [`pulp::Arch::new`] and cached in [`ARCH`].
 #[cfg(target_arch = "aarch64")]
-impl ArchDispatch for pulp::Arch {
-    #[inline(always)]
-    fn dispatch_simd<Op: WithSimd>(self, op: Op) -> Op::Output {
-        match self {
-            pulp::Arch::Neon(simd) => op.with_simd(simd),
-            _ => op.with_simd(pulp::Scalar),
-        }
-    }
-}
+pub(crate) use aarch64::Arch;
 
 /// A [`Transformable`] type that can be processed with SIMD instructions.
 ///
@@ -565,5 +664,7 @@ impl SimdTransformable for num_complex::Complex64 {
 
 /// Runtime CPU feature detection singleton used to dispatch SIMD kernels.
 ///
-/// Initialised once on first access via [`std::sync::LazyLock`].
-pub static ARCH: LazyLock<pulp::Arch> = LazyLock::new(pulp::Arch::new);
+/// Initialised once on first access via [`std::sync::LazyLock`].  The stored [`Arch`]
+/// value is derived from [`pulp::Arch::new`] but is not `#[non_exhaustive]`, which
+/// allows the compiler to generate tighter branch code for repeated dispatches.
+pub static ARCH: LazyLock<Arch> = LazyLock::new(Arch::new);
