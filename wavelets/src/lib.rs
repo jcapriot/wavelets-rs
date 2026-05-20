@@ -7,8 +7,12 @@
 //! - **LWT** ([`lwt`]) — the Lifting Wavelet Transform, an in-place factorisation of the DWT.
 //!
 //! Both families support 1-D and N-D transforms, multi-level decomposition, periodic and
-//! general boundary conditions, SIMD acceleration (via [`pulp`]), and optional Rayon
+//! general boundary conditions, SIMD acceleration (via [`pulp`]), and optional [`rayon`]
 //! parallelism (feature `rayon`).
+//!
+//! Also notable is that we provide adjoint operations for all of the forward and inverse
+//! transforms that respect the boundary extension modes, enabling these transforms to be
+//! cleanly used in optimization problems.
 //!
 //! # Wavelet families
 //!
@@ -118,7 +122,7 @@ pub mod coiflet {
 ///
 /// Biorthogonal wavelets use separate analysis and synthesis filters, enabling exact
 /// linear-phase responses.  The naming convention `BiorA_B` refers to the order of
-/// the synthesis/analysis filter pair.  The [`CDF5_3`] and [`CDF9_7`] variants are
+/// the synthesis/analysis filter pair.  The [`bior::CDF5_3`] and [`bior::CDF9_7`] variants are
 /// the Cohen–Daubechies–Feauveau wavelets used in the JPEG 2000 standard.
 pub mod bior {
 
@@ -314,34 +318,34 @@ impl<T: Num + Copy + Debug + FromPrimitive + MulAdd<Output = T> + Neg<Output = T
     type Scalar = T;
 }
 
-const N_BITS: usize = 512;
-const N_I8: usize = N_BITS / 8;
-const N_I16: usize = N_BITS / 16;
-const N_I32: usize = N_BITS / 32;
-const N_I64: usize = N_BITS / 64;
-const N_I128: usize = N_BITS / 128;
-const N_ISIZE: usize = N_BITS / isize::BITS as usize;
-const N_F32: usize = N_BITS / 32;
-const N_F64: usize = N_BITS / 64;
-const N_C32: usize = N_BITS / 64;
-const N_C64: usize = N_BITS / 128;
+const N_BITS: usize = 256;
 
-/// Marker trait asserting that `N` is the correct SIMD chunk width for type `T`.
+/// Marker trait setting `N` to be a good default value for the driver chunk sizes for type `T`.
 ///
-/// This is a sealed compile-time assertion used to tie the const generic `N` in
-/// driver structs to the actual SIMD lane count for `T`, preventing mismatched chunk
-/// sizes from compiling.
+/// This is a sealed compile-time value used to tie the const generic `N` in
+/// driver structs to cache sizes of the processor, by default `N=256/T::BITS`.
 pub trait ChunkWidth<T, const N: usize> {}
-impl ChunkWidth<i8, N_I8> for i8 {}
-impl ChunkWidth<i16, N_I16> for i16 {}
-impl ChunkWidth<i32, N_I32> for i32 {}
-impl ChunkWidth<i64, N_I64> for i64 {}
-impl ChunkWidth<i128, N_I128> for i128 {}
-impl ChunkWidth<isize, N_ISIZE> for isize {}
-impl ChunkWidth<f32, N_F32> for f32 {}
-impl ChunkWidth<f64, N_F64> for f64 {}
-impl ChunkWidth<num_complex::Complex32, N_C32> for num_complex::Complex32 {}
-impl ChunkWidth<num_complex::Complex64, N_C64> for num_complex::Complex64 {}
+
+macro_rules! impl_chunk_size {
+    ($name:tt, $t:ty) => {
+        const $name: usize = N_BITS / <$t>::BITS as usize;
+        impl ChunkWidth<$t, $name> for $t {}
+    };
+    ($name:tt, $t:ty, $bits:tt) => {
+        const $name: usize = N_BITS / $bits;
+        impl ChunkWidth<$t, $name> for $t {}
+    };
+}
+impl_chunk_size! {N_I8, i8}
+impl_chunk_size! {N_I16, i16}
+impl_chunk_size! {N_I32, i32}
+impl_chunk_size! {N_I64, i64}
+impl_chunk_size! {N_I128, i128}
+impl_chunk_size! {N_ISIZE, isize}
+impl_chunk_size! {N_F32, f32, 32}
+impl_chunk_size! {N_F64, f64, 64}
+impl_chunk_size! {N_C32, num_complex::Complex32, 64}
+impl_chunk_size! {N_C64, num_complex::Complex64, 128}
 
 /// Test helpers.  Hidden from rustdoc; not intended for library consumers.
 #[doc(hidden)]

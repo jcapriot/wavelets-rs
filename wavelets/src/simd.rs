@@ -115,7 +115,7 @@ pub trait Simd: pulp::Simd {
     fn vectorize_wvlt<Op: WithSimd>(self, op: Op) -> Op::Output;
 }
 
-/// Callback type passed to [`ArchDispatch::dispatch`]: receives a concrete SIMD
+/// Callback type passed to simd dispatch functions: receives a concrete SIMD
 /// backend (one that implements both [`pulp::Simd`] and the local [`Simd`] extension)
 /// and returns an `Output` value.
 pub trait WithSimd {
@@ -600,7 +600,5 @@ impl SimdTransformable for num_complex::Complex64 {
 
 /// Runtime CPU feature detection singleton used to dispatch SIMD kernels.
 ///
-/// Initialised once on first access via [`std::sync::LazyLock`].  The stored [`Arch`]
-/// value is derived from [`pulp::Arch::new`] but is not `#[non_exhaustive]`, which
-/// allows the compiler to generate tighter branch code for repeated dispatches.
+/// Initialised once on first access via [`std::sync::LazyLock`].
 pub static ARCH: LazyLock<pulp::Arch> = LazyLock::new(pulp::Arch::new);

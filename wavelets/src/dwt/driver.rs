@@ -87,8 +87,9 @@ pub fn get_transform_shape<'a, IT: IntoIterator<Item = &'a usize>>(
 /// kernels for a chosen wavelet and boundary condition.  They are resolved at
 /// construction time so each transform call is a direct, non-virtual dispatch.
 ///
-/// The const generic `N` ties this driver to the SIMD chunk width for `T`.
-/// See [`ChunkWidth`](crate::ChunkWidth) for the correct value per element type.
+/// The const generic `N` ties this driver to appropriate cache sizes for the
+/// current processor.
+/// See [`ChunkWidth`] for the correct value per element type.
 ///
 /// Unlike the LWT driver, the DWT output shape differs from the input shape for
 /// non-periodic transforms.  Use [`get_transform_shape`] to compute the required
@@ -99,7 +100,7 @@ where
 {
     dwt_forward: fn(&[T], &mut [T], &mut [T], &BC),
     dwt_inverse: fn(&[T], &[T], &mut [T]),
-    dwt_adj_forward: fn(&[T], &[T], &mut [T]),
+    dwt_adj_forward: fn(&[T], &[T], &mut [T], &BC),
     dwt_adj_inverse: fn(&[T], &mut [T], &mut [T]),
     bc: BC,
     width: usize,
@@ -126,7 +127,7 @@ where
             wvlt,
             {#wvlt::inverse,}
         };
-        let dwt_adj_forward: fn(&[T], &[T], &mut [T]) = generate_wavelet_match_arms! {
+        let dwt_adj_forward: fn(&[T], &[T], &mut [T], &BC) = generate_wavelet_match_arms! {
             Wavelets,
             wvlt,
             {#wvlt::adjoint_forward,}
@@ -168,7 +169,7 @@ where
     /// the same length as the original input to the forward transform.  Has the same
     /// shape semantics as [`inverse_1d`](Self::inverse_1d).
     pub fn adj_forward_1d(&self, s: &[T], d: &[T], output: &mut [T]) {
-        (self.dwt_adj_forward)(s, d, output);
+        (self.dwt_adj_forward)(s, d, output, &self.bc);
     }
 
     /// Adjoint of the inverse 1-D DWT.
@@ -300,7 +301,7 @@ where
         assert_slice_matches_shape!("input", input, in_shape);
         assert_slice_matches_shape!("output", output, out_shape);
         general_nd_inverse_multilevel(
-            |s, d, x| (self.dwt_adj_forward)(s, d, x),
+            |s, d, x| (self.dwt_adj_forward)(s, d, x, &self.bc),
             input,
             output,
             &in_shape,
@@ -444,7 +445,7 @@ where
         );
 
         general_nd_inverse_multilevel(
-            |s, d, x| (self.dwt_adj_forward)(s, d, x),
+            |s, d, x| (self.dwt_adj_forward)(s, d, x, &self.bc),
             input,
             output,
             &in_shape,
@@ -1340,7 +1341,7 @@ fn general_nd_per_inverse_multilevel<F, T, L, const N: usize>(
 #[cfg(feature = "rayon")]
 /// Rayon-parallel DWT drivers.
 ///
-/// Mirrors the sequential [`super::WaveletTransform`] and [`super::WaveletTransformPer`]
+/// Mirrors the sequential [`WaveletTransform`] and [`WaveletTransformPer`]
 /// API but processes independent lanes on multiple threads via Rayon.
 pub mod parallel {
     use super::*;
@@ -1375,9 +1376,19 @@ pub mod parallel {
             self.par_inverse_multilevel_nd(input, output, shape, &axes, 1);
         }
 
-        // pub fn adj_forward_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
-        //     self.adj_forward_multilevel_nd(input, output, shape, &axes, 1);
-        // }
+        /// Single-level parallel adjoint forward DWT along the given `axes`.
+        ///
+        /// `input` is taken as `&mut` because the internal multilevel algorithm writes
+        /// intermediate results back into the buffer during reconstruction.
+        pub fn par_adj_forward_nd(
+            &self,
+            input: &mut [T],
+            output: &mut [T],
+            shape: &[usize],
+            axes: &[usize],
+        ) {
+            self.par_adj_forward_multilevel_nd(input, output, shape, &axes, 1);
+        }
 
         /// Single-level parallel adjoint inverse DWT along the given `axes`.
         pub fn par_adj_inverse_nd(
@@ -1420,6 +1431,12 @@ pub mod parallel {
         }
 
         /// Multi-level parallel inverse DWT along the given `axes`.
+        ///
+        /// `out_shape` is the shape of the original signal (before decomposition).
+        /// The input must have the transform-expanded shape returned by
+        /// `get_transform_shape(out_shape, axes, level, width, false)`.
+        /// `input` is taken as `&mut` because the internal multilevel algorithm writes
+        /// intermediate results back into the buffer during reconstruction.
         pub fn par_inverse_multilevel_nd(
             &self,
             input: &mut [T],
@@ -1448,24 +1465,40 @@ pub mod parallel {
             );
         }
 
-        // pub fn adj_forward_multilevel_nd(
-        //     &self,
-        //     input: &[T],
-        //     output: &mut [T],
-        //     shape: &[usize],
-        //     axes: &[usize],
-        //     level: usize,
-        // ) {
-        //     let axes = HashSet::from_iter(axes.iter().cloned());
-        //     general_nd_inverse_multilevel(
-        //         |s, d| (self.lwt_adj_forward)(s, d, &self.bc),
-        //         input,
-        //         output,
-        //         shape,
-        //         &axes,
-        //         level,
-        //     );
-        // }
+        /// Multi-level parallel adjoint forward DWT along the given `axes`.
+        ///
+        /// `out_shape` is the shape of the original signal (before decomposition).
+        /// The input must have the transform-expanded shape returned by
+        /// `get_transform_shape(out_shape, axes, level, width, false)`.
+        /// `input` is taken as `&mut` because the internal multilevel algorithm writes
+        /// intermediate results back into the buffer during reconstruction.
+        pub fn par_adj_forward_multilevel_nd(
+            &self,
+            input: &mut [T],
+            output: &mut [T],
+            out_shape: &[usize],
+            axes: &[usize],
+            level: usize,
+        ) {
+            let level = if level == 0 {
+                max_level_nd(self.width, out_shape, axes)
+            } else {
+                level
+            };
+            let in_shape = get_transform_shape(out_shape, axes, level, self.width, false);
+            assert_slice_matches_shape!("input", input, in_shape);
+            assert_slice_matches_shape!("output", output, out_shape);
+            general_nd_inverse_multilevel(
+                |s, d, x| (self.dwt_adj_forward)(s, d, x, &self.bc),
+                input,
+                output,
+                &in_shape,
+                out_shape,
+                axes,
+                level,
+                self.width,
+            );
+        }
 
         /// Multi-level parallel adjoint inverse DWT along the given `axes`.
         pub fn par_adj_inverse_multilevel_nd(
@@ -1537,6 +1570,9 @@ pub mod parallel {
         }
 
         /// Inverse DWT applied to an ndarray (parallel, multi-level).
+        ///
+        /// `input` is taken as `&mut` because the internal multilevel algorithm writes
+        /// intermediate results back into the buffer during reconstruction.
         pub fn par_inverse_ndarray_multilevel<D: Dimension>(
             &self,
             input: &mut ArrayRef<T, D>,
@@ -1559,6 +1595,42 @@ pub mod parallel {
 
             general_nd_inverse_multilevel(
                 |s, d, x| (self.dwt_inverse)(s, d, x),
+                input,
+                output,
+                &in_shape,
+                &out_shape,
+                axes,
+                level,
+                self.width,
+            );
+        }
+
+        /// Adjoint forward DWT applied to an ndarray (parallel, multi-level).
+        ///
+        /// `input` is taken as `&mut` because the internal multilevel algorithm writes
+        /// intermediate results back into the buffer during reconstruction.
+        pub fn par_adj_forward_ndarray_multilevel<D: Dimension>(
+            &self,
+            input: &mut ArrayRef<T, D>,
+            output: &mut ArrayRef<T, D>,
+            axes: &[usize],
+            level: usize,
+        ) {
+            let out_shape = output.shape().to_owned();
+            let level = if level == 0 {
+                max_level_nd(self.width, &out_shape, axes)
+            } else {
+                level
+            };
+            let in_shape = get_transform_shape(&out_shape, axes, level, self.width, false);
+            assert_eq!(
+                in_shape,
+                input.shape(),
+                "input shape is not consistent with transformed shape of the output shape."
+            );
+
+            general_nd_inverse_multilevel(
+                |s, d, x| (self.dwt_adj_forward)(s, d, x, &self.bc),
                 input,
                 output,
                 &in_shape,

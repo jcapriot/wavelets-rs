@@ -21,6 +21,27 @@ pub fn stride_from_shape(shape: &[usize]) -> Vec<usize> {
     stride
 }
 
+/// Compile-time assertion that `N` is > 0.
+///
+/// Evaluate `CheckPositive::<N>::VALID` in a const context to trigger the assert.
+struct CheckPositive<const N: usize>();
+impl<const N: usize> CheckPositive<N> {
+    /// Asserts at compile time that `N >= 2` and `N % 2 == 0`.
+    const VALID: () = {
+        assert!(N > 0, "N must be positive.");
+    };
+}
+
+/// Assert at compile time that a chunk width `N` is positive.
+///
+/// Emits a compile error if `N` is 0.  Call this inside `const` blocks that
+/// accept a coefficient-length type parameter to get a clearer error message.
+macro_rules! static_assert_positive {
+    ($N: ty) => {
+        let _ = $crate::utils::CheckPositive::<$N>::VALID;
+    };
+}
+
 /// Split a slice into its even-indexed and odd-indexed elements.
 ///
 /// `evens[i] = x[2*i]` and `odds[i] = x[2*i + 1]`.  For odd-length `x` the extra
@@ -205,7 +226,7 @@ pub fn deinterleave_strided_chunk<T: Clone, const N: usize, A: aligned_vec::Alig
     evens: &mut [AVec<T, A>; N],
     odds: &mut [AVec<T, A>; N],
 ) {
-    assert_ne!(N, 0);
+    static_assert_positive!(N);
     let ne = (x.len() + 1) / 2;
     let no = x.len() / 2;
     debug_assert_eq!(x.len(), ne + no);
@@ -326,8 +347,7 @@ pub fn stack_to_strided_chunk<T: Clone + Zero, const N: usize, A: aligned_vec::A
     second: &[AVec<T, A>; N],
     out: &mut ChunkStridedSliceRef<T, N>,
 ) {
-    assert_ne!(N, 0);
-
+    static_assert_positive!(N);
     let nf = first[0].len();
     let ns = second[0].len();
     let no = out.len();
@@ -429,7 +449,7 @@ pub fn interleave_strided_chunk<T: Clone, const N: usize, A: aligned_vec::Alignm
     odds: &[AVec<T, A>; N],
     x: &mut ChunkStridedSliceRef<T, N>,
 ) {
-    assert_ne!(N, 0);
+    static_assert_positive!(N);
     let ne = (x.len() + 1) / 2;
     let no = x.len() / 2;
     debug_assert_eq!(x.len(), ne + no);
@@ -535,7 +555,7 @@ pub fn split_strided_chunk<T: Clone, const N: usize, A: aligned_vec::Alignment>(
     first: &mut [AVec<T, A>; N],
     second: &mut [AVec<T, A>; N],
 ) {
-    assert_ne!(N, 0);
+    static_assert_positive!(N);
     let nf = first[0].len();
     let ns = second[0].len();
     let nx = x.len();
@@ -651,7 +671,7 @@ pub fn clone_strided_chunk_to_avecs<T: Clone, const N: usize, A: aligned_vec::Al
     x: &ChunkStridedSliceRef<T, N>,
     out: &mut [AVec<T, A>; N],
 ) {
-    assert_ne!(N, 0);
+    static_assert_positive!(N);
     let n = out[0].len();
     assert!(
         out.iter().all(|v| v.len() == n),
@@ -704,7 +724,7 @@ pub fn clone_avecs_to_strided_chunk<T: Clone, const N: usize, A: aligned_vec::Al
     x: &[AVec<T, A>; N],
     out: &mut ChunkStridedSliceRef<T, N>,
 ) {
-    assert_ne!(N, 0);
+    static_assert_positive!(N);
     let n = x[0].len();
     assert!(
         x.iter().all(|v| v.len() == n),

@@ -23,16 +23,17 @@ use wavelets_macros::generate_wavelet_match_arms;
 /// High-level Lifting Wavelet Transform driver.
 ///
 /// `WaveletTransform` owns the lifting-step function pointers for a chosen wavelet
-/// and boundary condition.  The const generic `N` must match the SIMD chunk width
-/// for `T` — use the [`ChunkWidth`](crate::ChunkWidth) impls to pick the correct
-/// value (e.g. `64` for `f32`, `64` for `f64`).
+/// and boundary condition. The const generic `N` should be based on the processor's
+/// cache size and the size of the type that is transformed. By default N is chosen
+/// using the [`ChunkWidth`] impls to pick a reasonable value (e.g. `8` for `f32` and
+/// `4` for `f64` on `x86_64` processors).s
 ///
 /// # Example
 ///
 /// ```rust,ignore
 /// use wavelets::{Wavelets, boundarys::BoundaryCondition, lwt::driver::WaveletTransform};
 ///
-/// let xfm: WaveletTransform<f64, _, 64> =
+/// let xfm: WaveletTransform =
 ///     WaveletTransform::new(Wavelets::Daubechies4, BoundaryCondition::Periodic);
 ///
 /// let input = vec![1.0_f64; 64];
@@ -593,7 +594,7 @@ fn general_nd_inverse_multilevel<F, T, L, const N: usize>(
 #[cfg(feature = "rayon")]
 /// Rayon-parallel LWT drivers.
 ///
-/// Mirrors the sequential [`super::WaveletTransform`] API but processes independent lanes
+/// Mirrors the sequential [`WaveletTransform`] API but processes independent lanes
 /// on multiple threads via Rayon.
 pub mod parallel {
     use super::*;

@@ -1711,9 +1711,10 @@ pub fn implement_dwt_orthogonal(input: proc_macro::TokenStream) -> proc_macro::T
         })
         .collect::<Vec<_>>();
     let hi = h.clone().into_iter().rev().collect::<Vec<_>>();
+    let half_n: usize = g.len() / 2;
 
     quote! {
-    impl crate::dwt::DiscreteTransform<{#name::WIDTH}> for #name {
+    impl crate::dwt::DiscreteTransform<{#name::WIDTH}, #half_n> for #name {
             const G: [f64; #name::WIDTH] = [#(#g), *];
             const H: [f64; #name::WIDTH] = [#(#h), *];
             const GI: [f64; #name::WIDTH] = [#(#gi), *];
@@ -1777,9 +1778,10 @@ pub fn implement_dwt_biorthogonal(input: proc_macro::TokenStream) -> proc_macro:
             _ => unreachable!(),
         })
         .collect::<Vec<_>>();
+    let half_n: usize = g.len() / 2;
 
     quote! {
-    impl crate::dwt::DiscreteTransform<{#name::WIDTH}> for #name {
+    impl crate::dwt::DiscreteTransform<{#name::WIDTH}, #half_n> for #name {
             const G: [f64; #name::WIDTH] = [#(#g), *];
             const H: [f64; #name::WIDTH] = [#(#h), *];
             const GI: [f64; #name::WIDTH] = [#(#gi), *];

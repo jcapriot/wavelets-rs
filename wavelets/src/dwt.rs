@@ -49,7 +49,7 @@ pub mod symlet;
 /// All default method implementations delegate to the free functions in this module
 /// ([`dwt_forward`], [`dwt_inverse`], etc.) so implementors only need to supply the
 /// four arrays.
-pub trait DiscreteTransform<const N: usize> {
+pub trait DiscreteTransform<const N: usize, const NH: usize> {
     /// Analysis low-pass (scaling) filter coefficients.
     const G: [f64; N];
     /// Analysis high-pass (wavelet) filter coefficients.
@@ -73,18 +73,22 @@ pub trait DiscreteTransform<const N: usize> {
     /// Inverse DWT: reconstruct `x` from approximation `s` and detail `d`.
     #[inline]
     fn inverse<T: Transformable + Zero>(s: &[T], d: &[T], x: &mut [T]) {
-        dwt_inverse(&Self::GI, &Self::HI, s, d, x);
+        dwt_inverse::<_, _, NH>(&Self::GI, &Self::HI, s, d, x);
     }
 
     /// Adjoint (transpose) of the forward DWT.
     ///
-    /// Applies reversed analysis filters via [`dwt_inverse`], which is the
-    /// mathematical transpose of the forward convolution-downsample operation.
+    /// Uses [`dwt_adjoint_forward`] with the analysis filters and the supplied boundary
+    /// condition, giving the exact mathematical transpose of [`forward`](Self::forward)
+    /// for any `BC`.
     #[inline]
-    fn adjoint_forward<T: Transformable + Zero>(s: &[T], d: &[T], x: &mut [T]) {
-        let ga: [_; N] = Self::G.clone().into_iter().rev().collect_array().unwrap();
-        let ha: [_; N] = Self::H.clone().into_iter().rev().collect_array().unwrap();
-        dwt_inverse(&ga, &ha, s, d, x);
+    fn adjoint_forward<T: Transformable + Zero, BC: BoundaryExtension>(
+        s: &[T],
+        d: &[T],
+        x: &mut [T],
+        bc: &BC,
+    ) {
+        dwt_adjoint_forward(&Self::G, &Self::H, s, d, x, bc);
     }
 
     /// Adjoint (transpose) of the inverse DWT.
@@ -106,13 +110,13 @@ pub trait DiscreteTransform<const N: usize> {
     fn adjoint_forward_per<T: Transformable + Zero>(s: &[T], d: &[T], x: &mut [T]) {
         let ga: [_; N] = Self::G.clone().into_iter().rev().collect_array().unwrap();
         let ha: [_; N] = Self::H.clone().into_iter().rev().collect_array().unwrap();
-        dwt_per_inverse(&ga, &ha, s, d, x);
+        dwt_per_inverse::<_, _, NH>(&ga, &ha, s, d, x);
     }
 
     /// Periodic inverse DWT: reconstruct `x` with circular boundary conditions.
     #[inline]
     fn inverse_per<T: Transformable + Zero>(s: &[T], d: &[T], x: &mut [T]) {
-        dwt_per_inverse(&Self::GI, &Self::HI, s, d, x);
+        dwt_per_inverse::<_, _, NH>(&Self::GI, &Self::HI, s, d, x);
     }
 
     /// Adjoint of the periodic inverse DWT.
@@ -151,14 +155,28 @@ impl<const N: usize> CheckCoefLen<N> {
     };
 }
 
+struct CheckHalfCoefLen<const N: usize, const NH: usize>();
+impl<const N: usize, const NH: usize> CheckHalfCoefLen<N, NH> {
+    /// Asserts at compile time that `N >= 2` and `N % 2 == 0`.
+    const VALID: () = {
+        assert!(N >= 2, "Coefficient length must be 2 or more.");
+        assert!(
+            NH * 2 == N,
+            "Twice coefficient half length must be equal to coefficient length."
+        )
+    };
+}
+
 /// Assert at compile time that a wavelet coefficient length `N` is valid (even and ≥ 2).
 ///
 /// Emits a compile error if `N` is odd or less than 2.  Call this inside `const` blocks that
 /// accept a coefficient-length type parameter to get a clearer error message.
-#[macro_export]
 macro_rules! static_assert_valid_coefficient_length {
     ($N: ty) => {
         let _ = $crate::dwt::CheckCoefLen::<$N>::VALID;
+    };
+    ($N: ty, $NH: ty) => {
+        let _ = $crate::dwt::CheckHalfCoefLen::<$N, $NH>::VALID;
     };
 }
 
@@ -282,14 +300,14 @@ pub fn dwt_forward<T: Transformable + Zero, const N: usize, BC: BoundaryExtensio
 /// # Panics
 ///
 /// Panics if `s.len() != d.len()` or if the lengths are inconsistent with `x.len()`.
-pub fn dwt_inverse<T: Transformable + Zero, const N: usize>(
+pub fn dwt_inverse<T: Transformable + Zero, const N: usize, const NH: usize>(
     gi: &[f64; N],
     hi: &[f64; N],
     s: &[T],
     d: &[T],
     x: &mut [T],
 ) {
-    static_assert_valid_coefficient_length!(N);
+    static_assert_valid_coefficient_length!(N, NH);
     let (nx, ns, nd) = (x.len(), s.len(), d.len());
 
     assert_eq!(ns, nd, "'d.len()' must be equal to 's.len()'");
@@ -314,8 +332,8 @@ pub fn dwt_inverse<T: Transformable + Zero, const N: usize>(
     let (x_chunks, x_b) = x.as_chunks_mut::<2>();
 
     if let Some(x1) = x_f.get_mut(0)
-        && let Some(s) = s.get(..N / 2)
-        && let Some(d) = d.get(..N / 2)
+        && let Some(s) = s.get(..NH)
+        && let Some(d) = d.get(..NH)
     {
         *x1 = T::zero();
 
@@ -331,8 +349,8 @@ pub fn dwt_inverse<T: Transformable + Zero, const N: usize>(
         .iter_mut()
         .zip(
             s[pair_shift..]
-                .windows(N / 2)
-                .zip(d[pair_shift..].windows(N / 2)),
+                .array_windows::<NH>()
+                .zip(d[pair_shift..].array_windows::<NH>()),
         )
         .for_each(|([x0, x1], (s, d))| {
             *x0 = T::zero();
@@ -345,7 +363,7 @@ pub fn dwt_inverse<T: Transformable + Zero, const N: usize>(
             );
         });
 
-    let last_sd = ns.checked_sub(N / 2).unwrap_or(ns);
+    let last_sd = ns.checked_sub(NH).unwrap_or(ns);
     if let Some(x0) = x_b.get_mut(0)
         && let Some(s) = s.get(last_sd..)
         && let Some(d) = d.get(last_sd..)
@@ -359,6 +377,102 @@ pub fn dwt_inverse<T: Transformable + Zero, const N: usize>(
                 *x0 += s.clone() * g1.clone() + d.clone() * h1.clone();
             });
     }
+}
+
+/// Low-level adjoint of the forward DWT with explicit filter arrays and boundary condition.
+///
+/// Computes the exact mathematical transpose of [`dwt_forward`] for any `BC`.  Where
+/// `dwt_forward` gathers signal values through the boundary extension, this function
+/// *scatters* sub-band contributions back using [`BoundaryExtension::get_parts`].
+///
+/// # Panics
+///
+/// Same length constraints as [`dwt_forward`].
+pub fn dwt_adjoint_forward<T: Transformable + Zero, const N: usize, BC: BoundaryExtension>(
+    g: &[f64; N],
+    h: &[f64; N],
+    s: &[T],
+    d: &[T],
+    x: &mut [T],
+    bc: &BC,
+) {
+    static_assert_valid_coefficient_length!(N);
+    let (nx, ns, nd) = (x.len(), s.len(), d.len());
+
+    assert_eq!(ns, nd, "'d.len()' must be equal to 's.len()'");
+
+    assert_eq!(
+        get_outlen(N, nx),
+        ns,
+        "'s.len()` and `d.len()' are inconsistent with 'x.len()'"
+    );
+
+    x.iter_mut().for_each(|v| *v = T::zero());
+
+    let offset = const { get_offset(N) };
+    let n_bcs = const { N / 4 };
+    let first_x = const { get_offset(N) % 2 };
+
+    let gh: [_; N] = core::array::from_fn(|i| {
+        [
+            T::scalar_type_from_f64(g[N - (i + 1)]),
+            T::scalar_type_from_f64(h[N - (i + 1)]),
+        ]
+    });
+
+    // Mirror the forward's three-region split.
+    let n1 = std::cmp::min(2 * n_bcs, ns);
+    let nx_steps = nx.checked_sub(N - 2 + first_x).unwrap_or(0) / 2;
+    let n2 = std::cmp::min(n1 + nx_steps, ns);
+
+    // Front boundary: window may extend past the left edge.
+    s[..n1]
+        .iter()
+        .zip(d[..n1].iter())
+        .enumerate()
+        .for_each(|(pos, (sv, dv))| {
+            let ix = 2 * (pos as isize - n_bcs as isize) - offset as isize;
+            gh.iter().enumerate().for_each(|(k, [gk, hk])| {
+                let contrib = sv.clone() * gk.clone() + dv.clone() * hk.clone();
+                for (scale, j_real) in bc.get_parts::<T>(nx, ix + k as isize) {
+                    match scale {
+                        None => x[j_real] += contrib.clone(),
+                        Some(sc) => x[j_real] += contrib.clone() * sc,
+                    }
+                }
+            });
+        });
+
+    // Main region: every window index is in [0, nx), no BC needed.
+    s[n1..n2]
+        .iter()
+        .zip(d[n1..n2].iter())
+        .enumerate()
+        .for_each(|(m, (sv, dv))| {
+            let ix = first_x + 2 * m;
+            gh.iter().zip(&mut x[ix..ix + N]).for_each(|([gk, hk], x)| {
+                *x += sv.clone() * gk.clone() + dv.clone() * hk.clone();
+            });
+        });
+
+    // Back boundary: window may extend past the right edge.
+    s[n2..]
+        .iter()
+        .zip(d[n2..].iter())
+        .enumerate()
+        .for_each(|(m, (sv, dv))| {
+            let pos = m + n2;
+            let ix = 2 * (pos as isize - n_bcs as isize) - offset as isize;
+            gh.iter().enumerate().for_each(|(k, [gk, hk])| {
+                let contrib = sv.clone() * gk.clone() + dv.clone() * hk.clone();
+                for (scale, j_real) in bc.get_parts::<T>(nx, ix + k as isize) {
+                    match scale {
+                        None => x[j_real] += contrib.clone(),
+                        Some(sc) => x[j_real] += contrib.clone() * sc,
+                    }
+                }
+            });
+        });
 }
 
 /// Low-level periodic forward DWT.
@@ -495,14 +609,14 @@ pub fn dwt_per_forward<T: Transformable + Zero, const N: usize>(
 /// # Panics
 ///
 /// Same length constraints as [`dwt_per_forward`].
-pub fn dwt_per_inverse<T: Transformable + Zero, const N: usize>(
+pub fn dwt_per_inverse<T: Transformable + Zero, const N: usize, const NH: usize>(
     gi: &[f64; N],
     hi: &[f64; N],
     s: &[T],
     d: &[T],
     x: &mut [T],
 ) {
-    static_assert_valid_coefficient_length!(N);
+    static_assert_valid_coefficient_length!(N, NH);
     let (nx, ns, nd) = (x.len(), s.len(), d.len());
 
     assert!(
@@ -584,8 +698,8 @@ pub fn dwt_per_inverse<T: Transformable + Zero, const N: usize>(
     // then the number of steps we can completely do to the x_chunks
     let nx_steps = s.len().checked_sub(N / 2 - 1).unwrap_or(0);
 
-    debug_assert_eq!(nx_steps, s.windows(N / 2).len());
-    debug_assert_eq!(nx_steps, d.windows(N / 2).len());
+    debug_assert_eq!(nx_steps, s.array_windows::<NH>().len());
+    debug_assert_eq!(nx_steps, d.array_windows::<NH>().len());
 
     // added to the first boundary...
     let n2 = std::cmp::min(n1 + nx_steps, nx_chunks);
@@ -601,7 +715,7 @@ pub fn dwt_per_inverse<T: Transformable + Zero, const N: usize>(
         .for_each(|(i_sd, [x0, x1])| {
             *x0 = T::zero();
             *x1 = T::zero();
-            (i_sd..i_sd + N as isize / 2)
+            (i_sd..i_sd + NH as isize)
                 .zip(gh_chunks)
                 .for_each(|(j, [[g0, h0], [g1, h1]])| {
                     if let Some(s) = per_bc.get_bc(s, j)
@@ -615,7 +729,7 @@ pub fn dwt_per_inverse<T: Transformable + Zero, const N: usize>(
 
     x_chunks
         .iter_mut()
-        .zip(s.windows(N / 2).zip(d.windows(N / 2)))
+        .zip(s.array_windows::<NH>().zip(d.array_windows::<NH>()))
         .for_each(|([x0, x1], (s, d))| {
             *x0 = T::zero();
             *x1 = T::zero();
@@ -632,7 +746,7 @@ pub fn dwt_per_inverse<T: Transformable + Zero, const N: usize>(
         .for_each(|(i_sd, [x0, x1])| {
             *x0 = T::zero();
             *x1 = T::zero();
-            (i_sd..i_sd + N as isize / 2)
+            (i_sd..i_sd + NH as isize)
                 .zip(gh_chunks)
                 .for_each(|(j, [[g0, h0], [g1, h1]])| {
                     if let Some(s) = per_bc.get_bc(s, j)
@@ -648,7 +762,7 @@ pub fn dwt_per_inverse<T: Transformable + Zero, const N: usize>(
     {
         let i_sd = nd as isize - n_bcs;
         *x0 = T::zero();
-        (i_sd..i_sd + N as isize / 2)
+        (i_sd..i_sd + NH as isize)
             .zip(gh_chunks)
             .for_each(|(j, [_, [g1, h1]])| {
                 if let Some(s) = per_bc.get_bc(s, j)
@@ -669,6 +783,7 @@ mod test {
     #[test]
     fn test_simple() {
         const N: usize = 4;
+        const NH: usize = 2;
         let g = [1.0; N];
         let h = core::array::from_fn(|i| (-1 * (i as isize % 2)) as f64 * 1.0);
 
@@ -687,6 +802,6 @@ mod test {
         dwt_forward(&g, &h, &x, &mut s, &mut d, &bc);
 
         let mut x = vec![0.0; nx];
-        dwt_inverse(&g, &h, &s, &d, &mut x);
+        dwt_inverse::<_, _, NH>(&g, &h, &s, &d, &mut x);
     }
 }

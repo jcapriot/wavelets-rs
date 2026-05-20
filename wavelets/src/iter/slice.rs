@@ -958,7 +958,7 @@ implement_lane_iter!(LaneSliceIterMut -> *mut T, &'a mut T, StridedSliceMut<'a, 
 /// through memory with a common `stride`.  It is the `N`-lane analogue of
 /// [`StridedSliceRef`]: element `(i, j)` lives at `base + i * stride + offsets[j]`.
 ///
-/// This type is `#[repr(transparent)]` over its internal [`ChunkStrideParts`], so it
+/// This type is `#[repr(transparent)]` over its internal `ChunkStrideParts`, so it
 /// can be safely constructed via pointer casts inside [`ChunkStridedSliceBase`].
 #[repr(transparent)]
 pub struct ChunkStridedSliceRef<T, const N: usize>(ChunkStrideParts<T, N>);

@@ -293,7 +293,20 @@ mod test {
     test_wavelet!(test_db10, test_db10_per, test_db10_adj, Daubechies10);
 
     #[rstest]
-    fn test_adjoint(#[values(64, 65)] n: usize) {
+    fn test_adjoint_db3(
+        #[values(
+            BoundaryCondition::Zero,
+            BoundaryCondition::Periodic,
+            BoundaryCondition::Constant,
+            BoundaryCondition::Reflect,
+            BoundaryCondition::Symmetric,
+            BoundaryCondition::Antisymmetric,
+            BoundaryCondition::Smooth,
+            BoundaryCondition::Antireflect
+        )]
+        bc: BoundaryCondition,
+        #[values(64, 65)] n: usize,
+    ) {
         type Wvlt = Daubechies3;
 
         let nsd = get_outlen(Wvlt::WIDTH, n);
@@ -317,20 +330,75 @@ mod test {
             RTOL,
             ATOL,
         );
+
+        test_approx_adjoint(
+            |u, out| {
+                let (s, d) = out.split_at_mut(nsd);
+                Wvlt::forward(u, s, d, &bc);
+            },
+            |v, out| {
+                let (s, d) = v.split_at(nsd);
+                Wvlt::adjoint_forward(s, d, out, &bc);
+            },
+            &u,
+            &v,
+            RTOL,
+            ATOL,
+        );
     }
 
-    // test_approx_adjoint(
-    //     |u, out| {
-    //         let (s, d) = out.split_at_mut(nsd);
-    //         Wvlt::forward(u, s, d, &bc);
-    //     },
-    //     |v, out| {
-    //         let (s, d) = v.split_at(nsd);
-    //         Wvlt::adjoint_forward(s, d, out, &bc);
-    //     },
-    //     &u,
-    //     &v,
-    //     RTOL,
-    //     ATOL,
-    // );
+    #[rstest]
+    fn test_adjoint_db2(
+        #[values(
+            BoundaryCondition::Zero,
+            BoundaryCondition::Periodic,
+            BoundaryCondition::Constant,
+            BoundaryCondition::Reflect,
+            BoundaryCondition::Symmetric,
+            BoundaryCondition::Antisymmetric,
+            BoundaryCondition::Smooth,
+            BoundaryCondition::Antireflect
+        )]
+        bc: BoundaryCondition,
+        #[values(64, 65)] n: usize,
+    ) {
+        type Wvlt = Daubechies2;
+
+        let nsd = get_outlen(Wvlt::WIDTH, n);
+
+        let u = (0..n as isize).map(|i| (i + 1) as f64).collect::<Vec<_>>();
+        let v = (0..(2 * nsd) as isize)
+            .map(|i| (5 - i) as f64)
+            .collect::<Vec<_>>();
+
+        test_approx_adjoint(
+            |u, out| {
+                let (s, d) = out.split_at_mut(nsd);
+                Wvlt::adjoint_inverse(u, s, d);
+            },
+            |v, out| {
+                let (s, d) = v.split_at(nsd);
+                Wvlt::inverse(s, d, out);
+            },
+            &u,
+            &v,
+            RTOL,
+            ATOL,
+        );
+
+        test_approx_adjoint(
+            |u, out| {
+                let (s, d) = out.split_at_mut(nsd);
+                Wvlt::forward(u, s, d, &bc);
+            },
+            |v, out| {
+                let (s, d) = v.split_at(nsd);
+                Wvlt::adjoint_forward(s, d, out, &bc);
+            },
+            &u,
+            &v,
+            RTOL,
+            ATOL,
+        );
+    }
 }
