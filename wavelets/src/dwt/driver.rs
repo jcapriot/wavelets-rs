@@ -160,7 +160,7 @@ where
     ///
     /// Reconstructs the signal from approximation `s` and detail `d`.
     pub fn inverse_1d(&self, s: &[T], d: &[T], output: &mut [T]) {
-        (self.dwt_inverse)(&s, &d, output);
+        (self.dwt_inverse)(s, d, output);
     }
 
     /// Adjoint of the forward 1-D DWT.
@@ -182,12 +182,12 @@ where
     /// `input` must be a flat slice whose logical shape is `shape`.  `output` must
     /// have the shape returned by `get_transform_shape(shape, axes, 1, width, false)`.
     pub fn forward_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
-        self.forward_multilevel_nd(input, output, shape, &axes, 1);
+        self.forward_multilevel_nd(input, output, shape, axes, 1);
     }
 
     /// Single-level inverse DWT on an N-D array.
     pub fn inverse_nd(&self, input: &mut [T], output: &mut [T], shape: &[usize], axes: &[usize]) {
-        self.inverse_multilevel_nd(input, output, shape, &axes, 1);
+        self.inverse_multilevel_nd(input, output, shape, axes, 1);
     }
 
     /// Single-level adjoint of the forward DWT on an N-D array.
@@ -202,12 +202,12 @@ where
         shape: &[usize],
         axes: &[usize],
     ) {
-        self.adj_forward_multilevel_nd(input, output, shape, &axes, 1);
+        self.adj_forward_multilevel_nd(input, output, shape, axes, 1);
     }
 
     /// Single-level adjoint of the inverse DWT on an N-D array.
     pub fn adj_inverse_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
-        self.adj_inverse_multilevel_nd(input, output, shape, &axes, 1);
+        self.adj_inverse_multilevel_nd(input, output, shape, axes, 1);
     }
 
     /// Multi-level forward DWT on an N-D array.
@@ -559,7 +559,7 @@ where
 
     /// Inverse periodic DWT: reconstruct `output` from sub-bands `s` and `d`.
     pub fn inverse_1d(&self, s: &[T], d: &[T], output: &mut [T]) {
-        (self.dwt_inverse)(&s, &d, output);
+        (self.dwt_inverse)(s, d, output);
     }
 
     /// Adjoint of the forward periodic DWT (one level).
@@ -574,22 +574,22 @@ where
 
     /// Single-level periodic forward DWT along the given `axes`.
     pub fn forward_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
-        self.forward_multilevel_nd(input, output, shape, &axes, 1);
+        self.forward_multilevel_nd(input, output, shape, axes, 1);
     }
 
     /// Single-level periodic inverse DWT along the given `axes`.
     pub fn inverse_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
-        self.inverse_multilevel_nd(input, output, shape, &axes, 1);
+        self.inverse_multilevel_nd(input, output, shape, axes, 1);
     }
 
     /// Single-level periodic adjoint forward DWT along the given `axes`.
     pub fn adj_forward_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
-        self.adj_forward_multilevel_nd(input, output, shape, &axes, 1);
+        self.adj_forward_multilevel_nd(input, output, shape, axes, 1);
     }
 
     /// Single-level periodic adjoint inverse DWT along the given `axes`.
     pub fn adj_inverse_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
-        self.adj_inverse_multilevel_nd(input, output, shape, &axes, 1);
+        self.adj_inverse_multilevel_nd(input, output, shape, axes, 1);
     }
 
     /// Multi-level periodic forward DWT along the given `axes`.

@@ -8,7 +8,7 @@ use syn::parse::{Parse, ParseStream};
 use syn::spanned::Spanned;
 use syn::{Ident, LitFloat, Result, Token, parse_macro_input};
 
-const WVLTS: [&'static str; 33] = [
+const WVLTS: [&str; 33] = [
     "Daubechies1",
     "Daubechies2",
     "Daubechies3",
@@ -69,7 +69,7 @@ impl Parse for WaveletEnum {
             .parse_terminated(Ident::parse, Token![,])?
             .into_iter()
             .collect();
-        let extras = if let Ok(_) = input.parse::<Token![,]>() {
+        let extras = if input.parse::<Token![,]>().is_ok() {
             let extra_content;
             syn::braced!(extra_content in input);
             let extras: TokenStream = extra_content.parse()?;
@@ -388,7 +388,7 @@ fn expand_lifting_step_simd(
                 let nr = (ir_end).checked_sub(#n_coefs + #r_start).unwrap_or(0);
             });
 
-            let cv_terms = (0..n_coefs).map(|i| syn::Index::from(i)).map(|i| {
+            let cv_terms = (0..n_coefs).map(syn::Index::from).map(|i| {
                 quote! {T::simd_splat(simd, c.#i)}
             });
 
@@ -1097,7 +1097,7 @@ fn expand_adjoint_lifting_step_simd(
                 let nr = (ir_end).checked_sub(#n_coefs + #r_start).unwrap_or(0);
             });
 
-            let cv_terms = (0..n_coefs).map(|i| syn::Index::from(i)).map(|i| {
+            let cv_terms = (0..n_coefs).map(syn::Index::from).map(|i| {
                 quote! {T::simd_splat(simd, c.#i)}
             });
 
@@ -1458,7 +1458,7 @@ fn generate_forward_chunk_op(steps: &[LiftingStep<LitFloat>]) -> TokenStream {
         let nd = d.len() / chunk_size;
         assert!(ns == nd || nd + 1 == ns, "detail and smooth coefficient arrays must have compatible lengths, got {nd} d-chunks and {ns} s-chunks.");
     };
-    for (_i, step) in steps.iter().enumerate() {
+    for step in steps.iter() {
         let step_ts = expand_lifting_step_chunk(step, LiftingDirection::Forward);
         func_body.extend(step_ts);
     }
@@ -1479,7 +1479,7 @@ fn generate_forward_op(steps: &[LiftingStep<LitFloat>]) -> TokenStream {
     let mut func_body = quote! {
         assert!(d.len() == s.len() || d.len() + 1 == s.len(), "detail and scaling coefficient arrays must have compatible lengths");
     };
-    for (_i, step) in steps.iter().enumerate() {
+    for step in steps.iter() {
         let step_ts = expand_lifting_step_simd(step, LiftingDirection::Forward);
         func_body.extend(step_ts);
     }
@@ -1522,7 +1522,7 @@ fn generate_inverse_op(steps: &[LiftingStep<LitFloat>]) -> TokenStream {
     let mut func_body = quote! {
         assert!(d.len() == s.len() || d.len() + 1 == s.len(), "detail and scaling coefficient arrays must have compatible lengths");
     };
-    for (_i, step) in steps.iter().enumerate().rev() {
+    for step in steps.iter().rev() {
         let step_ts = expand_lifting_step_simd(step, LiftingDirection::Inverse);
         func_body.extend(step_ts);
     }
@@ -1565,7 +1565,7 @@ fn generate_adjoint_inverse_op(steps: &[LiftingStep<LitFloat>]) -> TokenStream {
     let mut func_body = quote! {
         assert!(d.len() == s.len() || d.len() + 1 == s.len(), "detail and scaling coefficient arrays must have compatible lengths");
     };
-    for (_i, step) in steps.iter().enumerate() {
+    for step in steps.iter() {
         let step_ts = expand_adjoint_lifting_step_simd(step, LiftingDirection::Inverse);
         func_body.extend(step_ts);
     }
@@ -1608,7 +1608,7 @@ fn generate_adjoint_forward_op(steps: &[LiftingStep<LitFloat>]) -> TokenStream {
     let mut func_body = quote! {
         assert!(d.len() == s.len() || d.len() + 1 == s.len(), "detail and scaling coefficient arrays must have compatible lengths");
     };
-    for (_i, step) in steps.iter().enumerate().rev() {
+    for step in steps.iter().rev() {
         let step_ts = expand_adjoint_lifting_step_simd(step, LiftingDirection::Forward);
         func_body.extend(step_ts);
     }

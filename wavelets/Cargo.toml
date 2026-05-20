@@ -26,3 +26,7 @@ rstest = "0.26.1"
 [[bench]]
 name = "wavelet_bench"
 harness = false
+
+[lints.clippy]
+approx_constant = "allow"
+excessive_precision = "allow"

@@ -796,9 +796,9 @@ macro_rules! implement_lane_iter {
                 let rear_offset = arr_info.get_offset_at(&rear_pos);
 
                 Self {
-                    base: base,
+                    base,
                     arr_info,
-                    front_offset: front_offset,
+                    front_offset,
                     front_pos,
                     rear_offset,
                     rear_pos,
