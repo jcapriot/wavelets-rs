@@ -2012,10 +2012,10 @@ pub mod parallel {
                 if n_sd > 1 {
                     match first {
                         true => {
-                            let in_chunks = input.iter_lane_chunks::<N>(in_shape, ax);
+                            let in_chunks = input.par_iter_lane_chunks::<N>(in_shape, ax);
                             let in_rem = in_chunks.remainder();
                             let out_chunks =
-                                output.iter_lane_chunks_sub_mut::<N>(out_shape, &sub_shape, ax);
+                                output.par_iter_lane_chunks_sub_mut::<N>(out_shape, &sub_shape, ax);
                             let out_rem = out_chunks.remainder();
 
                             in_chunks.zip(out_chunks).for_each_init(
@@ -2060,7 +2060,7 @@ pub mod parallel {
                         }
                         false => {
                             let chunks =
-                                output.iter_lane_chunks_sub_mut::<N>(out_shape, &sub_shape, ax);
+                                output.par_iter_lane_chunks_sub_mut::<N>(out_shape, &sub_shape, ax);
                             let rem = chunks.remainder();
 
                             if chunks.len() > 0 {
@@ -2178,7 +2178,7 @@ pub mod parallel {
                 // Note that everything does work for n_s == 1 (or 0 for that matter),
                 // just that there really isn't anything useful to do.
                 if n_sd > 1 {
-                    let chunks = inwork.iter_lane_chunks_sub_mut(in_shape, &sub_shape, ax);
+                    let chunks = inwork.par_iter_lane_chunks_sub_mut(in_shape, &sub_shape, ax);
                     let rem = chunks.remainder();
 
                     if chunks.len() > 0 {
@@ -2230,9 +2230,9 @@ pub mod parallel {
 
         // copy input into output
         let min_axis = output.min_stride_axis(out_shape);
-        let in_chunks = inwork.iter_lane_chunks_sub::<N>(in_shape, out_shape, min_axis);
+        let in_chunks = inwork.par_iter_lane_chunks_sub::<N>(in_shape, out_shape, min_axis);
         let in_rem = in_chunks.remainder();
-        let out_chunks = output.iter_lane_chunks_mut::<N>(out_shape, min_axis);
+        let out_chunks = output.par_iter_lane_chunks_mut::<N>(out_shape, min_axis);
         let out_rem = out_chunks.remainder();
 
         out_chunks.zip(in_chunks).for_each(|(mut o, i)| {
@@ -2287,10 +2287,10 @@ pub mod parallel {
                 if n_s > 1 {
                     match first {
                         true => {
-                            let in_chunks = input.iter_lane_chunks::<N>(shape, ax);
+                            let in_chunks = input.par_iter_lane_chunks::<N>(shape, ax);
                             let in_rem = in_chunks.remainder();
                             let out_chunks =
-                                output.iter_lane_chunks_sub_mut::<N>(shape, &sub_shape, ax);
+                                output.par_iter_lane_chunks_sub_mut::<N>(shape, &sub_shape, ax);
                             let out_rem = out_chunks.remainder();
 
                             in_chunks.zip(out_chunks).for_each_init(
@@ -2334,7 +2334,7 @@ pub mod parallel {
                         }
                         false => {
                             let chunks =
-                                output.iter_lane_chunks_sub_mut::<N>(shape, &sub_shape, ax);
+                                output.par_iter_lane_chunks_sub_mut::<N>(shape, &sub_shape, ax);
                             let rem = chunks.remainder();
 
                             if chunks.len() > 0 {
@@ -2448,9 +2448,9 @@ pub mod parallel {
 
         // In per mode we can copy the input to the output right away and not modify the input array.
         let min_axis = output.min_stride_axis(shape);
-        let in_chunks = input.iter_lane_chunks::<N>(shape, min_axis);
+        let in_chunks = input.par_iter_lane_chunks::<N>(shape, min_axis);
         let in_rem = in_chunks.remainder();
-        let out_chunks = output.iter_lane_chunks_mut::<N>(shape, min_axis);
+        let out_chunks = output.par_iter_lane_chunks_mut::<N>(shape, min_axis);
         let out_rem = out_chunks.remainder();
 
         out_chunks.zip(in_chunks).for_each(|(mut o, i)| {
@@ -2478,7 +2478,7 @@ pub mod parallel {
                 // Note that everything does work for n_s == 1 (or 0 for that matter),
                 // just that there really isn't anything useful to do.
                 if n_s > 1 {
-                    let chunks = output.iter_lane_chunks_sub_mut(shape, &sub_shape, ax);
+                    let chunks = output.par_iter_lane_chunks_sub_mut(shape, &sub_shape, ax);
                     let rem = chunks.remainder();
 
                     chunks.for_each_init(

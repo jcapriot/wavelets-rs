@@ -4,7 +4,7 @@
 //! merging (interleave/stack) that the lifting transform requires, as well as strided
 //! variants used for N-D axis traversal.
 
-use crate::iter::slice::{ChunkStridedSliceRef, StridedSliceRef};
+use crate::iter::{ChunkStridedSliceRef, StridedSliceRef};
 use aligned_vec::AVec;
 use itertools::{Itertools, izip};
 use num_traits::Zero;
@@ -190,7 +190,7 @@ fn deinterleave_nd_unchecked<T: Clone>(input: &[T], output: &mut [T], shape: &[u
 /// slice; takes a fast path when the view happens to be contiguous.
 #[inline]
 pub fn deinterleave_strided<T: Clone>(x: &StridedSliceRef<T>, evens: &mut [T], odds: &mut [T]) {
-    if let Some(x) = x.as_slice() {
+    if let Ok(x) = x.try_into() {
         deinterleave(x, evens, odds);
     } else {
         let nx = x.len();
@@ -233,7 +233,7 @@ pub fn deinterleave_strided_chunk<T: Clone, const N: usize, A: aligned_vec::Alig
     assert!(evens.iter().all(|v| v.len() == ne));
     assert!(odds.iter().all(|v| v.len() == no));
 
-    if let Some(mut x_iter) = x.slices() {
+    if let Ok(mut x_iter) = x.try_array_chunks() {
         let mut i = 0;
         while let Some([xe, xo]) = x_iter.next_chunk::<2>() {
             xe.iter().cloned().zip(evens.iter_mut()).for_each(|(x, v)| {
@@ -316,7 +316,7 @@ pub fn stack<T: Clone + Zero>(first: &[T], second: &[T], out: &mut [T]) {
 /// Strided variant of [`stack`]: write `first` and `second` into a [`StridedSliceRef`] lane.
 #[inline]
 pub fn stack_to_strided<T: Clone + Zero>(first: &[T], second: &[T], out: &mut StridedSliceRef<T>) {
-    if let Some(out) = out.as_slice_mut() {
+    if let Ok(out) = out.try_into() {
         stack(first, second, out);
     } else {
         let no = out.len();
@@ -359,7 +359,7 @@ pub fn stack_to_strided_chunk<T: Clone + Zero, const N: usize, A: aligned_vec::A
         "invalid lengths for slice stack, first: {nf}, second: {ns}, third: {no}",
     );
 
-    if let Some(mut out_iter) = out.slices_mut() {
+    if let Ok(mut out_iter) = out.try_array_chunks_mut() {
         out_iter.by_ref().take(nf).enumerate().for_each(|(i, o)| {
             o.iter_mut().zip(first.iter()).for_each(|(o, v)| {
                 // SAFETY: i comes from enumerate().take(nf), so i < nf
@@ -425,7 +425,7 @@ pub fn interleave<T: Clone>(evens: &[T], odds: &[T], x: &mut [T]) {
 /// Strided variant of [`interleave`]: write interleaved values into a [`StridedSliceRef`] lane.
 #[inline]
 pub fn interleave_strided<T: Clone>(evens: &[T], odds: &[T], x: &mut StridedSliceRef<T>) {
-    if let Some(x) = x.as_slice_mut() {
+    if let Ok(x) = x.try_into() {
         interleave(evens, odds, x);
     } else {
         let nx = x.len();
@@ -458,7 +458,7 @@ pub fn interleave_strided_chunk<T: Clone, const N: usize, A: aligned_vec::Alignm
 
     // Note: Uses unsafe indexing to avoid bounds checks that are difficult to elide.
     // But are gauranteed by the assertions above and the loop conditions.
-    if let Some(mut x_iter) = x.slices_mut() {
+    if let Ok(mut x_iter) = x.try_array_chunks_mut() {
         let mut i = 0;
         while let Some([xe, xo]) = x_iter.next_chunk::<2>() {
             xe.iter_mut().zip(evens.iter()).for_each(|(x, v)| {
@@ -527,7 +527,7 @@ pub fn split<T: Clone>(x: &[T], first: &mut [T], second: &mut [T]) {
 /// Strided variant of [`split`]: read from a [`StridedSliceRef`] lane.
 #[inline]
 pub fn split_strided<T: Clone>(x: &StridedSliceRef<T>, first: &mut [T], second: &mut [T]) {
-    if let Some(x) = x.as_slice() {
+    if let Ok(x) = x.try_into() {
         split(x, first, second);
     } else {
         let nf = first.len();
@@ -568,7 +568,7 @@ pub fn split_strided_chunk<T: Clone, const N: usize, A: aligned_vec::Alignment>(
 
     let n_mid = nx - (nf + ns);
 
-    if let Some(mut x_iter) = x.slices() {
+    if let Ok(mut x_iter) = x.try_array_chunks() {
         x_iter.by_ref().take(nf).enumerate().for_each(|(i, out)| {
             out.iter()
                 .cloned()
@@ -658,7 +658,7 @@ pub fn clone_slice<T: Clone>(x: &[T], out: &mut [T]) {
 #[inline]
 pub fn clone_strided_to_slice<T: Clone>(x: &StridedSliceRef<T>, out: &mut [T]) {
     // clones x into out, based on the shorter of the two slices' lengths.
-    if let Some(x) = x.as_slice() {
+    if let Ok(x) = x.try_into() {
         clone_slice(x, out);
     } else {
         x.iter().cloned().zip(out).for_each(|(a, b)| *b = a);
@@ -683,7 +683,7 @@ pub fn clone_strided_chunk_to_avecs<T: Clone, const N: usize, A: aligned_vec::Al
         x.len(),
         n
     );
-    if let Some(x) = x.slices() {
+    if let Ok(x) = x.try_array_chunks() {
         x.take(n).enumerate().for_each(|(i, x)| {
             x.iter().cloned().zip(out.iter_mut()).for_each(|(x, v)| {
                 // SAFETY: Every out lane has length n and i < n since i comes from iterating over x's slices.
@@ -706,7 +706,7 @@ pub fn clone_strided_chunk_to_avecs<T: Clone, const N: usize, A: aligned_vec::Al
 /// Copy elements of a flat slice into a [`StridedSliceRef`] lane.
 #[inline]
 pub fn clone_slice_to_strided<T: Clone>(x: &[T], out: &mut StridedSliceRef<T>) {
-    if let Some(out) = out.as_slice_mut() {
+    if let Ok(out) = out.try_into() {
         clone_slice(x, out);
     } else {
         x.iter()
@@ -736,7 +736,7 @@ pub fn clone_avecs_to_strided_chunk<T: Clone, const N: usize, A: aligned_vec::Al
         n,
         out.len()
     );
-    if let Some(out) = out.slices_mut() {
+    if let Ok(out) = out.try_array_chunks_mut() {
         out.enumerate().take(n).for_each(|(i, out)| {
             out.iter_mut().zip(x.iter()).for_each(|(x, v)| {
                 // SAFETY: Every out lane has length n and i < n since i comes from iterating over x's slices.
@@ -807,7 +807,7 @@ fn perfect_shuffle<T: Clone>(x: &mut [T]) {
 mod tests {
     use super::*;
     use crate::iter::LanesIterator;
-    use crate::iter::slice::{StridedSlice, StridedSliceMut};
+    use crate::iter::strided_slice::{StridedSlice, StridedSliceMut};
     use aligned_vec::avec;
 
     use rstest::rstest;
@@ -1098,7 +1098,7 @@ mod tests {
         let mut out = vec![0; n1 * stride];
 
         let n_min = n0.min(n1);
-        let mut out_strided = StridedSliceMut::from_slice_mut(&mut out, stride);
+        let mut out_strided = StridedSliceMut::from_mut_slice(&mut out, stride);
         clone_slice_to_strided(&inp, &mut out_strided);
 
         let output = out.iter().step_by(stride).cloned().collect_vec();
@@ -1263,7 +1263,7 @@ mod tests {
         assert_eq!(in_1.len(), nf);
         assert_eq!(in_2.len(), ns);
 
-        let mut out_strided = StridedSliceMut::from_slice_mut(&mut out, stride);
+        let mut out_strided = StridedSliceMut::from_mut_slice(&mut out, stride);
         stack_to_strided(&in_1, &in_2, &mut out_strided);
 
         let out_f = out.iter().step_by(stride).take(nf).cloned().collect_vec();
