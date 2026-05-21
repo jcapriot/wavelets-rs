@@ -399,7 +399,11 @@ impl<T> LanesIterator for [T] {
     }
 
     fn min_stride_axis(&self, shape: &[usize]) -> usize {
-        if shape.len() > 0 { shape.len() - 1 } else { 0 }
+        if !shape.is_empty() {
+            shape.len() - 1
+        } else {
+            0
+        }
     }
 }
 
