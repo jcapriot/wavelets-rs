@@ -34,8 +34,7 @@
 //! use wavelets::{Wavelets, boundarys::BoundaryCondition, dwt::driver::WaveletTransform};
 //!
 //! // Build a DWT driver for Daubechies-4 with zero boundary padding.
-//! let xfm: WaveletTransform<f64, _, 64> =
-//!     WaveletTransform::new(Wavelets::Daubechies4, BoundaryCondition::Zero);
+//! let xfm: = WaveletTransform::new(Wavelets::Daubechies4, BoundaryCondition::Zero);
 //!
 //! let input = vec![1.0_f64; 128];
 //! let nsd = wavelets::dwt::get_outlen(8, input.len());

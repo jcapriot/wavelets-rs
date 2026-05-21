@@ -42,7 +42,7 @@ let level = 3;
 let shape = [128_usize];
 let axes = [0_usize];
 
-let trans: WaveletTransform<f64, _, 32> = WaveletTransform::new(wvlt, ZeroBoundary {});
+let trans = WaveletTransform::new(wvlt, ZeroBoundary);
 
 let x: Vec<f64> = (0..128).map(|i| i as f64 / 127.0).collect();
 
@@ -68,8 +68,7 @@ let level = 3;
 let shape = [64_usize, 64];
 let axes = [0_usize, 1]; // both axes
 
-let trans: WaveletTransform<f64, _, 32> =
-    WaveletTransform::new(wvlt, BoundaryCondition::Periodic);
+let trans = WaveletTransform::new(wvlt, BoundaryCondition::Periodic);
 
 let x: Vec<f64> = (0..64 * 64).map(|i| ((i as f64) * 0.17).sin()).collect();
 
