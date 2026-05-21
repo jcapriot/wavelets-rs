@@ -59,7 +59,7 @@ pub fn deinterleave<T: Clone>(x: &[T], evens: &mut [T], odds: &mut [T]) {
         "incorrect odd length, {n_o}, for slice deinterleave"
     );
     assert_eq!(
-        (nx + 1) / 2,
+        nx.div_ceil(2),
         n_e,
         "incorrect even length, {n_e}, for slice deinterleave"
     );
@@ -90,7 +90,7 @@ pub fn deinterleave_2d<T: Clone>(input: &[T], output: &mut [T], shape: &[usize; 
     assert_eq!(input.len(), n_total);
     assert_eq!(output.len(), n_total);
 
-    let n_first = (shape[0] + 1) / 2;
+    let n_first = shape[0].div_ceil(2);
     let n_sub: usize = shape[1..].iter().product();
 
     let (first, second) = output.split_at_mut(n_first * n_sub);
@@ -99,7 +99,7 @@ pub fn deinterleave_2d<T: Clone>(input: &[T], output: &mut [T], shape: &[usize; 
 
     let mut first_chunks = first.chunks_exact_mut(n_sub);
 
-    let n_first = (shape[1] + 1) / 2;
+    let n_first = shape[1].div_ceil(2);
     first_chunks
         .by_ref()
         .zip(second.chunks_exact_mut(n_sub))
@@ -125,7 +125,7 @@ pub fn deinterleave_nd<T: Clone>(input: &[T], output: &mut [T], shape: &[usize])
     match shape.len() {
         0 => {}
         1 => {
-            let (f, s) = output.split_at_mut((shape[0] + 1) / 2);
+            let (f, s) = output.split_at_mut(shape[0].div_ceil(2));
             deinterleave(input, f, s);
         }
         2 => deinterleave_2d(
@@ -149,7 +149,7 @@ fn deinterleave_nd_unchecked<T: Clone>(input: &[T], output: &mut [T], shape: &[u
     match shape.len() {
         0 => {}
         1 => {
-            let (f, s) = output.split_at_mut((shape[0] + 1) / 2);
+            let (f, s) = output.split_at_mut(shape[0].div_ceil(2));
             deinterleave(input, f, s);
         }
         2 => deinterleave_2d(
@@ -160,7 +160,7 @@ fn deinterleave_nd_unchecked<T: Clone>(input: &[T], output: &mut [T], shape: &[u
                 .expect("shape length was already checked to be 2"),
         ),
         _ => {
-            let n_first = (shape[0] + 1) / 2;
+            let n_first = shape[0].div_ceil(2);
             let n_sub: usize = shape[1..].iter().product();
 
             let (first, second) = output.split_at_mut(n_first * n_sub);
@@ -203,7 +203,7 @@ pub fn deinterleave_strided<T: Clone>(x: &StridedSliceRef<T>, evens: &mut [T], o
             "incorrect odd length, {n_o}, for strided deinterleave"
         );
         assert_eq!(
-            (nx + 1) / 2,
+            nx.div_ceil(2),
             n_e,
             "incorrect even length, {n_e}, for strided deinterleave"
         );
@@ -227,7 +227,7 @@ pub fn deinterleave_strided_chunk<T: Clone, const N: usize, A: aligned_vec::Alig
     odds: &mut [AVec<T, A>; N],
 ) {
     static_assert_positive!(N);
-    let ne = (x.len() + 1) / 2;
+    let ne = x.len().div_ceil(2);
     let no = x.len() / 2;
     debug_assert_eq!(x.len(), ne + no);
     assert!(evens.iter().all(|v| v.len() == ne));
@@ -244,13 +244,13 @@ pub fn deinterleave_strided_chunk<T: Clone, const N: usize, A: aligned_vec::Alig
                 // SAFETY: Every odds' length is equal to no = x.len()/2 and i < x.len()/2, so i < v.len().
                 *unsafe { v.get_unchecked_mut(i) } = x;
             });
-            i = i + 1;
+            i += 1;
         }
-        x_iter.next().map(|x| {
+        if let Some(x) = x_iter.next() {
             x.iter().cloned().zip(evens.iter_mut()).for_each(|(x, v)| {
                 *unsafe { v.get_unchecked_mut(no) } = x;
             });
-        });
+        }
     } else {
         let mut x_iter = x.iter();
 
@@ -270,9 +270,9 @@ pub fn deinterleave_strided_chunk<T: Clone, const N: usize, A: aligned_vec::Alig
                     // SAFETY: Every odds' length is equal to no = x.len()/2 and i < x.len()/2, so i < v.len().
                     *unsafe { v.get_unchecked_mut(i) } = x;
                 });
-            i = i + 1;
+            i += 1;
         }
-        x_iter.next().map(|x| {
+        if let Some(x) = x_iter.next() {
             x.into_iter()
                 .cloned()
                 .zip(evens.iter_mut())
@@ -280,7 +280,7 @@ pub fn deinterleave_strided_chunk<T: Clone, const N: usize, A: aligned_vec::Alig
                     // SAFETY: no < v.len() since v has length ne = no + 1 if there are any leftover slice chunks.
                     *unsafe { v.get_unchecked_mut(no) } = x;
                 });
-        });
+        }
     }
 }
 
@@ -407,7 +407,7 @@ pub fn interleave<T: Clone>(evens: &[T], odds: &[T], x: &mut [T]) {
     let n_o = odds.len();
 
     assert_eq!(nx / 2, n_o);
-    assert_eq!((nx + 1) / 2, n_e);
+    assert_eq!(nx.div_ceil(2), n_e);
 
     let (chunks, rem) = x.as_chunks_mut::<2>();
     let mut ev_iter = evens.iter();
@@ -433,7 +433,7 @@ pub fn interleave_strided<T: Clone>(evens: &[T], odds: &[T], x: &mut StridedSlic
         let n_o = odds.len();
 
         assert_eq!(nx / 2, n_o);
-        assert_eq!((nx + 1) / 2, n_e);
+        assert_eq!(nx.div_ceil(2), n_e);
 
         x.iter_mut()
             .zip(evens.iter().interleave(odds.iter()).cloned())
@@ -450,7 +450,7 @@ pub fn interleave_strided_chunk<T: Clone, const N: usize, A: aligned_vec::Alignm
     x: &mut ChunkStridedSliceRef<T, N>,
 ) {
     static_assert_positive!(N);
-    let ne = (x.len() + 1) / 2;
+    let ne = x.len().div_ceil(2);
     let no = x.len() / 2;
     debug_assert_eq!(x.len(), ne + no);
     assert!(evens.iter().all(|v| v.len() == ne));
@@ -469,14 +469,14 @@ pub fn interleave_strided_chunk<T: Clone, const N: usize, A: aligned_vec::Alignm
                 // SAFETY: Every odds' length is equal to no = x.len()/2 and i < x.len()/2, so i < v.len().
                 *x = unsafe { v.get_unchecked(i) }.clone();
             });
-            i = i + 1;
+            i += 1;
         }
-        x_iter.next().map(|x| {
+        if let Some(x) = x_iter.next() {
             x.iter_mut().zip(evens.iter()).for_each(|(x, v)| {
                 // SAFETY: no < v.len() since v has length ne = no + 1 if there are any leftover slice chunks.
                 *x = unsafe { v.get_unchecked(no) }.clone();
             });
-        });
+        }
     } else {
         let mut x_iter = x.iter_mut();
         let mut i = 0;
@@ -489,14 +489,14 @@ pub fn interleave_strided_chunk<T: Clone, const N: usize, A: aligned_vec::Alignm
                 // SAFETY: Same as above (chunks branch, evens).
                 *x = unsafe { v.get_unchecked(i) }.clone();
             });
-            i = i + 1;
+            i += 1;
         }
-        x_iter.next().map(|x| {
+        if let Some(x) = x_iter.next() {
             x.into_iter().zip(evens.iter()).for_each(|(x, v)| {
                 // SAFETY: Same as above (chunks branch remainder, evens).
                 *x = unsafe { v.get_unchecked(no) }.clone();
             });
-        });
+        }
     }
 }
 

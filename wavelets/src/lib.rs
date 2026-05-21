@@ -162,7 +162,7 @@ pub fn max_level(width: usize, n: usize) -> usize {
     let mut n = n;
     while n >= 2 * (width - 1) {
         lvl += 1;
-        n = (n + 1) / 2;
+        n = n.div_ceil(2);
     }
     lvl
 }

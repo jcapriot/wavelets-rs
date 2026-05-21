@@ -2,6 +2,11 @@
 name = "wavelets-macros"
 version = "0.1.0"
 edition = "2024"
+description = "Procedural macros for wavelet filter-coefficient generation and lifting-scheme expansion (used by the `wavelets` crate)."
+license = "MIT"
+repository = "https://github.com/jcapriot/wavelets-rs"
+keywords = ["wavelet", "signal-processing", "proc-macro", "codegen"]
+categories = ["science", "algorithms"]
 
 [lib]
 proc-macro = true

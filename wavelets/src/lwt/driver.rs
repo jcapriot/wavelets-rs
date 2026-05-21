@@ -144,22 +144,22 @@ where
     ///
     /// `shape` describes the logical dimensions of the flat slice `input`/`output`.
     pub fn forward_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
-        self.forward_multilevel_nd(input, output, shape, &axes, 1);
+        self.forward_multilevel_nd(input, output, shape, axes, 1);
     }
 
     /// Single-level inverse LWT applied to each axis in `axes` of an N-D array.
     pub fn inverse_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
-        self.inverse_multilevel_nd(input, output, shape, &axes, 1);
+        self.inverse_multilevel_nd(input, output, shape, axes, 1);
     }
 
     /// Single-level adjoint of the forward LWT on an N-D array.
     pub fn adj_forward_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
-        self.adj_forward_multilevel_nd(input, output, shape, &axes, 1);
+        self.adj_forward_multilevel_nd(input, output, shape, axes, 1);
     }
 
     /// Single-level adjoint of the inverse LWT on an N-D array.
     pub fn adj_inverse_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
-        self.adj_inverse_multilevel_nd(input, output, shape, &axes, 1);
+        self.adj_inverse_multilevel_nd(input, output, shape, axes, 1);
     }
 
     /// Multi-level forward LWT on an N-D array.
@@ -424,10 +424,10 @@ fn general_nd_forward_multilevel<F, T, L, const N: usize>(
             if n_s > 1 {
                 match first {
                     true => {
-                        let in_chunks = input.iter_lane_chunks_sub::<N>(&shape, &sub_shape, ax);
+                        let in_chunks = input.iter_lane_chunks_sub::<N>(shape, &sub_shape, ax);
                         let in_rem = in_chunks.remainder();
                         let out_chunks =
-                            output.iter_lane_chunks_sub_mut::<N>(&shape, &sub_shape, ax);
+                            output.iter_lane_chunks_sub_mut::<N>(shape, &sub_shape, ax);
                         let out_rem = out_chunks.remainder();
 
                         if in_chunks.len() > 0 {
@@ -462,7 +462,7 @@ fn general_nd_forward_multilevel<F, T, L, const N: usize>(
                         first = false;
                     }
                     false => {
-                        let chunks = output.iter_lane_chunks_sub_mut::<N>(&shape, &sub_shape, ax);
+                        let chunks = output.iter_lane_chunks_sub_mut::<N>(shape, &sub_shape, ax);
                         let rem = chunks.remainder();
 
                         if chunks.len() > 0 {
@@ -499,7 +499,7 @@ fn general_nd_forward_multilevel<F, T, L, const N: usize>(
         // shrink shape for each axis we used.
         for &ax in &axes {
             if sub_shape[ax] > 1 {
-                sub_shape[ax] = (sub_shape[ax] + 1) / 2;
+                sub_shape[ax] = sub_shape[ax].div_ceil(2);
             }
         }
     }
@@ -548,7 +548,7 @@ fn general_nd_inverse_multilevel<F, T, L, const N: usize>(
             let next_shape = sub_shape.clone();
             for &ax in &axes {
                 if sub_shape[ax] > 1 {
-                    sub_shape[ax] = (sub_shape[ax] + 1) / 2;
+                    sub_shape[ax] = sub_shape[ax].div_ceil(2);
                 }
             }
             next_shape
@@ -563,7 +563,7 @@ fn general_nd_inverse_multilevel<F, T, L, const N: usize>(
             let n_d = n_ax / 2;
             let n_s = n_ax - n_d;
             if n_s > 1 {
-                let chunks = output.iter_lane_chunks_sub_mut::<N>(shape, &sub_shape, ax);
+                let chunks = output.iter_lane_chunks_sub_mut::<N>(shape, sub_shape, ax);
                 let rem = chunks.remainder();
 
                 if chunks.len() > 0 {
@@ -615,7 +615,7 @@ pub mod parallel {
             shape: &[usize],
             axes: &[usize],
         ) {
-            self.par_forward_multilevel_nd(input, output, shape, &axes, 1);
+            self.par_forward_multilevel_nd(input, output, shape, axes, 1);
         }
 
         /// Single-level parallel inverse LWT along the given `axes`.
@@ -983,7 +983,7 @@ pub mod parallel {
             // shrink shape for each axis we used.
             for &ax in &axes {
                 if sub_shape[ax] > 1 {
-                    sub_shape[ax] = (sub_shape[ax] + 1) / 2;
+                    sub_shape[ax] = sub_shape[ax].div_ceil(2);
                 }
             }
         }
@@ -1032,7 +1032,7 @@ pub mod parallel {
                 let next_shape = sub_shape.clone();
                 for &ax in &axes {
                     if sub_shape[ax] > 1 {
-                        sub_shape[ax] = (sub_shape[ax] + 1) / 2;
+                        sub_shape[ax] = sub_shape[ax].div_ceil(2);
                     }
                 }
                 next_shape
@@ -1048,7 +1048,7 @@ pub mod parallel {
                 let n_s = n_ax - n_d;
 
                 if n_s > 1 {
-                    let chunks = output.iter_lane_chunks_sub_mut::<N>(shape, &sub_shape, ax);
+                    let chunks = output.iter_lane_chunks_sub_mut::<N>(shape, sub_shape, ax);
                     let rem = chunks.remainder();
                     if chunks.len() > 0 {
                         chunks.for_each_init(

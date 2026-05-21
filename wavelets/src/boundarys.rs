@@ -69,7 +69,7 @@ unsafe impl Send for BoundaryCondition {}
 impl BoundaryExtension for BoundaryCondition {
     #[inline(always)]
     fn get_bc<T: Transformable>(&self, data: &[T], i: isize) -> Option<T> {
-        if data.len() == 0 {
+        if data.is_empty() {
             return None;
         }
         match self {
@@ -96,7 +96,7 @@ impl BoundaryExtension for BoundaryCondition {
             }
             Self::Reflect => {
                 if data.len() == 1 {
-                    return data.get(0).cloned();
+                    return data.first().cloned();
                 }
                 let mut io = i;
                 let n = data.len() as isize;
@@ -123,13 +123,13 @@ impl BoundaryExtension for BoundaryCondition {
                 }
                 let v = data.get(io as usize).cloned();
                 match neg {
-                    true => v.and_then(|v| Some(-v)),
+                    true => v.map(|v| -v),
                     false => v,
                 }
             }
             Self::Smooth => {
                 if data.len() == 1 {
-                    return data.get(0).cloned();
+                    return data.first().cloned();
                 }
                 // unwrap first_chunk/last_chunk because data.len() >= 2 at this point.
                 if i < 0 {
@@ -142,12 +142,12 @@ impl BoundaryExtension for BoundaryCondition {
                     let scale = T::scalar_type_from_isize(i - (data.len() as isize - 1));
                     Some(vs[1].clone() + (vs[1].clone() - vs[0].clone()) * scale)
                 } else {
-                    return data.get(i as usize).cloned();
+                    data.get(i as usize).cloned()
                 }
             }
             Self::Antireflect => {
                 if data.len() == 1 {
-                    return data.get(0).cloned();
+                    return data.first().cloned();
                 }
                 let mut io = i;
                 let n = data.len() as isize;

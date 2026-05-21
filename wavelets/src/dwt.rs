@@ -94,8 +94,8 @@ pub trait DiscreteTransform<const N: usize, const NH: usize> {
     /// Adjoint (transpose) of the inverse DWT.
     #[inline]
     fn adjoint_inverse<T: Transformable + Zero>(x: &[T], s: &mut [T], d: &mut [T]) {
-        let ga: [_; N] = Self::GI.clone().into_iter().rev().collect_array().unwrap();
-        let ha: [_; N] = Self::HI.clone().into_iter().rev().collect_array().unwrap();
+        let ga: [_; N] = Self::GI.into_iter().rev().collect_array().unwrap();
+        let ha: [_; N] = Self::HI.into_iter().rev().collect_array().unwrap();
         dwt_forward(&ga, &ha, x, s, d, &ZeroBoundary {});
     }
 
@@ -108,8 +108,8 @@ pub trait DiscreteTransform<const N: usize, const NH: usize> {
     /// Adjoint of the periodic forward DWT.
     #[inline]
     fn adjoint_forward_per<T: Transformable + Zero>(s: &[T], d: &[T], x: &mut [T]) {
-        let ga: [_; N] = Self::G.clone().into_iter().rev().collect_array().unwrap();
-        let ha: [_; N] = Self::H.clone().into_iter().rev().collect_array().unwrap();
+        let ga: [_; N] = Self::G.into_iter().rev().collect_array().unwrap();
+        let ha: [_; N] = Self::H.into_iter().rev().collect_array().unwrap();
         dwt_per_inverse::<_, _, NH>(&ga, &ha, s, d, x);
     }
 
@@ -122,8 +122,8 @@ pub trait DiscreteTransform<const N: usize, const NH: usize> {
     /// Adjoint of the periodic inverse DWT.
     #[inline]
     fn adjoint_inverse_per<T: Transformable + Zero>(x: &[T], s: &mut [T], d: &mut [T]) {
-        let gia: [_; N] = Self::GI.clone().into_iter().rev().collect_array().unwrap();
-        let hia: [_; N] = Self::HI.clone().into_iter().rev().collect_array().unwrap();
+        let gia: [_; N] = Self::GI.into_iter().rev().collect_array().unwrap();
+        let hia: [_; N] = Self::HI.into_iter().rev().collect_array().unwrap();
         dwt_per_forward(&gia, &hia, x, s, d);
     }
 }
@@ -135,7 +135,7 @@ pub trait DiscreteTransform<const N: usize, const NH: usize> {
 #[inline(always)]
 pub fn get_outlen(width: usize, n: usize) -> usize {
     let offset = (width - 2) / 2;
-    let n_ds = (n + 1) / 2 + 2 * (width / 4);
+    let n_ds = n.div_ceil(2) + 2 * (width / 4);
     if (offset % 2 == 1) && (n % 2 == 1) {
         n_ds - 1
     } else {
@@ -151,7 +151,7 @@ impl<const N: usize> CheckCoefLen<N> {
     /// Asserts at compile time that `N >= 2` and `N % 2 == 0`.
     const VALID: () = {
         assert!(N >= 2, "Coefficient length must be 2 or more.");
-        assert!(N % 2 == 0, "Coefficient length must be even.");
+        assert!(N.is_multiple_of(2), "Coefficient length must be even.");
     };
 }
 
@@ -231,7 +231,7 @@ pub fn dwt_forward<T: Transformable + Zero, const N: usize, BC: BoundaryExtensio
     // calculate the break points of the front, main, and back loops.
     let n1 = std::cmp::min(2 * n_bcs, ns);
     // N - 2 is safe because N >= 2;
-    let nx_steps = nx.checked_sub(N - 2 + first_x).unwrap_or(0) / 2;
+    let nx_steps = nx.saturating_sub(N - 2 + first_x) / 2;
     let n2 = std::cmp::min(n1 + nx_steps, ns);
 
     // split s and d into the front, main, and back loops (*_f, *_m, *_b)
@@ -252,8 +252,8 @@ pub fn dwt_forward<T: Transformable + Zero, const N: usize, BC: BoundaryExtensio
                 .zip(gh.iter())
                 .for_each(|(j, [g, h])| {
                     if let Some(xo) = bc.get_bc(x, j) {
-                        *s += xo.clone() * g.clone();
-                        *d += xo * h.clone();
+                        *s += xo.clone() * *g;
+                        *d += xo * *h;
                     }
                 })
         });
@@ -270,8 +270,8 @@ pub fn dwt_forward<T: Transformable + Zero, const N: usize, BC: BoundaryExtensio
             *s = T::zero();
             *d = T::zero();
             gh.iter().zip(xs).for_each(|([g, h], x)| {
-                *s += x.clone() * g.clone();
-                *d += x.clone() * h.clone();
+                *s += x.clone() * *g;
+                *d += x.clone() * *h;
             });
         });
 
@@ -280,13 +280,13 @@ pub fn dwt_forward<T: Transformable + Zero, const N: usize, BC: BoundaryExtensio
         .for_each(|(i, (s, d))| {
             *s = T::zero();
             *d = T::zero();
-            let ix = 2 * (i as isize - n_bcs as isize) - offset as isize;
+            let ix = 2 * (i - n_bcs as isize) - offset as isize;
             (ix..ix + N as isize)
                 .zip(gh.iter())
                 .for_each(|(j, [g, h])| {
                     if let Some(xo) = bc.get_bc(x, j) {
-                        *s += xo.clone() * g.clone();
-                        *d += xo * h.clone();
+                        *s += xo.clone() * *g;
+                        *d += xo * *h;
                     }
                 })
         });
@@ -340,9 +340,7 @@ pub fn dwt_inverse<T: Transformable + Zero, const N: usize, const NH: usize>(
         gh_chunks
             .iter()
             .zip(s.iter().zip(d.iter()))
-            .for_each(|([[g0, h0], _], (s, d))| {
-                *x1 += s.clone() * g0.clone() + d.clone() * h0.clone()
-            });
+            .for_each(|([[g0, h0], _], (s, d))| *x1 += s.clone() * *g0 + d.clone() * *h0);
     }
 
     x_chunks
@@ -357,8 +355,8 @@ pub fn dwt_inverse<T: Transformable + Zero, const N: usize, const NH: usize>(
             *x1 = T::zero();
             gh_chunks.iter().zip(s.iter().zip(d.iter())).for_each(
                 |([[g0, h0], [g1, h1]], (s, d))| {
-                    *x0 += s.clone() * g1.clone() + d.clone() * h1.clone();
-                    *x1 += s.clone() * g0.clone() + d.clone() * h0.clone();
+                    *x0 += s.clone() * *g1 + d.clone() * *h1;
+                    *x1 += s.clone() * *g0 + d.clone() * *h0;
                 },
             );
         });
@@ -374,7 +372,7 @@ pub fn dwt_inverse<T: Transformable + Zero, const N: usize, const NH: usize>(
             .iter()
             .zip(s.iter().zip(d))
             .for_each(|([_, [g1, h1]], (s, d))| {
-                *x0 += s.clone() * g1.clone() + d.clone() * h1.clone();
+                *x0 += s.clone() * *g1 + d.clone() * *h1;
             });
     }
 }
@@ -422,7 +420,7 @@ pub fn dwt_adjoint_forward<T: Transformable + Zero, const N: usize, BC: Boundary
 
     // Mirror the forward's three-region split.
     let n1 = std::cmp::min(2 * n_bcs, ns);
-    let nx_steps = nx.checked_sub(N - 2 + first_x).unwrap_or(0) / 2;
+    let nx_steps = nx.saturating_sub(N - 2 + first_x) / 2;
     let n2 = std::cmp::min(n1 + nx_steps, ns);
 
     // Front boundary: window may extend past the left edge.
@@ -433,7 +431,7 @@ pub fn dwt_adjoint_forward<T: Transformable + Zero, const N: usize, BC: Boundary
         .for_each(|(pos, (sv, dv))| {
             let ix = 2 * (pos as isize - n_bcs as isize) - offset as isize;
             gh.iter().enumerate().for_each(|(k, [gk, hk])| {
-                let contrib = sv.clone() * gk.clone() + dv.clone() * hk.clone();
+                let contrib = sv.clone() * *gk + dv.clone() * *hk;
                 for (scale, j_real) in bc.get_parts::<T>(nx, ix + k as isize) {
                     match scale {
                         None => x[j_real] += contrib.clone(),
@@ -451,7 +449,7 @@ pub fn dwt_adjoint_forward<T: Transformable + Zero, const N: usize, BC: Boundary
         .for_each(|(m, (sv, dv))| {
             let ix = first_x + 2 * m;
             gh.iter().zip(&mut x[ix..ix + N]).for_each(|([gk, hk], x)| {
-                *x += sv.clone() * gk.clone() + dv.clone() * hk.clone();
+                *x += sv.clone() * *gk + dv.clone() * *hk;
             });
         });
 
@@ -464,7 +462,7 @@ pub fn dwt_adjoint_forward<T: Transformable + Zero, const N: usize, BC: Boundary
             let pos = m + n2;
             let ix = 2 * (pos as isize - n_bcs as isize) - offset as isize;
             gh.iter().enumerate().for_each(|(k, [gk, hk])| {
-                let contrib = sv.clone() * gk.clone() + dv.clone() * hk.clone();
+                let contrib = sv.clone() * *gk + dv.clone() * *hk;
                 for (scale, j_real) in bc.get_parts::<T>(nx, ix + k as isize) {
                     match scale {
                         None => x[j_real] += contrib.clone(),
@@ -540,7 +538,7 @@ pub fn dwt_per_forward<T: Transformable + Zero, const N: usize>(
     // calculate the break points of the front, main, and back loops.
     let n1 = std::cmp::min(n_bcs, nd);
     // N - 2 is safe because N >= 2;
-    let nx_steps = x.len().checked_sub(N - 2 + first_x).unwrap_or(0) / 2;
+    let nx_steps = x.len().saturating_sub(N - 2 + first_x) / 2;
     let n2 = std::cmp::min(n1 + nx_steps, nd);
 
     // split s and d into the front, main, and back loops (*_f, *_m, *_b)
@@ -561,8 +559,8 @@ pub fn dwt_per_forward<T: Transformable + Zero, const N: usize>(
                 .zip(gh.iter())
                 .for_each(|(j, [g, h])| {
                     if let Some(xo) = per_bc.get_bc(x, j) {
-                        *s += xo.clone() * g.clone();
-                        *d += xo * h.clone();
+                        *s += xo.clone() * *g;
+                        *d += xo * *h;
                     }
                 })
         });
@@ -579,8 +577,8 @@ pub fn dwt_per_forward<T: Transformable + Zero, const N: usize>(
             *s = T::zero();
             *d = T::zero();
             gh.iter().zip(xs).for_each(|([g, h], x)| {
-                *s += x.clone() * g.clone();
-                *d += x.clone() * h.clone();
+                *s += x.clone() * *g;
+                *d += x.clone() * *h;
             });
         });
 
@@ -594,8 +592,8 @@ pub fn dwt_per_forward<T: Transformable + Zero, const N: usize>(
                 .zip(gh.iter())
                 .for_each(|(j, [g, h])| {
                     if let Some(xo) = per_bc.get_bc(x, j) {
-                        *s += xo.clone() * g.clone();
-                        *d += xo * h.clone();
+                        *s += xo.clone() * *g;
+                        *d += xo * *h;
                     }
                 })
         });
@@ -673,7 +671,7 @@ pub fn dwt_per_inverse<T: Transformable + Zero, const N: usize, const NH: usize>
                 if let Some(s) = per_bc.get_bc(s, j)
                     && let Some(d) = per_bc.get_bc(d, j)
                 {
-                    *x1 += s * g0.clone() + d * h0.clone()
+                    *x1 += s * *g0 + d * *h0
                 }
             });
     }
@@ -696,7 +694,7 @@ pub fn dwt_per_inverse<T: Transformable + Zero, const N: usize, const NH: usize>
     let n1 = std::cmp::min(n_wrap, nx_chunks);
 
     // then the number of steps we can completely do to the x_chunks
-    let nx_steps = s.len().checked_sub(N / 2 - 1).unwrap_or(0);
+    let nx_steps = s.len().saturating_sub(N / 2 - 1);
 
     debug_assert_eq!(nx_steps, s.array_windows::<NH>().len());
     debug_assert_eq!(nx_steps, d.array_windows::<NH>().len());
@@ -721,8 +719,8 @@ pub fn dwt_per_inverse<T: Transformable + Zero, const N: usize, const NH: usize>
                     if let Some(s) = per_bc.get_bc(s, j)
                         && let Some(d) = per_bc.get_bc(d, j)
                     {
-                        *x0 += s.clone() * g1.clone() + d.clone() * h1.clone();
-                        *x1 += s * g0.clone() + d * h0.clone();
+                        *x0 += s.clone() * *g1 + d.clone() * *h1;
+                        *x1 += s * *g0 + d * *h0;
                     }
                 });
         });
@@ -735,8 +733,8 @@ pub fn dwt_per_inverse<T: Transformable + Zero, const N: usize, const NH: usize>
             *x1 = T::zero();
             gh_chunks.iter().zip(s.iter().zip(d.iter())).for_each(
                 |([[g0, h0], [g1, h1]], (s, d))| {
-                    *x0 += s.clone() * g1.clone() + d.clone() * h1.clone();
-                    *x1 += s.clone() * g0.clone() + d.clone() * h0.clone();
+                    *x0 += s.clone() * *g1 + d.clone() * *h1;
+                    *x1 += s.clone() * *g0 + d.clone() * *h0;
                 },
             );
         });
@@ -752,8 +750,8 @@ pub fn dwt_per_inverse<T: Transformable + Zero, const N: usize, const NH: usize>
                     if let Some(s) = per_bc.get_bc(s, j)
                         && let Some(d) = per_bc.get_bc(d, j)
                     {
-                        *x0 += s.clone() * g1.clone() + d.clone() * h1.clone();
-                        *x1 += s * g0.clone() + d * h0.clone();
+                        *x0 += s.clone() * *g1 + d.clone() * *h1;
+                        *x1 += s * *g0 + d * *h0;
                     }
                 });
         });
@@ -768,7 +766,7 @@ pub fn dwt_per_inverse<T: Transformable + Zero, const N: usize, const NH: usize>
                 if let Some(s) = per_bc.get_bc(s, j)
                     && let Some(d) = per_bc.get_bc(d, j)
                 {
-                    *x0 += s * g1.clone() + d * h1.clone()
+                    *x0 += s * *g1 + d * *h1
                 }
             });
     }
