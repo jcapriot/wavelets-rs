@@ -55,3 +55,15 @@ jobs:
       - name: Build (x86-v4)
         if: matrix.os == 'ubuntu-latest'
         run: cargo build -p wavelets --features x86-v4
+
+  build_wasm:
+    name: Build (wasm32-unknown-unknown)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: Build wavelets for WASM
+        run: cargo build -p wavelets --target wasm32-unknown-unknown --no-default-features
