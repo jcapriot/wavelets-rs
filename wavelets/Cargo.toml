@@ -24,6 +24,7 @@ aligned-vec = "0.6.4"
 default = ["rayon", "ndarray", "x86-v3"]
 x86-v3 = ["pulp/x86-v3"]
 x86-v4 = ["pulp/x86-v4"]
+benchmarks = []
 
 [dev-dependencies]
 criterion = "0.8.2"
@@ -32,6 +33,7 @@ rstest = "0.26.1"
 [[bench]]
 name = "wavelet_bench"
 harness = false
+required-features = ["benchmarks"]
 
 [lints.clippy]
 approx_constant = "allow"

@@ -753,6 +753,25 @@ pub fn clone_avecs_to_strided_chunk<T: Clone, const N: usize, A: aligned_vec::Al
     }
 }
 
+/// creates an array of slices from an array of aligned vectors ['AVec']
+#[inline(always)]
+pub fn avecs_to_slices<T, const N: usize, A: aligned_vec::Alignment>(
+    x: &[AVec<T, A>; N],
+) -> [&[T]; N] {
+    x.iter().map(|v| v.as_slice()).collect_array().unwrap()
+}
+
+/// creates an array of slices from an array of aligned vectors ['AVec']
+#[inline(always)]
+pub fn avecs_to_mut_slices<T, const N: usize, A: aligned_vec::Alignment>(
+    x: &mut [AVec<T, A>; N],
+) -> [&mut [T]; N] {
+    x.iter_mut()
+        .map(|v| v.as_mut_slice())
+        .collect_array()
+        .unwrap()
+}
+
 #[inline(always)]
 fn cycle<T: Clone>(x: &mut [T], start: usize) {
     let n = x.len();

@@ -72,6 +72,141 @@ pub trait LiftingTransform {
     );
 }
 
+/// Placeholder
+#[cfg(feature = "benchmarks")]
+pub mod bench {
+    use crate::simd::*;
+    use crate::{boundarys::BoundaryExtension, simd::SimdTransformable};
+
+    /// Placeholder
+    pub fn db2_forward_arr<T, BC, const N: usize>(s: &mut [[T; N]], d: &mut [[T; N]], bc: &BC)
+    where
+        T: SimdTransformable,
+        BC: BoundaryExtension,
+    {
+        use crate::simd::Dispatch;
+        let n_lanes = T::lanes();
+
+        debug_assert_eq!(N, n_lanes);
+
+        let ns = s.len();
+        let nd = d.len();
+        assert!(
+            ns == nd || nd + 1 == ns,
+            "detail and smooth coefficient arrays must have compatible lengths, got {nd} d-chunks and {ns} s-chunks."
+        );
+
+        struct Impl<'a, 'b, 'c, T, BC>(&'a mut [T], &'b mut [T], &'c BC);
+
+        impl<'a, 'b, 'c, T: SimdTransformable, BC: BoundaryExtension> WithSimd for Impl<'a, 'b, 'c, T, BC>
+        where
+            T: SimdTransformable,
+            BC: BoundaryExtension,
+        {
+            type Output = ();
+            #[inline(always)]
+            fn with_simd<S: Simd>(self, simd: S) -> Self::Output {
+                let s = T::as_mut_simd(simd, self.0).0;
+                let d = T::as_mut_simd(simd, self.1).0;
+                let ns = s.len();
+                let nd = d.len();
+                let bc = self.2;
+
+                let c = T::simd_splat(
+                    simd,
+                    T::scalar_type_from_f64(
+                        -1.73205080756887729352744634150587236694280525381038062805581,
+                    ),
+                );
+
+                d.iter_mut().zip(s.iter()).for_each(|(l, r)| {
+                    *l = T::simd_mul_add(simd, *r, c, *l);
+                });
+
+                let c = [
+                    T::simd_splat(
+                        simd,
+                        T::scalar_type_from_f64(
+                            0.433012701892219323381861585376468091735701313452595157013952,
+                        ),
+                    ),
+                    T::simd_splat(
+                        simd,
+                        T::scalar_type_from_f64(
+                            -0.0669872981077806766181384146235319082642986865474048429860483,
+                        ),
+                    ),
+                ];
+
+                let (sf, sb) = s.split_at_mut(nd - 1);
+
+                sf.iter_mut()
+                    .zip(d.array_windows())
+                    .for_each(|(l, [r0, r1])| {
+                        *l = T::simd_mul_add(simd, *r0, c[0], *l);
+                        *l = T::simd_mul_add(simd, *r1, c[1], *l);
+                    });
+
+                (nd as isize - 1..ns as isize).zip(sb).for_each(|(io, l)| {
+                    c.iter().enumerate().for_each(|(i, c)| {
+                        let bc_parts = bc.get_parts::<T>(nd, io + i as isize);
+                        for (coef, i_bc) in bc_parts {
+                            let rv = match coef {
+                                Some(coef) => {
+                                    let c = T::simd_splat(simd, coef);
+                                    T::simd_mul(simd, d[i_bc], c)
+                                }
+                                None => d[i_bc],
+                            };
+                            *l = T::simd_mul_add(simd, rv, *c, *l);
+                        }
+                    });
+                });
+
+                let (df, dv) = d.split_at_mut(1);
+
+                (-1..0).zip(df).for_each(|(io, l)| {
+                    let bc_parts = bc.get_parts::<T>(nd, io);
+                    for (coef, i_bc) in bc_parts {
+                        match coef {
+                            Some(coef) => {
+                                let c = T::simd_splat(simd, coef);
+                                *l = T::simd_mul_add(simd, s[i_bc], c, *l);
+                            }
+                            None => {
+                                *l = T::simd_add(simd, s[i_bc], *l);
+                            }
+                        };
+                    }
+                });
+
+                dv.iter_mut().zip(s.iter()).for_each(|(l, r)| {
+                    *l = T::simd_add(simd, *r, *l);
+                });
+
+                let scale = T::simd_splat(
+                    simd,
+                    T::scalar_type_from_f64(
+                        1.93185165257813657349948639945779473526780967801680910080469,
+                    ),
+                );
+                let inv_scale = T::simd_splat(
+                    simd,
+                    T::scalar_type_from_f64(
+                        1.0 / 1.93185165257813657349948639945779473526780967801680910080469,
+                    ),
+                );
+
+                s.iter_mut().for_each(|s| *s = T::simd_mul(simd, *s, scale));
+                d.iter_mut()
+                    .for_each(|d| *d = T::simd_mul(simd, *d, inv_scale));
+            }
+        }
+
+        crate::simd::ARCH.dispatch_wvlt(Impl(s.as_flattened_mut(), d.as_flattened_mut(), bc));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

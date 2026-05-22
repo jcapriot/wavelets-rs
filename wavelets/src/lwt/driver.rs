@@ -9,13 +9,7 @@ use crate::iter::LanesIterator;
 
 use aligned_vec::{AVec, avec};
 
-use crate::utils::{
-    deinterleave, deinterleave_strided, deinterleave_strided_chunk, stack_to_strided,
-    stack_to_strided_chunk,
-};
-use crate::utils::{
-    interleave, interleave_strided, interleave_strided_chunk, split_strided, split_strided_chunk,
-};
+use crate::utils::{avecs_to_mut_slices, avecs_to_slices, deinterleave, interleave};
 use crate::{ChunkWidth, max_level_nd, simd::SimdTransformable};
 
 use wavelets_macros::generate_wavelet_match_arms;
@@ -431,20 +425,26 @@ fn general_nd_forward_multilevel<F, T, L, const N: usize>(
                         let out_rem = out_chunks.remainder();
 
                         if in_chunks.len() > 0 {
-                            let mut s: [AVec<T>; N] =
+                            let mut s_w: [AVec<T>; N] =
                                 core::array::from_fn(|_| avec![T::zero(); n_s]);
-                            let mut d: [AVec<T>; N] =
+                            let mut d_w: [AVec<T>; N] =
                                 core::array::from_fn(|_| avec![T::zero(); n_d]);
                             in_chunks
                                 .zip(out_chunks)
                                 .for_each(|(in_chunk, mut out_chunk)| {
                                     // copy (and deinterleave) strided chunks into the local storage
-                                    deinterleave_strided_chunk(&in_chunk, &mut s, &mut d);
+                                    let mut s = avecs_to_mut_slices(&mut s_w);
+                                    let mut d = avecs_to_mut_slices(&mut d_w);
+                                    in_chunk.deinterleave(&mut s, &mut d);
+
                                     s.iter_mut().zip(d.iter_mut()).for_each(|(s, d)| {
                                         func(s, d);
                                     });
+
                                     // clone local storage to the output
-                                    stack_to_strided_chunk(&s, &d, &mut out_chunk);
+                                    let s = avecs_to_slices(&s_w);
+                                    let d = avecs_to_slices(&d_w);
+                                    out_chunk.stack(&s, &d);
                                 });
                         }
                         if in_rem.len() > 0 {
@@ -452,10 +452,10 @@ fn general_nd_forward_multilevel<F, T, L, const N: usize>(
                             let mut d = avec![T::zero(); n_d];
                             in_rem.zip(out_rem).for_each(|(in_slice, mut out_slice)| {
                                 // copy strided slice into local dimension storage
-                                deinterleave_strided(&in_slice, &mut s, &mut d);
+                                in_slice.deinterleave(&mut s, &mut d);
                                 func(&mut s, &mut d);
                                 // copy local back to output strided slice
-                                stack_to_strided(&s, &d, &mut out_slice);
+                                out_slice.stack(&s, &d);
                             });
                         }
 
@@ -466,18 +466,22 @@ fn general_nd_forward_multilevel<F, T, L, const N: usize>(
                         let rem = chunks.remainder();
 
                         if chunks.len() > 0 {
-                            let mut s: [AVec<T>; N] =
+                            let mut s_w: [AVec<T>; N] =
                                 core::array::from_fn(|_| avec![T::zero(); n_s]);
-                            let mut d: [AVec<T>; N] =
+                            let mut d_w: [AVec<T>; N] =
                                 core::array::from_fn(|_| avec![T::zero(); n_d]);
                             chunks.for_each(|mut chunk| {
                                 // copy (and deinterleave) strided chunks into the local storage
-                                deinterleave_strided_chunk(&chunk, &mut s, &mut d);
+                                let mut s = avecs_to_mut_slices(&mut s_w);
+                                let mut d = avecs_to_mut_slices(&mut d_w);
+                                chunk.deinterleave(&mut s, &mut d);
                                 s.iter_mut().zip(d.iter_mut()).for_each(|(s, d)| {
                                     func(s, d);
                                 });
                                 // clone local storage to the output
-                                stack_to_strided_chunk(&s, &d, &mut chunk);
+                                let s = avecs_to_slices(&s_w);
+                                let d = avecs_to_slices(&d_w);
+                                chunk.stack(&s, &d);
                             });
                         }
                         if rem.len() > 0 {
@@ -485,10 +489,10 @@ fn general_nd_forward_multilevel<F, T, L, const N: usize>(
                             let mut d = avec![T::zero(); n_d];
                             rem.for_each(|mut slc| {
                                 // copy strided slice into local dimension storage
-                                deinterleave_strided(&slc, &mut s, &mut d);
+                                slc.deinterleave(&mut s, &mut d);
                                 func(&mut s, &mut d);
                                 // copy local back to output strided slice
-                                stack_to_strided(&s, &d, &mut slc);
+                                slc.stack(&s, &d);
                             });
                         }
                     }
@@ -567,23 +571,28 @@ fn general_nd_inverse_multilevel<F, T, L, const N: usize>(
                 let rem = chunks.remainder();
 
                 if chunks.len() > 0 {
-                    let mut s: [AVec<T>; N] = core::array::from_fn(|_| avec![T::zero(); n_s]);
-                    let mut d: [AVec<T>; N] = core::array::from_fn(|_| avec![T::zero(); n_d]);
+                    let mut s_w = core::array::from_fn(|_| avec![T::zero(); n_s]);
+                    let mut d_w = core::array::from_fn(|_| avec![T::zero(); n_d]);
                     chunks.for_each(|mut chunk| {
-                        split_strided_chunk(&chunk, &mut s, &mut d);
+                        let mut s = avecs_to_mut_slices(&mut s_w);
+                        let mut d = avecs_to_mut_slices(&mut d_w);
+                        chunk.split(&mut s, &mut d);
                         s.iter_mut().zip(d.iter_mut()).for_each(|(s, d)| {
                             func(s, d);
                         });
-                        interleave_strided_chunk(&s, &d, &mut chunk);
+
+                        let s = avecs_to_slices(&s_w);
+                        let d = avecs_to_slices(&d_w);
+                        chunk.interleave(&s, &d);
                     });
                 }
                 if rem.len() > 0 {
                     let mut s = avec![T::zero(); n_s];
                     let mut d = avec![T::zero(); n_d];
                     rem.for_each(|mut slc| {
-                        split_strided(&slc, &mut s, &mut d);
+                        slc.split(&mut s, &mut d);
                         func(&mut s, &mut d);
-                        interleave_strided(&s, &d, &mut slc);
+                        slc.interleave(&s, &d);
                     })
                 }
             }
@@ -908,20 +917,21 @@ pub mod parallel {
 
                             in_chunks.zip(out_chunks).for_each_init(
                                 || {
-                                    let s: [AVec<T>; N] =
-                                        core::array::from_fn(|_| avec![T::zero(); n_s]);
-                                    let d: [AVec<T>; N] =
-                                        core::array::from_fn(|_| avec![T::zero(); n_d]);
+                                    let s = core::array::from_fn(|_| avec![T::zero(); n_s]);
+                                    let d = core::array::from_fn(|_| avec![T::zero(); n_d]);
                                     (s, d)
                                 },
                                 |(s, d), (in_chunk, mut out_chunk)| {
                                     // copy (and deinterleave) strided chunks into the local storage
-                                    deinterleave_strided_chunk(&in_chunk, s, d);
+                                    in_chunk.deinterleave(
+                                        &mut avecs_to_mut_slices(s),
+                                        &mut avecs_to_mut_slices(d),
+                                    );
                                     s.iter_mut().zip(d.iter_mut()).for_each(|(s, d)| {
                                         func(s, d);
                                     });
                                     // clone local storage to the output
-                                    stack_to_strided_chunk(s, d, &mut out_chunk);
+                                    out_chunk.stack(&avecs_to_slices(s), &avecs_to_slices(d));
                                 },
                             );
                             in_rem.zip(out_rem).for_each_init(
@@ -932,10 +942,10 @@ pub mod parallel {
                                 },
                                 |(s, d), (in_slice, mut out_slice)| {
                                     // copy strided slice into local dimension storage
-                                    deinterleave_strided(&in_slice, s, d);
+                                    in_slice.deinterleave(s, d);
                                     func(s, d);
                                     // copy local back to output strided slice
-                                    stack_to_strided(s, d, &mut out_slice);
+                                    out_slice.stack(s, d);
                                 },
                             );
                             first = false;
@@ -947,20 +957,20 @@ pub mod parallel {
 
                             chunks.for_each_init(
                                 || {
-                                    let s: [AVec<T>; N] =
-                                        core::array::from_fn(|_| avec![T::zero(); n_s]);
-                                    let d: [AVec<T>; N] =
-                                        core::array::from_fn(|_| avec![T::zero(); n_d]);
+                                    let s = core::array::from_fn(|_| avec![T::zero(); n_s]);
+                                    let d = core::array::from_fn(|_| avec![T::zero(); n_d]);
                                     (s, d)
                                 },
                                 |(s, d), mut chunk| {
-                                    // copy (and deinterleave) strided chunks into the local storage
-                                    deinterleave_strided_chunk(&chunk, s, d);
+                                    chunk.deinterleave(
+                                        &mut avecs_to_mut_slices(s),
+                                        &mut avecs_to_mut_slices(d),
+                                    );
                                     s.iter_mut().zip(d.iter_mut()).for_each(|(s, d)| {
                                         func(s, d);
                                     });
                                     // clone local storage to the output
-                                    stack_to_strided_chunk(s, d, &mut chunk);
+                                    chunk.stack(&avecs_to_slices(s), &avecs_to_slices(d));
                                 },
                             );
                             rem.for_each_init(
@@ -971,10 +981,10 @@ pub mod parallel {
                                 },
                                 |(s, d), mut slc| {
                                     // copy strided slice into local dimension storage
-                                    deinterleave_strided(&slc, s, d);
+                                    slc.deinterleave(s, d);
                                     func(s, d);
                                     // copy local back to output strided slice
-                                    stack_to_strided(s, d, &mut slc);
+                                    slc.stack(s, d);
                                 },
                             );
                         }
@@ -1054,18 +1064,19 @@ pub mod parallel {
                     if chunks.len() > 0 {
                         chunks.for_each_init(
                             || {
-                                let s: [AVec<T>; N] =
-                                    core::array::from_fn(|_| avec![T::zero(); n_s]);
-                                let d: [AVec<T>; N] =
-                                    core::array::from_fn(|_| avec![T::zero(); n_d]);
+                                let s = core::array::from_fn(|_| avec![T::zero(); n_s]);
+                                let d = core::array::from_fn(|_| avec![T::zero(); n_d]);
                                 (s, d)
                             },
                             |(s, d), mut chunk| {
-                                split_strided_chunk(&chunk, s, d);
+                                chunk.split(
+                                    &mut avecs_to_mut_slices(s),
+                                    &mut avecs_to_mut_slices(d),
+                                );
                                 s.iter_mut().zip(d.iter_mut()).for_each(|(s, d)| {
                                     func(s, d);
                                 });
-                                interleave_strided_chunk(s, d, &mut chunk);
+                                chunk.interleave(&avecs_to_slices(s), &avecs_to_slices(d));
                             },
                         );
                     }
@@ -1077,9 +1088,9 @@ pub mod parallel {
                             (s, d)
                         },
                         |(s, d), mut slc| {
-                            split_strided(&slc, s, d);
+                            slc.split(s, d);
                             func(s, d);
-                            interleave_strided(s, d, &mut slc);
+                            slc.interleave(s, d);
                         },
                     );
                 }
@@ -1124,8 +1135,8 @@ mod tests {
                 let mut work_e = vec![0.0; ns];
                 let mut work_o = vec![0.0; nd];
                 for mut slc in v2_ref.iter_lanes_mut(&shape, ax) {
-                    deinterleave_strided(&slc, &mut work_e, &mut work_o);
-                    stack_to_strided(&work_e, &work_o, &mut slc);
+                    slc.deinterleave(&mut work_e, &mut work_o);
+                    slc.stack(&work_e, &work_o);
                 }
             }
             assert_eq!(v2, v2_ref);
@@ -1164,8 +1175,8 @@ mod tests {
                 let mut work_e = vec![0.0; ns];
                 let mut work_o = vec![0.0; nd];
                 for mut slc in v2_ref.iter_lanes_mut(&shape, ax) {
-                    deinterleave_strided(&slc, &mut work_e, &mut work_o);
-                    stack_to_strided(&work_e, &work_o, &mut slc);
+                    slc.deinterleave(&mut work_e, &mut work_o);
+                    slc.stack(&work_e, &work_o);
                 }
             }
             assert_eq!(v2, v2_ref);

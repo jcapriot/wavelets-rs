@@ -4,6 +4,8 @@
 //! a fixed number of strided regions of memory — and the concrete chunked iterator types returned by
 //! [`super::LanesIterator`] and [`super::parallel::LanesParallelIterator`].
 
+use num_traits::Zero;
+
 use super::strided_slice::{IterLanes, IterLanesMut};
 use super::*;
 use crate::utils::stride_from_shape;
@@ -285,6 +287,446 @@ impl<T, const N: usize> ChunkStridedSliceRef<T, N> {
             })
         } else {
             Err("Cannot create ArrayChunks iterator because the chunk stride is not contiguous")
+        }
+    }
+}
+
+impl<T: Clone, const N: usize> ChunkStridedSliceRef<T, N> {
+    /// Deinterleave `N` strided slices into `N` slices
+    ///
+    /// `self` presents `N` interleaved lanes; `evens[j]` and `odds[j]` receive the even- and
+    /// odd-indexed elements of lane `j`, respectively.  Takes a fast path when the chunk is
+    /// contiguous.
+    #[inline(always)]
+    #[track_caller]
+    pub fn deinterleave(&self, evens: &mut [&mut [T]; N], odds: &mut [&mut [T]; N]) {
+        if const { N == 0 } {
+            return;
+        }
+        let ne = self.len().div_ceil(2);
+        let no = self.len() / 2;
+        assert!(evens.iter().all(|v| v.len() == ne));
+        assert!(odds.iter().all(|v| v.len() == no));
+
+        let mut i = 0;
+        if let Ok(mut x_iter) = self.try_array_chunks() {
+            while let Some([xes, xos]) = x_iter.next_chunk::<2>() {
+                (0..N)
+                    .zip(xes)
+                    .for_each(|(j, xe)| unsafe { *evens[j].get_unchecked_mut(i) = xe.clone() });
+                (0..N)
+                    .zip(xos)
+                    .for_each(|(j, xo)| unsafe { *odds[j].get_unchecked_mut(i) = xo.clone() });
+                i += 1;
+            }
+            if let Some(xes) = x_iter.next() {
+                (0..N)
+                    .zip(xes)
+                    .for_each(|(j, xe)| unsafe { *evens[j].get_unchecked_mut(i) = xe.clone() });
+            }
+        } else {
+            let mut x_iter = self.iter();
+
+            while let Some([xes, xos]) = x_iter.next_chunk::<2>() {
+                (0..N)
+                    .zip(xes)
+                    .for_each(|(j, xe)| unsafe { *evens[j].get_unchecked_mut(i) = xe.clone() });
+                (0..N)
+                    .zip(xos)
+                    .for_each(|(j, xo)| unsafe { *odds[j].get_unchecked_mut(i) = xo.clone() });
+                i += 1;
+            }
+            if let Some(xes) = x_iter.next() {
+                (0..N)
+                    .zip(xes)
+                    .for_each(|(j, xe)| unsafe { *evens[j].get_unchecked_mut(i) = xe.clone() });
+            }
+        }
+    }
+
+    /// Deinterleave into a slice of arrays.
+    #[inline(always)]
+    #[track_caller]
+    pub fn deinterleave_arrays(&self, evens: &mut [[T; N]], odds: &mut [[T; N]]) {
+        if const { N == 0 } {
+            return;
+        }
+        let ne = self.len().div_ceil(2);
+        let no = self.len() / 2;
+        assert!(evens.len() == ne);
+        assert!(odds.len() == no);
+
+        let mut eo_iter = evens.iter_mut().zip(odds);
+        if let Ok(mut x_iter) = self.try_array_chunks() {
+            while let (Some([xes, xos]), Some((es, os))) =
+                (x_iter.next_chunk::<2>(), eo_iter.next())
+            {
+                *es = xes.clone();
+                *os = xos.clone();
+            }
+            if let Some(xes) = x_iter.next() {
+                *evens.last_mut().unwrap() = xes.clone();
+            }
+        } else {
+            let mut x_iter = self.iter();
+
+            while let (Some([xes, xos]), Some((es, os))) =
+                (x_iter.next_chunk::<2>(), eo_iter.next())
+            {
+                es.iter_mut().zip(xes).for_each(|(e, x)| *e = x.clone());
+                os.iter_mut().zip(xos).for_each(|(o, x)| *o = x.clone());
+            }
+            if let Some(xes) = x_iter.next() {
+                evens
+                    .last_mut()
+                    .unwrap()
+                    .iter_mut()
+                    .zip(xes)
+                    .for_each(|(e, x)| *e = x.clone());
+            }
+        }
+    }
+
+    /// `N` slices are interleaved into `N` strided slices.
+    /// [`ChunkStridedSliceRef`].
+    #[inline(always)]
+    #[track_caller]
+    pub fn interleave(&mut self, evens: &[&[T]; N], odds: &[&[T]; N]) {
+        if const { N == 0 } {
+            return;
+        }
+        let n = self.len();
+        let ne = n.div_ceil(2);
+        let no = n / 2;
+        debug_assert_eq!(n, ne + no);
+        assert!(evens.iter().all(|v| v.len() == ne));
+        assert!(odds.iter().all(|v| v.len() == no));
+
+        let mut i = 0;
+        if let Ok(mut x_iter) = self.try_array_chunks_mut() {
+            while let Some([xes, xos]) = x_iter.next_chunk::<2>() {
+                (0..N)
+                    .zip(xes)
+                    .for_each(|(j, xe)| unsafe { *xe = evens[j].get_unchecked(i).clone() });
+                (0..N)
+                    .zip(xos)
+                    .for_each(|(j, xo)| unsafe { *xo = odds[j].get_unchecked(i).clone() });
+                i += 1;
+            }
+            if let Some(xes) = x_iter.next() {
+                (0..N)
+                    .zip(xes)
+                    .for_each(|(j, xe)| unsafe { *xe = evens[j].get_unchecked(i).clone() });
+            }
+        } else {
+            let mut x_iter = self.iter_mut();
+
+            while let Some([xes, xos]) = x_iter.next_chunk::<2>() {
+                (0..N)
+                    .zip(xes)
+                    .for_each(|(j, xe)| unsafe { *xe = evens[j].get_unchecked(i).clone() });
+                (0..N)
+                    .zip(xos)
+                    .for_each(|(j, xo)| unsafe { *xo = odds[j].get_unchecked(i).clone() });
+                i += 1;
+            }
+            if let Some(xes) = x_iter.next() {
+                (0..N)
+                    .zip(xes)
+                    .for_each(|(j, xe)| unsafe { *xe = evens[j].get_unchecked(i).clone() });
+            }
+        }
+    }
+
+    /// `N` slices are interleaved into `N` strided slices.
+    /// [`ChunkStridedSliceRef`].
+    #[inline(always)]
+    #[track_caller]
+    pub fn interleave_arrays(&mut self, evens: &[[T; N]], odds: &[[T; N]]) {
+        if const { N == 0 } {
+            return;
+        }
+        let n = self.len();
+        let ne = n.div_ceil(2);
+        let no = n / 2;
+        debug_assert_eq!(n, ne + no);
+        assert_eq!(evens.len(), ne);
+        assert_eq!(odds.len(), no);
+
+        let mut eo_iter = evens.iter().zip(odds);
+        if let Ok(mut x_iter) = self.try_array_chunks_mut() {
+            while let (Some([xes, xos]), Some((es, os))) =
+                (x_iter.next_chunk::<2>(), eo_iter.next())
+            {
+                *xes = es.clone();
+                *xos = os.clone();
+            }
+            if let Some(xes) = x_iter.next() {
+                *xes = evens.last().unwrap().clone();
+            }
+        } else {
+            let mut x_iter = self.iter_mut();
+
+            while let (Some([xes, xos]), Some((es, os))) =
+                (x_iter.next_chunk::<2>(), eo_iter.next())
+            {
+                xes.into_iter().zip(es).for_each(|(x, e)| *x = e.clone());
+                xos.into_iter().zip(os).for_each(|(x, o)| *x = o.clone());
+            }
+            if let Some(xes) = x_iter.next() {
+                xes.into_iter()
+                    .zip(evens.last().unwrap())
+                    .for_each(|(x, e)| *x = e.clone());
+            }
+        }
+    }
+
+    /// Chunk-strided variant of [`split`]: read `N` interleaved lanes from a [`ChunkStridedSliceRef`].
+    #[inline(always)]
+    #[track_caller]
+    pub fn split(&self, first: &mut [&mut [T]; N], second: &mut [&mut [T]; N]) {
+        if const { N == 0 } {
+            return;
+        }
+        let nf = first[0].len();
+        let ns = second[0].len();
+        let nx = self.len();
+        assert!(
+            nf + ns <= nx,
+            "invalid lengths for slice stack, first: {nf}, second: {ns}, third: {nx}",
+        );
+        assert!(first.iter().all(|v| v.len() == nf));
+        assert!(second.iter().all(|v| v.len() == ns));
+
+        let n_mid = nx - (nf + ns);
+
+        if let Ok(mut x_iter) = self.try_array_chunks() {
+            x_iter.by_ref().take(nf).enumerate().for_each(|(i, vs)| {
+                (0..N)
+                    .zip(vs)
+                    .for_each(|(j, v)| unsafe { *first[j].get_unchecked_mut(i) = v.clone() });
+            });
+            x_iter.skip(n_mid).enumerate().for_each(|(i, vs)| {
+                (0..N)
+                    .zip(vs)
+                    .for_each(|(j, v)| unsafe { *second[j].get_unchecked_mut(i) = v.clone() });
+            });
+        } else {
+            let mut x_iter = self.iter();
+
+            x_iter.by_ref().take(nf).enumerate().for_each(|(i, vs)| {
+                (0..N)
+                    .zip(vs)
+                    .for_each(|(j, v)| unsafe { *first[j].get_unchecked_mut(i) = v.clone() });
+            });
+            x_iter.skip(n_mid).enumerate().for_each(|(i, vs)| {
+                (0..N)
+                    .zip(vs)
+                    .for_each(|(j, v)| unsafe { *second[j].get_unchecked_mut(i) = v.clone() });
+            });
+        }
+    }
+
+    /// Chunk-strided variant of [`split`]: read `N` interleaved lanes from a [`ChunkStridedSliceRef`].
+    #[inline(always)]
+    #[track_caller]
+    pub fn split_arrays(&self, first: &mut [[T; N]], second: &mut [[T; N]]) {
+        if const { N == 0 } {
+            return;
+        }
+        let nf = first.len();
+        let ns = second.len();
+        let nx = self.len();
+        assert!(
+            nf + ns <= nx,
+            "invalid lengths for slice stack, first: {nf}, second: {ns}, third: {nx}",
+        );
+
+        let n_mid = nx - (nf + ns);
+
+        if let Ok(mut x_iter) = self.try_array_chunks() {
+            x_iter
+                .by_ref()
+                .take(nf)
+                .zip(first)
+                .for_each(|(xs, fs)| *fs = xs.clone());
+            x_iter
+                .skip(n_mid)
+                .zip(second)
+                .for_each(|(xs, ss)| *ss = xs.clone());
+        } else {
+            let mut x_iter = self.iter();
+
+            x_iter
+                .by_ref()
+                .take(nf)
+                .zip(first)
+                .for_each(|(xs, fs)| xs.into_iter().zip(fs).for_each(|(x, f)| *f = x.clone()));
+            x_iter
+                .skip(n_mid)
+                .zip(second)
+                .for_each(|(xs, ss)| xs.into_iter().zip(ss).for_each(|(x, s)| *s = x.clone()));
+        }
+    }
+
+    /// Fill the slice `sink` with cloned elements of `self`.
+    #[inline(always)]
+    #[track_caller]
+    pub fn pour_into(&self, sink: &mut [&mut [T]; N]) {
+        if const { N == 0 } {
+            return;
+        }
+        let n = self.len();
+        let no = sink[0].len();
+        assert!(
+            no <= n,
+            "Output slice with length {no} too long for strided slice with length {n}."
+        );
+        assert!(sink.iter().all(|v| v.len() == no));
+
+        if let Ok(source) = self.try_array_chunks() {
+            source.enumerate().take(no).for_each(|(i, vs)| {
+                (0..N)
+                    .zip(vs)
+                    .for_each(|(j, v)| unsafe { *sink[j].get_unchecked_mut(i) = v.clone() })
+            });
+        } else {
+            let source = self.iter();
+
+            source.enumerate().take(no).for_each(|(i, vs)| {
+                (0..N)
+                    .zip(vs)
+                    .for_each(|(j, v)| unsafe { *sink[j].get_unchecked_mut(i) = v.clone() })
+            });
+        }
+    }
+}
+
+impl<T: Clone + Zero, const N: usize> ChunkStridedSliceRef<T, N> {
+    /// Stack `N` slices into `N` strided slices
+    #[inline(always)]
+    pub fn stack(&mut self, first: &[&[T]; N], second: &[&[T]; N]) {
+        if const { N == 0 } {
+            return;
+        }
+        let nf = first[0].len();
+        let ns = second[0].len();
+        let no = self.len();
+
+        assert!(first.iter().all(|v| v.len() == nf));
+        assert!(second.iter().all(|v| v.len() == ns));
+        assert!(
+            nf + ns <= no,
+            "invalid lengths for slice stack, first: {nf}, second: {ns}, third: {no}",
+        );
+        let n_mid = no - (nf + ns);
+
+        if let Ok(mut x_iter) = self.try_array_chunks_mut() {
+            x_iter.by_ref().take(nf).enumerate().for_each(|(i, vs)| {
+                (0..N)
+                    .zip(vs)
+                    .for_each(|(j, v)| *v = unsafe { first[j].get_unchecked(i).clone() });
+            });
+            x_iter
+                .by_ref()
+                .take(n_mid)
+                .for_each(|vs| vs.fill(T::zero()));
+            x_iter.enumerate().for_each(|(i, vs)| {
+                (0..N)
+                    .zip(vs)
+                    .for_each(|(j, v)| *v = unsafe { second[j].get_unchecked(i).clone() });
+            });
+        } else {
+            let mut x_iter = self.iter_mut();
+
+            x_iter.by_ref().take(nf).enumerate().for_each(|(i, vs)| {
+                (0..N)
+                    .zip(vs)
+                    .for_each(|(j, v)| *v = unsafe { first[j].get_unchecked(i).clone() });
+            });
+            x_iter
+                .by_ref()
+                .take(n_mid)
+                .for_each(|vs| vs.into_iter().for_each(|v| *v = T::zero()));
+            x_iter.enumerate().for_each(|(i, vs)| {
+                (0..N)
+                    .zip(vs)
+                    .for_each(|(j, v)| *v = unsafe { second[j].get_unchecked(i).clone() });
+            });
+        }
+    }
+
+    /// Stack arrays of N elements into the strided slice.
+    #[inline(always)]
+    pub fn stack_arrays(&mut self, first: &[[T; N]], second: &[[T; N]]) {
+        if const { N == 0 } {
+            return;
+        }
+        let nf = first.len();
+        let ns = second.len();
+        let no = self.len();
+        assert!(
+            nf + ns <= no,
+            "invalid lengths for slice stack, first: {nf}, second: {ns}, third: {no}",
+        );
+        let n_mid = no - (nf + ns);
+
+        if let Ok(mut x_iter) = self.try_array_chunks_mut() {
+            x_iter.by_ref().take(nf).zip(first).for_each(|(xs, fs)| {
+                *xs = fs.clone();
+            });
+            x_iter
+                .by_ref()
+                .take(n_mid)
+                .for_each(|vs| vs.fill(T::zero()));
+            x_iter.zip(second).for_each(|(xs, ss)| {
+                *xs = ss.clone();
+            });
+        } else {
+            let mut x_iter = self.iter_mut();
+            x_iter.by_ref().take(nf).zip(first).for_each(|(xs, fs)| {
+                std::iter::zip(xs, fs).for_each(|(x, f)| *x = f.clone());
+            });
+            x_iter
+                .by_ref()
+                .take(n_mid)
+                .for_each(|xs| xs.into_iter().for_each(|x| *x = T::zero()));
+            x_iter.zip(second).for_each(|(xs, ss)| {
+                std::iter::zip(xs, ss).for_each(|(x, s)| *x = s.clone());
+            });
+        }
+    }
+
+    /// Fill `self` with cloned elements from slice `source`.
+    #[inline(always)]
+    #[track_caller]
+    pub fn fill_from(&mut self, source: &[&[T]; N]) {
+        if const { N == 0 } {
+            return;
+        }
+        let n = self.len();
+        let no = source[0].len();
+        assert!(
+            no <= n,
+            "Output slice with length {no} too long for strided slice with length {n}."
+        );
+        assert!(source.iter().all(|v| v.len() == no));
+
+        if let Ok(mut sink) = self.try_array_chunks_mut() {
+            sink.by_ref().take(no).enumerate().for_each(|(i, vs)| {
+                (0..N)
+                    .zip(vs)
+                    .for_each(|(j, v)| unsafe { *v = source[j].get_unchecked(i).clone() })
+            });
+            sink.for_each(|v| v.fill(T::zero()))
+        } else {
+            let mut sink = self.iter_mut();
+            sink.by_ref().take(no).enumerate().for_each(|(i, vs)| {
+                (0..N)
+                    .zip(vs)
+                    .for_each(|(j, v)| unsafe { *v = source[j].get_unchecked(i).clone() })
+            });
+            sink.for_each(|v| v.into_iter().for_each(|v| *v = T::zero()));
         }
     }
 }

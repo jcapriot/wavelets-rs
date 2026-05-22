@@ -5,6 +5,8 @@
 //! [`super::LanesIterator`] and [`super::parallel::LanesParallelIterator`].
 
 use super::*;
+use num_traits::Zero;
+use std::iter::repeat_n;
 use std::ops::{Deref, DerefMut};
 use std::ptr::NonNull;
 
@@ -12,6 +14,7 @@ use std::ptr::NonNull;
 use ndarray::{ArrayRef, Dimension};
 
 /// Raw pointer + length + stride triplet backing a strided slice view.
+#[derive(Clone, Debug, Copy)]
 struct StrideParts<T> {
     base: NonNull<T>,
     length: usize,
@@ -36,7 +39,9 @@ where
 /// implementation can handle both row-major flat slices and ndarray's arbitrary
 /// memory layouts.
 #[repr(transparent)]
+#[derive(Clone, Debug, Copy)]
 pub struct StridedSliceRef<T>(StrideParts<T>);
+
 impl<T> StridedSliceRef<T> {
     /// Return a raw read-only pointer to the first element.
     #[inline]
@@ -102,6 +107,68 @@ impl<T> StridedSliceRef<T> {
         unsafe { &mut *self.as_mut_ptr().offset(index as isize * self.0.stride) }
     }
 
+    #[inline]
+    /// Split the strided slice into two parts at the specified location
+    ///
+    /// # Panics
+    /// If mid > len.
+    pub fn split_at(&self, mid: usize) -> (StridedSlice<'_, T>, StridedSlice<'_, T>) {
+        assert!(mid <= self.len(), "mid > len");
+        (
+            StridedSlice {
+                parts: StrideParts {
+                    base: self.0.base,
+                    length: mid,
+                    stride: self.0.stride,
+                },
+                _member: SliceLifetime {
+                    _member: PhantomData,
+                },
+            },
+            StridedSlice {
+                parts: StrideParts {
+                    base: unsafe { self.0.base.offset(mid as isize * self.0.stride) },
+                    length: self.0.length - mid,
+                    stride: self.0.stride,
+                },
+                _member: SliceLifetime {
+                    _member: PhantomData,
+                },
+            },
+        )
+    }
+
+    #[inline]
+    /// Split the mutable strided slice into two parts at the specified location
+    ///
+    /// # Panics
+    /// If mid > len.
+    pub fn split_at_mut(&mut self, mid: usize) -> (StridedSliceMut<'_, T>, StridedSliceMut<'_, T>) {
+        assert!(mid <= self.len(), "mid > len");
+        (
+            StridedSliceMut {
+                parts: StrideParts {
+                    base: self.0.base,
+                    length: mid,
+                    stride: self.0.stride,
+                },
+                _member: SliceLifetime {
+                    _member: PhantomData,
+                },
+            },
+            StridedSliceMut {
+                parts: StrideParts {
+                    base: unsafe { self.0.base.offset(mid as isize * self.0.stride) },
+                    length: self.0.length - mid,
+                    stride: self.0.stride,
+                },
+                _member: SliceLifetime {
+                    _member: PhantomData,
+                },
+            },
+        )
+    }
+
     /// Return `true` if the elements in this strided view are contiguous in memory (i.e. stride is 1).
     #[inline(always)]
     pub fn is_contiguous(&self) -> bool {
@@ -143,24 +210,244 @@ impl<T> StridedSliceRef<T> {
     }
 }
 
-impl<T> TryFrom<&StridedSliceRef<T>> for &[T] {
-    type Error = &'static str;
+impl<T: Clone> StridedSliceRef<T> {
+    /// Deinterleave the strided slice into two slices.
+    #[inline(always)]
+    #[track_caller]
+    pub fn deinterleave(&self, evens: &mut [T], odds: &mut [T]) {
+        let nx = self.len();
+        let n_e = evens.len();
+        let n_o = odds.len();
 
-    #[inline]
-    fn try_from(value: &StridedSliceRef<T>) -> Result<Self, Self::Error> {
-        if value.is_contiguous() {
-            unsafe { Ok(std::slice::from_raw_parts(value.as_ptr(), value.len())) }
-        } else {
-            Err("Cannot convert to &[T] because the strided slice is not contiguous")
+        assert_eq!(
+            nx / 2,
+            n_o,
+            "incorrect odd length, {n_o}, for slice deinterleave"
+        );
+        assert_eq!(
+            nx.div_ceil(2),
+            n_e,
+            "incorrect even length, {n_e}, for slice deinterleave"
+        );
+
+        match TryInto::<&[T]>::try_into(self) {
+            Ok(x) => {
+                let (xc, rem) = x.as_chunks();
+                xc.iter()
+                    .zip(evens.iter_mut().zip(odds))
+                    .for_each(|([xe, xo], (e, o))| {
+                        *e = xe.clone();
+                        *o = xo.clone();
+                    });
+                if !rem.is_empty() {
+                    *evens.last_mut().unwrap() = rem.first().unwrap().clone();
+                }
+            }
+            Err(x) => {
+                (0..nx)
+                    .step_by(2)
+                    .zip(evens.iter_mut().zip(odds))
+                    .for_each(|(i, (e, o))| {
+                        // SAFETY:: Lengths checked above to be valid.
+                        *e = unsafe { x.get_unchecked(i) }.clone();
+                        *o = unsafe { x.get_unchecked(i + 1) }.clone();
+                    });
+                if n_e > n_o {
+                    // SAFETY:: Lengths checked above to be valid.
+                    *evens.last_mut().unwrap() = unsafe { self.get_unchecked(nx - 1) }.clone()
+                }
+            }
+        }
+    }
+
+    /// Interleave even- and odd-indexed elements into the strided slice.
+    #[inline(always)]
+    #[track_caller]
+    pub fn interleave(&mut self, evens: &[T], odds: &[T]) {
+        let n = self.len();
+        let n_e = evens.len();
+        let n_o = odds.len();
+
+        assert_eq!(n / 2, n_o);
+        assert_eq!(n.div_ceil(2), n_e);
+
+        match TryInto::<&mut [T]>::try_into(self) {
+            Ok(x) => {
+                let (xc, rem) = x.as_chunks_mut();
+                xc.iter_mut()
+                    .zip(evens.iter().cloned().zip(odds.iter().cloned()))
+                    .for_each(|([xe, xo], (e, o))| {
+                        *xe = e;
+                        *xo = o;
+                    });
+                if !rem.is_empty() {
+                    *rem.first_mut().unwrap() = evens.last().unwrap().clone();
+                }
+            }
+            Err(x) => {
+                (0..n)
+                    .step_by(2)
+                    .zip(evens.iter().cloned().zip(odds.iter().cloned()))
+                    .for_each(|(i, (e, o))| {
+                        // SAFETY:: Lengths checked above to be valid.
+                        unsafe {
+                            *x.get_unchecked_mut(i) = e;
+                            *x.get_unchecked_mut(i + 1) = o;
+                        }
+                    });
+                if n_e > n_o {
+                    // SAFETY:: Lengths checked above to be valid.
+                    unsafe { *x.get_unchecked_mut(n - 1) = evens.last().unwrap().clone() }
+                }
+            }
+        }
+    }
+
+    /// Split `self` into a leading `first` segment and a trailing `second` segment, skipping the gap.
+    ///
+    /// `second` is taken from the tail of `self`, not from immediately after `first`.  This is the
+    /// inverse of [`stack`].
+    #[inline(always)]
+    #[track_caller]
+    pub fn split(&self, first: &mut [T], second: &mut [T]) {
+        let nf = first.len();
+        let ns = second.len();
+        let nx = self.len();
+        assert!(
+            nf + ns <= nx,
+            "invalid lengths for slice stack, first: {nf}, second: {ns}, third: {nx}"
+        );
+        let n_mid = nx - (nf + ns);
+
+        match TryInto::<&[T]>::try_into(self) {
+            Ok(x) => {
+                let (xf, xe) = x.split_at(nf);
+                let (_, xs) = xe.split_at(n_mid);
+                xf.iter().cloned().zip(first).for_each(|(x, v)| *v = x);
+                xs.iter().cloned().zip(second).for_each(|(x, v)| *v = x);
+            }
+            Err(x) => {
+                first.iter_mut().enumerate().for_each(|(i, v)| {
+                    // SAFETY: Lengths verified above to be valid
+                    *v = unsafe { x.get_unchecked(i) }.clone();
+                });
+                second.iter_mut().enumerate().for_each(|(i, v)| {
+                    // SAFETY: Lengths verified above to be valid
+                    *v = unsafe { x.get_unchecked(i + nf + n_mid) }.clone();
+                });
+            }
+        }
+    }
+
+    /// Fill the slice `sink` with cloned elements of `self`.
+    #[inline(always)]
+    #[track_caller]
+    pub fn pour_into(&self, sink: &mut [T]) {
+        let n = self.len();
+        let no = sink.len();
+        assert!(
+            no <= n,
+            "Output slice with length {no} too long for strided slice with length {n}."
+        );
+        match TryInto::<&[T]>::try_into(self) {
+            Ok(source) => {
+                source.iter().cloned().zip(sink).for_each(|(a, b)| *b = a);
+            }
+            Err(source) => {
+                source.iter().cloned().zip(sink).for_each(|(a, b)| *b = a);
+            }
         }
     }
 }
 
-impl<T> TryFrom<&mut StridedSliceRef<T>> for &mut [T] {
-    type Error = &'static str;
+impl<T: Clone + Zero> StridedSliceRef<T> {
+    /// Write `first` at the start of `self` and `second` at the very end, zero-filling the gap.
+    ///
+    /// Unlike a simple concatenation, the second half is placed at the tail of `out` rather than
+    /// immediately after `first`.  This matches the layout expected by the inverse LWT.
+    #[inline(always)]
+    #[track_caller]
+    pub fn stack(&mut self, first: &[T], second: &[T]) {
+        // stacks first and second into self, but with the second half at the very end of out, instead of immediately after the first half.
+        let nf = first.len();
+        let ns = second.len();
+        let n = self.len();
+        assert!(
+            nf + ns <= n,
+            "invalid lengths for slice stack, first: {nf}, second: {ns}, third: {n}",
+        );
+        let n_mid = n - (nf + ns);
+
+        match TryInto::<&mut [T]>::try_into(self) {
+            Ok(x) => {
+                let (xf, xe) = x.split_at_mut(nf);
+                let (xm, xs) = xe.split_at_mut(n_mid);
+                xf.iter_mut().zip(first).for_each(|(x, v)| *x = v.clone());
+                xm.iter_mut().for_each(|v| *v = T::zero());
+                xs.iter_mut().zip(second).for_each(|(x, v)| *x = v.clone());
+            }
+            Err(x) => {
+                x.iter_mut()
+                    .zip(
+                        first
+                            .iter()
+                            .cloned()
+                            .chain(repeat_n(T::zero(), n_mid))
+                            .chain(second.iter().cloned()),
+                    )
+                    .for_each(|(a, b)| *a = b);
+            }
+        }
+    }
+
+    /// Fill `self` with cloned elements from slice `source`.
+    #[inline(always)]
+    #[track_caller]
+    pub fn fill_from(&mut self, source: &[T]) {
+        let n = self.len();
+        let no = source.len();
+        assert!(
+            no <= n,
+            "Output slice with length {no} too long for strided slice with length {n}."
+        );
+
+        match TryInto::<&mut [T]>::try_into(self) {
+            Ok(sink) => {
+                let (sink, tail) = sink.split_at_mut(no);
+                source.iter().cloned().zip(sink).for_each(|(a, b)| *b = a);
+                tail.fill(T::zero());
+            }
+            Err(sink) => {
+                let mut sink = sink.into_iter();
+                source
+                    .iter()
+                    .cloned()
+                    .zip(sink.by_ref())
+                    .for_each(|(a, b)| *b = a);
+                sink.for_each(|v| *v = T::zero());
+            }
+        }
+    }
+}
+
+impl<'a, T> TryFrom<&'a StridedSliceRef<T>> for &[T] {
+    type Error = &'a StridedSliceRef<T>;
 
     #[inline]
-    fn try_from(value: &mut StridedSliceRef<T>) -> Result<Self, Self::Error> {
+    fn try_from(value: &'a StridedSliceRef<T>) -> Result<Self, Self::Error> {
+        if value.is_contiguous() {
+            unsafe { Ok(std::slice::from_raw_parts(value.as_ptr(), value.len())) }
+        } else {
+            Err(value)
+        }
+    }
+}
+
+impl<'a, T> TryFrom<&'a mut StridedSliceRef<T>> for &'a mut [T] {
+    type Error = &'a mut StridedSliceRef<T>;
+
+    #[inline]
+    fn try_from(value: &'a mut StridedSliceRef<T>) -> Result<Self, Self::Error> {
         if value.is_contiguous() {
             // SAFETY: The construction guarantees that the data is valid for `length` elements
             // and we checked that the stride is 1, so this is a valid slice.
@@ -171,8 +458,26 @@ impl<T> TryFrom<&mut StridedSliceRef<T>> for &mut [T] {
                 ))
             }
         } else {
-            Err("Cannot convert to &mut [T] because the strided slice is not contiguous")
+            Err(value)
         }
+    }
+}
+
+impl<'a, T> IntoIterator for &'a StridedSliceRef<T> {
+    type Item = &'a T;
+    type IntoIter = Iter<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl<'a, T> IntoIterator for &'a mut StridedSliceRef<T> {
+    type Item = &'a mut T;
+    type IntoIter = IterMut<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter_mut()
     }
 }
 
@@ -268,6 +573,18 @@ macro_rules! implement_strided_iter {
             #[inline(always)]
             pub fn is_iter_empty(&self) -> bool {
                 unsafe { self.ptr == std::mem::transmute::<$ptr, NonNull<T>>(self.end) }
+            }
+
+            /// Advance by `M` items and return them as an array, or return `None` if fewer
+            /// than `M` items remain.
+            #[inline(always)]
+            pub fn next_chunk<const M: usize>(&mut self) -> Option<[$elem; M]> {
+                if M > self.len() {
+                    None
+                } else {
+                    // SAFETY: We just checked that there are at least M chunks remaining, so this is in bounds.
+                    Some(core::array::from_fn(|_| unsafe { self.next_unchecked() }))
+                }
             }
         }
 
@@ -428,12 +745,14 @@ macro_rules! implement_lane_iter {
         impl<'a, T> $name<'a, T> {
             /// Create a lane iterator over the flat slice `arr` interpreted as an
             /// N-dimensional array with the given `shape`, iterating lanes along `axis`.
+            #[track_caller]
             pub(crate) fn from_slice(arr: &'a $( $mut_ )? [T], shape: &[usize], axis: usize) -> Self {
                 let (ptr, arr_info) = lane_parts_from_slice(arr, shape, axis);
                 Self::new(ptr, arr_info)
             }
 
             /// Create a lane iterator over the leading `sub_shape` elements of `arr`.
+            #[track_caller]
             pub(crate) fn from_sub_slice(
                 arr: &'a $( $mut_ )? [T],
                 shape: &[usize],
@@ -446,6 +765,7 @@ macro_rules! implement_lane_iter {
 
             /// Create a lane iterator from an ndarray `ArrayRef`, using its strides.
             #[cfg(feature="ndarray")]
+            #[track_caller]
             pub(crate) fn from_ndarray<D: Dimension>(
                 arr: &'a $( $mut_ )? ArrayRef<T, D>,
                 shape: &[usize],

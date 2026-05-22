@@ -1,10 +1,7 @@
 use aligned_vec::{AVec, avec};
 use criterion::{Criterion, criterion_group, criterion_main};
 use itertools::Itertools;
-use wavelets::utils::{
-    interleave_strided, interleave_strided_chunk, split_strided, split_strided_chunk,
-    stack_to_strided, stack_to_strided_chunk,
-};
+use wavelets::utils::{avecs_to_mut_slices, avecs_to_slices};
 
 fn db2_benchmark(c: &mut Criterion) {
     use wavelets::boundarys::BoundaryCondition;
@@ -130,43 +127,46 @@ fn interleave_slice_benchmark(c: &mut Criterion) {
 
 fn interleave_strided_benchmark(c: &mut Criterion) {
     use wavelets::iter::LanesIterator;
-    use wavelets::utils::interleave;
 
-    let n = 100;
+    let n: usize = 1000;
 
-    let mut group = c.benchmark_group("interleave_strided");
+    let mut group = c.benchmark_group("interleave");
 
     let shape = [n, n];
-    let n_total = shape.iter().product();
-    let x1 = (0..n_total).collect_vec();
-    let mut x2 = (0..n_total).collect_vec();
-
-    let mut work1 = vec![0; n];
-    let mut work2 = vec![0; n];
+    let n_total: usize = shape.iter().product();
+    let x1 = (0..n_total as i32).collect_vec();
+    let mut x2 = (0..n_total as i32).collect_vec();
 
     let nf = (n + 1) / 2;
     let ns = n / 2;
 
-    group.bench_function("lanes - out of place", |b| {
+    let mut work_f = vec![0; nf];
+    let mut work_s = vec![0; ns];
+
+    group.bench_function("lanes/across", |b| {
+        let ax = 0;
         b.iter(|| {
             for (lane_in, mut lane_out) in
-                x1.iter_lanes(&shape, 0).zip(x2.iter_lanes_mut(&shape, 0))
+                x1.iter_lanes(&shape, ax).zip(x2.iter_lanes_mut(&shape, ax))
             {
-                lane_in
-                    .iter()
-                    .cloned()
-                    .zip(work1.iter_mut())
-                    .for_each(|(a, b)| *b = a);
-                let (first, second) = work1.split_at((n + 1) / 2);
-                interleave(&first, &second, &mut work2);
-
-                lane_out
-                    .iter_mut()
-                    .zip(work2.iter().cloned())
-                    .for_each(|(a, b)| *a = b);
+                lane_in.split(&mut work_f, &mut work_s);
+                lane_out.interleave(&work_f, &work_s);
             }
         })
     });
+
+    group.bench_function("lanes/along", |b| {
+        let ax = 1;
+        b.iter(|| {
+            for (lane_in, mut lane_out) in
+                x1.iter_lanes(&shape, ax).zip(x2.iter_lanes_mut(&shape, ax))
+            {
+                lane_in.split(&mut work_f, &mut work_s);
+                lane_out.interleave(&work_f, &work_s);
+            }
+        })
+    });
+
     const N: usize = 8;
 
     let mut work_f: [_; N] = core::array::from_fn(|_| avec![0; nf]);
@@ -175,25 +175,55 @@ fn interleave_strided_benchmark(c: &mut Criterion) {
     let mut work_f2 = avec![0; nf];
     let mut work_s2 = avec![0; ns];
 
-    group.bench_function("lane chunks - out of place", |b| {
+    group.bench_function("chunks/across", |b| {
+        let ax = 0;
         b.iter(|| {
-            let in_chunk = x1.iter_lane_chunks::<N>(&shape, 0);
+            let in_chunk = x1.iter_lane_chunks::<N>(&shape, ax);
             let in_rem = in_chunk.remainder();
-            let out_chunk = x2.iter_lane_chunks_mut::<N>(&shape, 0);
+            let out_chunk = x2.iter_lane_chunks_mut::<N>(&shape, ax);
             let out_rem = out_chunk.remainder();
 
             for (in_chunk, mut out_chunk) in in_chunk.zip(out_chunk) {
-                split_strided_chunk(&in_chunk, &mut work_f, &mut work_s);
-                interleave_strided_chunk(&work_f, &work_s, &mut out_chunk);
+                let mut f_slcs = avecs_to_mut_slices(&mut work_f);
+                let mut s_slcs = avecs_to_mut_slices(&mut work_s);
+                in_chunk.split(&mut f_slcs, &mut s_slcs);
+
+                let f_slcs = avecs_to_slices(&work_f);
+                let s_slcs = avecs_to_slices(&work_s);
+                out_chunk.interleave(&f_slcs, &s_slcs);
             }
             for (in_rem, mut out_rem) in in_rem.zip(out_rem) {
-                split_strided(&in_rem, &mut work_f2, &mut work_s2);
-                interleave_strided(&work_f2, &work_s2, &mut out_rem);
+                in_rem.split(&mut work_f2, &mut work_s2);
+                out_rem.interleave(&work_f2, &work_s2);
             }
         })
     });
 
-    group.bench_function("chunked - out of place", |b| {
+    group.bench_function("chunks/along", |b| {
+        let ax = 1;
+        b.iter(|| {
+            let in_chunk = x1.iter_lane_chunks::<N>(&shape, ax);
+            let in_rem = in_chunk.remainder();
+            let out_chunk = x2.iter_lane_chunks_mut::<N>(&shape, ax);
+            let out_rem = out_chunk.remainder();
+
+            for (in_chunk, mut out_chunk) in in_chunk.zip(out_chunk) {
+                let mut f_slcs = avecs_to_mut_slices(&mut work_f);
+                let mut s_slcs = avecs_to_mut_slices(&mut work_s);
+                in_chunk.split(&mut f_slcs, &mut s_slcs);
+
+                let f_slcs = avecs_to_slices(&work_f);
+                let s_slcs = avecs_to_slices(&work_s);
+                out_chunk.interleave(&f_slcs, &s_slcs);
+            }
+            for (in_rem, mut out_rem) in in_rem.zip(out_rem) {
+                in_rem.split(&mut work_f2, &mut work_s2);
+                out_rem.interleave(&work_f2, &work_s2);
+            }
+        })
+    });
+
+    group.bench_function("chunked", |b| {
         b.iter(|| {
             // construct vector of slices of the input array
             //let mut arrs = x1.chunks_exact(n).collect_vec();
@@ -236,64 +266,180 @@ fn interleave_strided_benchmark(c: &mut Criterion) {
 
 fn deinterleave_benchmark(c: &mut Criterion) {
     use wavelets::iter::LanesIterator;
-    use wavelets::utils::{deinterleave_nd, deinterleave_strided, deinterleave_strided_chunk};
+    use wavelets::utils::deinterleave_nd;
 
-    const D: usize = 2;
-    let n = 100;
+    let n = 1000;
 
-    let mut group = c.benchmark_group("deinterleave_strided");
+    let mut group = c.benchmark_group("deinterleave");
 
-    let shape = vec![n; 2];
-    let n_total = shape.iter().product();
-    let x1 = (0..n_total).collect_vec();
-    let mut x2 = (0..n_total).collect_vec();
+    let shape: Vec<usize> = vec![n, n];
+    let n_total: usize = shape.iter().product();
+    let x1 = (0..n_total as i32).collect_vec();
+    let mut x2 = (0..n_total as i32).collect_vec();
 
-    group.bench_function("lanes", |b| {
+    group.bench_function("lanes/across", |b| {
+        let ax = 0;
+        let n = shape[ax];
+        let n_e = (n + 1) / 2;
+        let n_o = n / 2;
+        let mut work_e = vec![0; n_e];
+        let mut work_o = vec![0; n_o];
         b.iter(|| {
-            for ax in 0..D {
-                let n = shape[ax];
-                let n_e = (n + 1) / 2;
-                let n_o = n / 2;
-                let mut work_e = vec![0; n_e];
-                let mut work_o = vec![0; n_o];
-                for (lane_in, mut lane_out) in
-                    x1.iter_lanes(&shape, ax).zip(x2.iter_lanes_mut(&shape, ax))
-                {
-                    deinterleave_strided(&lane_in, &mut work_e, &mut work_o);
-                    stack_to_strided(&work_e, &work_o, &mut lane_out);
-                }
+            for (lane_in, mut lane_out) in
+                x1.iter_lanes(&shape, ax).zip(x2.iter_lanes_mut(&shape, ax))
+            {
+                lane_in.deinterleave(&mut work_e, &mut work_o);
+                lane_out.stack(&work_e, &work_o);
+            }
+        })
+    });
+
+    group.bench_function("lanes/along", |b| {
+        let ax = 1;
+        let n = shape[ax];
+        let n_e = (n + 1) / 2;
+        let n_o = n / 2;
+        let mut work_e = vec![0; n_e];
+        let mut work_o = vec![0; n_o];
+        b.iter(|| {
+            for (lane_in, mut lane_out) in
+                x1.iter_lanes(&shape, ax).zip(x2.iter_lanes_mut(&shape, ax))
+            {
+                lane_in.deinterleave(&mut work_e, &mut work_o);
+                lane_out.stack(&work_e, &work_o);
             }
         })
     });
 
     const N: usize = 8;
 
-    group.bench_function("lane chunks", |b| {
+    group.bench_function("chunks/across", |b| {
+        let ax = 0;
+        let n = shape[ax];
+        let n_e = (n + 1) / 2;
+        let n_o = n / 2;
+
+        let mut work_e: [_; N] = core::array::from_fn(|_| avec![0; n_e]);
+        let mut work_o: [_; N] = core::array::from_fn(|_| avec![0; n_o]);
+
+        let mut work_e2 = avec![0; n_e];
+        let mut work_o2 = avec![0; n_o];
+
         b.iter(|| {
-            for ax in 0..D {
-                let n = shape[ax];
-                let n_e = (n + 1) / 2;
-                let n_o = n / 2;
+            let in_chunk = x1.iter_lane_chunks::<N>(&shape, ax);
+            let in_rem = in_chunk.remainder();
+            let out_chunk = x2.iter_lane_chunks_mut::<N>(&shape, ax);
+            let out_rem = out_chunk.remainder();
 
-                let mut work_e: [_; N] = core::array::from_fn(|_| avec![0; n_e]);
-                let mut work_o: [_; N] = core::array::from_fn(|_| avec![0; n_o]);
+            for (in_chunk, mut out_chunk) in in_chunk.zip(out_chunk) {
+                let mut e_slcs = avecs_to_mut_slices(&mut work_e);
+                let mut o_slcs = avecs_to_mut_slices(&mut work_o);
+                in_chunk.deinterleave(&mut e_slcs, &mut o_slcs);
 
-                let in_chunk = x1.iter_lane_chunks::<N>(&shape, 0);
-                let in_rem = in_chunk.remainder();
-                let out_chunk = x2.iter_lane_chunks_mut::<N>(&shape, 0);
-                let out_rem = out_chunk.remainder();
+                let e_slcs = avecs_to_slices(&work_e);
+                let o_slcs = avecs_to_slices(&work_o);
 
-                for (in_chunk, mut out_chunk) in in_chunk.zip(out_chunk) {
-                    deinterleave_strided_chunk(&in_chunk, &mut work_e, &mut work_o);
-                    stack_to_strided_chunk(&work_e, &work_o, &mut out_chunk);
-                }
+                out_chunk.stack(&e_slcs, &o_slcs);
 
-                let mut work_e = avec![0; n_e];
-                let mut work_o = avec![0; n_o];
-                for (in_rem, mut out_rem) in in_rem.zip(out_rem) {
-                    deinterleave_strided(&in_rem, &mut work_e, &mut work_o);
-                    stack_to_strided(&work_e, &work_o, &mut out_rem);
-                }
+                // deinterleave_strided_chunk(&in_chunk, &mut work_e, &mut work_o);
+                // stack_to_strided_chunk(&work_e, &work_o, &mut out_chunk);
+            }
+            for (in_rem, mut out_rem) in in_rem.zip(out_rem) {
+                in_rem.deinterleave(&mut work_e2, &mut work_o2);
+                out_rem.stack(&work_e2, &work_o2);
+            }
+        })
+    });
+
+    group.bench_function("chunks/along", |b| {
+        let ax = 1;
+        let n = shape[ax];
+        let n_e = (n + 1) / 2;
+        let n_o = n / 2;
+
+        let mut work_e: [_; N] = core::array::from_fn(|_| avec![0; n_e]);
+        let mut work_o: [_; N] = core::array::from_fn(|_| avec![0; n_o]);
+
+        let mut work_e2 = avec![0; n_e];
+        let mut work_o2 = avec![0; n_o];
+
+        b.iter(|| {
+            let in_chunk = x1.iter_lane_chunks::<N>(&shape, ax);
+            let in_rem = in_chunk.remainder();
+            let out_chunk = x2.iter_lane_chunks_mut::<N>(&shape, ax);
+            let out_rem = out_chunk.remainder();
+
+            for (in_chunk, mut out_chunk) in in_chunk.zip(out_chunk) {
+                let mut e_slcs = avecs_to_mut_slices(&mut work_e);
+                let mut o_slcs = avecs_to_mut_slices(&mut work_o);
+                in_chunk.deinterleave(&mut e_slcs, &mut o_slcs);
+
+                let e_slcs = avecs_to_slices(&work_e);
+                let o_slcs = avecs_to_slices(&work_o);
+
+                out_chunk.stack(&e_slcs, &o_slcs);
+            }
+            for (in_rem, mut out_rem) in in_rem.zip(out_rem) {
+                in_rem.deinterleave(&mut work_e2, &mut work_o2);
+                out_rem.stack(&work_e2, &work_o2);
+            }
+        })
+    });
+
+    group.bench_function("array_chunks/across", |b| {
+        let ax = 0;
+        let n = shape[ax];
+        let n_e = (n + 1) / 2;
+        let n_o = n / 2;
+
+        let mut work_e = avec![[0; N]; n_e];
+        let mut work_o = avec![[0; N]; n_o];
+
+        let mut work_e2 = avec![0; n_e];
+        let mut work_o2 = avec![0; n_o];
+
+        b.iter(|| {
+            let in_chunk = x1.iter_lane_chunks::<N>(&shape, ax);
+            let in_rem = in_chunk.remainder();
+            let out_chunk = x2.iter_lane_chunks_mut::<N>(&shape, ax);
+            let out_rem = out_chunk.remainder();
+
+            for (in_chunk, mut out_chunk) in in_chunk.zip(out_chunk) {
+                in_chunk.deinterleave_arrays(&mut work_e, &mut work_o);
+                out_chunk.stack_arrays(&work_e, &work_o);
+            }
+            for (in_rem, mut out_rem) in in_rem.zip(out_rem) {
+                in_rem.deinterleave(&mut work_e2, &mut work_o2);
+                out_rem.stack(&work_e2, &work_o2);
+            }
+        })
+    });
+
+    group.bench_function("array_chunks/along", |b| {
+        let ax = 1;
+        let n = shape[ax];
+        let n_e = (n + 1) / 2;
+        let n_o = n / 2;
+
+        let mut work_e = avec![[0; N]; n_e];
+        let mut work_o = avec![[0; N]; n_o];
+
+        let mut work_e2 = avec![0; n_e];
+        let mut work_o2 = avec![0; n_o];
+
+        b.iter(|| {
+            let in_chunk = x1.iter_lane_chunks::<N>(&shape, ax);
+            let in_rem = in_chunk.remainder();
+            let out_chunk = x2.iter_lane_chunks_mut::<N>(&shape, ax);
+            let out_rem = out_chunk.remainder();
+
+            for (in_chunk, mut out_chunk) in in_chunk.zip(out_chunk) {
+                in_chunk.deinterleave_arrays(&mut work_e, &mut work_o);
+                out_chunk.stack_arrays(&work_e, &work_o);
+            }
+            for (in_rem, mut out_rem) in in_rem.zip(out_rem) {
+                in_rem.deinterleave(&mut work_e2, &mut work_o2);
+                out_rem.stack(&work_e2, &work_o2);
             }
         })
     });
@@ -305,6 +451,126 @@ fn deinterleave_benchmark(c: &mut Criterion) {
     });
 
     group.finish();
+}
+
+fn driver_vs_array_db2(c: &mut Criterion) {
+    use wavelets::Wavelets;
+    use wavelets::boundarys::ZeroBoundary;
+    use wavelets::daubechies::Daubechies2;
+    use wavelets::iter::LanesIterator;
+    use wavelets::lwt::LiftingTransform;
+    use wavelets::lwt::bench::db2_forward_arr;
+    use wavelets::lwt::driver::WaveletTransform;
+    use wavelets::simd::Alignable;
+
+    let n = 1000;
+    let wvlt = Wavelets::Daubechies2;
+    let bc = ZeroBoundary;
+
+    let mut group = c.benchmark_group("driver_vs_array");
+
+    let shape = [n, n];
+    let n_total: usize = shape.iter().product();
+    let x1 = (0..n_total).map(|v| v as f64).collect_vec();
+    let mut out = vec![0.0; n_total];
+
+    let trans = WaveletTransform::new(wvlt, bc);
+
+    group.bench_function("driver/along", |b| {
+        let ax = 1;
+        b.iter(|| {
+            trans.forward_nd(&x1, &mut out, &shape, &[ax]);
+        });
+    });
+
+    group.bench_function("driver/across", |b| {
+        let ax = 1;
+        b.iter(|| {
+            trans.forward_nd(&x1, &mut out, &shape, &[ax]);
+        });
+    });
+
+    macro_rules! impl_arm {
+        ($N:tt, $ax:ident, $ns:ident, $nd:ident) => {
+            const N: usize = $N;
+            let in_chunks = x1.iter_lane_chunks::<N>(&shape, $ax);
+            let in_rem = in_chunks.remainder();
+            let out_chunks = out.iter_lane_chunks_mut::<N>(&shape, $ax);
+            let out_rem = out_chunks.remainder();
+
+
+            let mut s = avec![[0.0;N]; $ns];
+            let mut d = avec![[0.0;N]; $nd];
+
+            for (inc, mut outc) in in_chunks.zip(out_chunks){
+                inc.deinterleave_arrays(&mut s, &mut d);
+                db2_forward_arr(&mut s, &mut d, &bc);
+                outc.stack_arrays(&s, &d);
+            };
+
+            let mut s = avec![0.0; $ns];
+            let mut d = avec![0.0; $nd];
+            in_rem.zip(out_rem).for_each(|(ins, mut outs)| {
+                ins.deinterleave(&mut s, &mut d);
+                Daubechies2::forward(&mut s, &mut d, &bc);
+                outs.stack(&s, &d);
+            });
+        };
+    }
+
+    group.bench_function("arrays/along", |b| {
+        b.iter(|| {
+            let ax = 1;
+            let lanes = f64::lanes();
+            let n_ax = shape[ax];
+            let ns = n_ax.div_ceil(2);
+            let nd = n_ax / 2;
+            match lanes {
+                2 => {
+                    impl_arm! {2, ax, ns, nd};
+                }
+                4 => {
+                    impl_arm! {4, ax, ns, nd};
+                }
+                8 => {
+                    impl_arm! {8, ax, ns, nd}
+                }
+                16 => {
+                    impl_arm! {16, ax, ns, nd}
+                }
+                _ => {
+                    unimplemented!()
+                }
+            }
+        });
+    });
+
+    group.bench_function("arrays/across", |b| {
+        b.iter(|| {
+            let ax = 0;
+            let lanes = f64::lanes();
+            let n_ax = shape[ax];
+            let ns = n_ax.div_ceil(2);
+            let nd = n_ax / 2;
+            match lanes {
+                2 => {
+                    impl_arm! {2, ax, ns, nd};
+                }
+                4 => {
+                    impl_arm! {4, ax, ns, nd};
+                }
+                8 => {
+                    impl_arm! {8, ax, ns, nd}
+                }
+                16 => {
+                    impl_arm! {16, ax, ns, nd}
+                }
+                _ => {
+                    unimplemented!()
+                }
+            }
+        });
+    });
 }
 
 fn broadcasted_vs_strided_db2(c: &mut Criterion) {
@@ -459,6 +725,7 @@ criterion_group!(
     broadcasted_vs_strided_db2,
     broadcasted_vs_strided_db4,
     broadcasted_vs_strided_db6,
+    driver_vs_array_db2,
 );
 criterion_main!(
     interleave_deinterleave,

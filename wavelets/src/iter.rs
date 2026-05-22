@@ -94,6 +94,7 @@ pub(crate) struct ArrayInfo {
 }
 
 impl ArrayInfo {
+    #[track_caller]
     fn new(shape: &[usize], stride: &[isize], axis: usize) -> Self {
         assert!(
             axis < shape.len(),
@@ -176,10 +177,12 @@ impl ArrayInfo {
     }
 }
 
+#[track_caller]
 fn lane_parts_from_slice<T>(arr: &[T], shape: &[usize], axis: usize) -> (NonNull<T>, ArrayInfo) {
     lane_parts_from_sub_slice(arr, shape, shape, axis)
 }
 
+#[track_caller]
 fn lane_parts_from_sub_slice<T>(
     arr: &[T],
     shape: &[usize],
@@ -187,8 +190,8 @@ fn lane_parts_from_sub_slice<T>(
     axis: usize,
 ) -> (NonNull<T>, ArrayInfo) {
     let n = arr.len();
-    assert_ne!(
-        n, 0,
+    assert!(
+        !arr.is_empty(),
         "Attempted to create a lane iterator from an empty slice."
     );
     let n_items: usize = shape.iter().product();
@@ -225,6 +228,7 @@ fn lane_parts_from_sub_slice<T>(
 }
 
 #[cfg(feature = "ndarray")]
+#[track_caller]
 fn lane_parts_from_ndarray<T, D: Dimension>(
     arr: &ArrayRef<T, D>,
     sub_shape: &[usize],
@@ -336,9 +340,11 @@ pub trait LanesIterator {
 
 impl<T> LanesIterator for [T] {
     type Item = T;
+    #[track_caller]
     fn iter_lanes<'a>(&'a self, shape: &[usize], axis: usize) -> IterLanes<'a, Self::Item> {
         IterLanes::from_slice(self, shape, axis)
     }
+    #[track_caller]
     fn iter_lanes_mut<'a>(
         &'a mut self,
         shape: &[usize],
@@ -347,6 +353,7 @@ impl<T> LanesIterator for [T] {
         IterLanesMut::from_slice(self, shape, axis)
     }
 
+    #[track_caller]
     fn iter_lane_chunks<'a, const N: usize>(
         &'a self,
         shape: &[usize],
@@ -355,6 +362,7 @@ impl<T> LanesIterator for [T] {
         IterLaneChunks::from_slice(self, shape, axis)
     }
 
+    #[track_caller]
     fn iter_lane_chunks_mut<'a, const N: usize>(
         &'a mut self,
         shape: &[usize],
@@ -363,6 +371,7 @@ impl<T> LanesIterator for [T] {
         IterLaneChunksMut::from_slice(self, shape, axis)
     }
 
+    #[track_caller]
     fn iter_lanes_sub<'a>(
         &'a self,
         shape: &[usize],
@@ -371,6 +380,7 @@ impl<T> LanesIterator for [T] {
     ) -> IterLanes<'a, Self::Item> {
         IterLanes::from_sub_slice(self, shape, sub_shape, axis)
     }
+    #[track_caller]
     fn iter_lanes_sub_mut<'a>(
         &'a mut self,
         shape: &[usize],
@@ -380,6 +390,7 @@ impl<T> LanesIterator for [T] {
         IterLanesMut::from_sub_slice(self, shape, sub_shape, axis)
     }
 
+    #[track_caller]
     fn iter_lane_chunks_sub<'a, const N: usize>(
         &'a self,
         shape: &[usize],
@@ -389,6 +400,7 @@ impl<T> LanesIterator for [T] {
         IterLaneChunks::from_sub_slice(self, shape, sub_shape, axis)
     }
 
+    #[track_caller]
     fn iter_lane_chunks_sub_mut<'a, const N: usize>(
         &'a mut self,
         shape: &[usize],
@@ -410,9 +422,11 @@ impl<T> LanesIterator for [T] {
 #[cfg(feature = "ndarray")]
 impl<T, D: ::ndarray::Dimension> LanesIterator for ArrayRef<T, D> {
     type Item = T;
+    #[track_caller]
     fn iter_lanes<'a>(&'a self, shape: &[usize], axis: usize) -> IterLanes<'a, Self::Item> {
         IterLanes::from_ndarray(self, shape, axis)
     }
+    #[track_caller]
     fn iter_lanes_mut<'a>(
         &'a mut self,
         shape: &[usize],
@@ -421,6 +435,7 @@ impl<T, D: ::ndarray::Dimension> LanesIterator for ArrayRef<T, D> {
         IterLanesMut::from_ndarray(self, shape, axis)
     }
 
+    #[track_caller]
     fn iter_lane_chunks<'a, const N: usize>(
         &'a self,
         shape: &[usize],
@@ -429,6 +444,7 @@ impl<T, D: ::ndarray::Dimension> LanesIterator for ArrayRef<T, D> {
         IterLaneChunks::from_ndarray(self, shape, axis)
     }
 
+    #[track_caller]
     fn iter_lane_chunks_mut<'a, const N: usize>(
         &'a mut self,
         shape: &[usize],
@@ -437,6 +453,7 @@ impl<T, D: ::ndarray::Dimension> LanesIterator for ArrayRef<T, D> {
         IterLaneChunksMut::from_ndarray(self, shape, axis)
     }
 
+    #[track_caller]
     fn iter_lanes_sub<'a>(
         &'a self,
         _shape: &[usize],
@@ -445,6 +462,8 @@ impl<T, D: ::ndarray::Dimension> LanesIterator for ArrayRef<T, D> {
     ) -> IterLanes<'a, Self::Item> {
         IterLanes::from_ndarray(self, sub_shape, axis)
     }
+
+    #[track_caller]
     fn iter_lanes_sub_mut<'a>(
         &'a mut self,
         _shape: &[usize],
@@ -454,6 +473,7 @@ impl<T, D: ::ndarray::Dimension> LanesIterator for ArrayRef<T, D> {
         IterLanesMut::from_ndarray(self, sub_shape, axis)
     }
 
+    #[track_caller]
     fn iter_lane_chunks_sub<'a, const N: usize>(
         &'a self,
         _shape: &[usize],
@@ -463,6 +483,7 @@ impl<T, D: ::ndarray::Dimension> LanesIterator for ArrayRef<T, D> {
         IterLaneChunks::from_ndarray(self, sub_shape, axis)
     }
 
+    #[track_caller]
     fn iter_lane_chunks_sub_mut<'a, const N: usize>(
         &'a mut self,
         _shape: &[usize],
@@ -569,6 +590,7 @@ pub mod parallel {
     }
 
     impl<T> LanesParallelIterator for [T] {
+        #[track_caller]
         fn par_iter_lanes<'a>(
             &'a self,
             shape: &[usize],
@@ -576,6 +598,7 @@ pub mod parallel {
         ) -> ParIterLanes<'a, Self::Item> {
             ParIterLanes::from_slice(self, shape, axis)
         }
+        #[track_caller]
         fn par_iter_lanes_mut<'a>(
             &'a mut self,
             shape: &[usize],
@@ -584,6 +607,7 @@ pub mod parallel {
             ParIterLanesMut::from_slice(self, shape, axis)
         }
 
+        #[track_caller]
         fn par_iter_lane_chunks<'a, const N: usize>(
             &'a self,
             shape: &[usize],
@@ -592,6 +616,7 @@ pub mod parallel {
             ParIterLaneChunks::from_slice(self, shape, axis)
         }
 
+        #[track_caller]
         fn par_iter_lane_chunks_mut<'a, const N: usize>(
             &'a mut self,
             shape: &[usize],
@@ -600,6 +625,7 @@ pub mod parallel {
             ParIterLaneChunksMut::from_slice(self, shape, axis)
         }
 
+        #[track_caller]
         fn par_iter_lanes_sub<'a>(
             &'a self,
             shape: &[usize],
@@ -608,6 +634,7 @@ pub mod parallel {
         ) -> ParIterLanes<'a, Self::Item> {
             ParIterLanes::from_sub_slice(self, shape, sub_shape, axis)
         }
+        #[track_caller]
         fn par_iter_lanes_sub_mut<'a>(
             &'a mut self,
             shape: &[usize],
@@ -617,6 +644,7 @@ pub mod parallel {
             ParIterLanesMut::from_sub_slice(self, shape, sub_shape, axis)
         }
 
+        #[track_caller]
         fn par_iter_lane_chunks_sub<'a, const N: usize>(
             &'a self,
             shape: &[usize],
@@ -626,6 +654,7 @@ pub mod parallel {
             ParIterLaneChunks::from_sub_slice(self, shape, sub_shape, axis)
         }
 
+        #[track_caller]
         fn par_iter_lane_chunks_sub_mut<'a, const N: usize>(
             &'a mut self,
             shape: &[usize],
@@ -638,6 +667,7 @@ pub mod parallel {
 
     #[cfg(feature = "ndarray")]
     impl<T, D: ::ndarray::Dimension> LanesParallelIterator for ArrayRef<T, D> {
+        #[track_caller]
         fn par_iter_lanes<'a>(
             &'a self,
             shape: &[usize],
@@ -645,6 +675,7 @@ pub mod parallel {
         ) -> ParIterLanes<'a, Self::Item> {
             ParIterLanes::from_ndarray(self, shape, axis)
         }
+        #[track_caller]
         fn par_iter_lanes_mut<'a>(
             &'a mut self,
             shape: &[usize],
@@ -653,6 +684,7 @@ pub mod parallel {
             ParIterLanesMut::from_ndarray(self, shape, axis)
         }
 
+        #[track_caller]
         fn par_iter_lane_chunks<'a, const N: usize>(
             &'a self,
             shape: &[usize],
@@ -661,6 +693,7 @@ pub mod parallel {
             ParIterLaneChunks::from_ndarray(self, shape, axis)
         }
 
+        #[track_caller]
         fn par_iter_lane_chunks_mut<'a, const N: usize>(
             &'a mut self,
             shape: &[usize],
@@ -669,6 +702,7 @@ pub mod parallel {
             ParIterLaneChunksMut::from_ndarray(self, shape, axis)
         }
 
+        #[track_caller]
         fn par_iter_lanes_sub<'a>(
             &'a self,
             _shape: &[usize],
@@ -677,6 +711,7 @@ pub mod parallel {
         ) -> ParIterLanes<'a, Self::Item> {
             ParIterLanes::from_ndarray(self, sub_shape, axis)
         }
+        #[track_caller]
         fn par_iter_lanes_sub_mut<'a>(
             &'a mut self,
             _shape: &[usize],
@@ -686,6 +721,7 @@ pub mod parallel {
             ParIterLanesMut::from_ndarray(self, sub_shape, axis)
         }
 
+        #[track_caller]
         fn par_iter_lane_chunks_sub<'a, const N: usize>(
             &'a self,
             _shape: &[usize],
@@ -695,6 +731,7 @@ pub mod parallel {
             ParIterLaneChunks::from_ndarray(self, sub_shape, axis)
         }
 
+        #[track_caller]
         fn par_iter_lane_chunks_sub_mut<'a, const N: usize>(
             &'a mut self,
             _shape: &[usize],
