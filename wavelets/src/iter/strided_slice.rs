@@ -211,7 +211,10 @@ impl<T> StridedSliceRef<T> {
 }
 
 impl<T: Clone> StridedSliceRef<T> {
-    /// Deinterleave the strided slice into two slices.
+    /// Deinterleave a strided lane into even- and odd-indexed flat buffers.
+    ///
+    /// Equivalent to [`crate::utils::deinterleave`] but reads from a [`StridedSliceRef`] instead of a plain
+    /// slice; takes a fast path when the view happens to be contiguous.
     #[inline(always)]
     #[track_caller]
     pub fn deinterleave(&self, evens: &mut [T], odds: &mut [T]) {
@@ -248,19 +251,19 @@ impl<T: Clone> StridedSliceRef<T> {
                     .step_by(2)
                     .zip(evens.iter_mut().zip(odds))
                     .for_each(|(i, (e, o))| {
-                        // SAFETY:: Lengths checked above to be valid.
+                        // SAFETY: Lengths checked above to be valid.
                         *e = unsafe { x.get_unchecked(i) }.clone();
                         *o = unsafe { x.get_unchecked(i + 1) }.clone();
                     });
                 if n_e > n_o {
-                    // SAFETY:: Lengths checked above to be valid.
+                    // SAFETY: Lengths checked above to be valid.
                     *evens.last_mut().unwrap() = unsafe { self.get_unchecked(nx - 1) }.clone()
                 }
             }
         }
     }
 
-    /// Interleave even- and odd-indexed elements into the strided slice.
+    /// Strided variant of [`crate::utils::interleave`]: write interleaved values into a [`StridedSliceRef`].
     #[inline(always)]
     #[track_caller]
     pub fn interleave(&mut self, evens: &[T], odds: &[T]) {
@@ -289,14 +292,14 @@ impl<T: Clone> StridedSliceRef<T> {
                     .step_by(2)
                     .zip(evens.iter().cloned().zip(odds.iter().cloned()))
                     .for_each(|(i, (e, o))| {
-                        // SAFETY:: Lengths checked above to be valid.
+                        // SAFETY: Lengths checked above to be valid.
                         unsafe {
                             *x.get_unchecked_mut(i) = e;
                             *x.get_unchecked_mut(i + 1) = o;
                         }
                     });
                 if n_e > n_o {
-                    // SAFETY:: Lengths checked above to be valid.
+                    // SAFETY: Lengths checked above to be valid.
                     unsafe { *x.get_unchecked_mut(n - 1) = evens.last().unwrap().clone() }
                 }
             }
@@ -306,7 +309,7 @@ impl<T: Clone> StridedSliceRef<T> {
     /// Split `self` into a leading `first` segment and a trailing `second` segment, skipping the gap.
     ///
     /// `second` is taken from the tail of `self`, not from immediately after `first`.  This is the
-    /// inverse of [`stack`].
+    /// inverse of [`StridedSliceRef::stack`].
     #[inline(always)]
     #[track_caller]
     pub fn split(&self, first: &mut [T], second: &mut [T]) {
@@ -364,7 +367,7 @@ impl<T: Clone + Zero> StridedSliceRef<T> {
     /// Write `first` at the start of `self` and `second` at the very end, zero-filling the gap.
     ///
     /// Unlike a simple concatenation, the second half is placed at the tail of `out` rather than
-    /// immediately after `first`.  This matches the layout expected by the inverse LWT.
+    /// immediately after `first`.
     #[inline(always)]
     #[track_caller]
     pub fn stack(&mut self, first: &[T], second: &[T]) {
@@ -400,7 +403,7 @@ impl<T: Clone + Zero> StridedSliceRef<T> {
         }
     }
 
-    /// Fill `self` with cloned elements from slice `source`.
+    /// Fill `self` with cloned elements from slice `source`, filling the leftover with zero values.
     #[inline(always)]
     #[track_caller]
     pub fn fill_from(&mut self, source: &[T]) {
@@ -1442,5 +1445,210 @@ mod tests {
 
             assert_eq!(arr, expected);
         }
+    }
+
+    #[rstest]
+    fn test_interleave_strided(
+        #[values(10, 11)] n0: usize,
+        #[values(10, 11)] n1: usize,
+        #[values(0, 1)] ax: usize,
+    ) {
+        let shape = [n0, n1];
+        let n_total: usize = shape.iter().product();
+        let n = shape[ax];
+        let ns = (n + 1) / 2;
+
+        let mut out = vec![0; n_total];
+        for (i, mut slc) in out.iter_lanes_mut(&shape, ax).enumerate() {
+            let s = (i..ns + i).collect_vec();
+            let d = (i + ns..n + i).collect_vec();
+            slc.interleave(&s, &d);
+        }
+
+        for (i, slc) in out.iter_lanes(&shape, ax).enumerate() {
+            let expected = (i..ns + i).interleave(i + ns..n + i).collect_vec();
+            assert_eq!(slc.iter().cloned().collect_vec(), expected);
+        }
+    }
+
+    #[rstest]
+    fn test_deinterleave_strided(
+        #[values(10, 11)] n0: usize,
+        #[values(10, 11)] n1: usize,
+        #[values(0, 1)] ax: usize,
+    ) {
+        let shape = [n0, n1];
+        let n_total: usize = shape.iter().product();
+        let n = shape[ax];
+        let ns = (n + 1) / 2;
+        let nd = n / 2;
+
+        let mut out = vec![0; n_total];
+        for (i, mut slc) in out.iter_lanes_mut(&shape, ax).enumerate() {
+            slc.iter_mut()
+                .zip((i..ns + i).interleave(ns + i..n + i))
+                .for_each(|(v1, v2)| *v1 = v2);
+        }
+
+        for (i, slc) in out.iter_lanes(&shape, ax).enumerate() {
+            let mut s = vec![0; ns];
+            let mut d = vec![0; nd];
+            slc.deinterleave(&mut s, &mut d);
+
+            assert_eq!(s, (i..ns + i).collect_vec());
+            assert_eq!(d, (ns + i..n + i).collect_vec());
+        }
+    }
+
+    #[rstest]
+    fn test_stack_strided(
+        #[values(10, 11)] n0: usize,
+        #[values(10, 11)] n1: usize,
+        #[values(0, 1)] ax: usize,
+    ) {
+        let shape = [n0, n1];
+        let n_total: usize = shape.iter().product();
+        let n = shape[ax];
+        let ns = (n + 1) / 2;
+
+        let mut out = vec![0; n_total];
+        for (i, mut slc) in out.iter_lanes_mut(&shape, ax).enumerate() {
+            let first = (i..ns + i).collect_vec();
+            let second = (i + ns..n + i).collect_vec();
+            slc.stack(&first, &second);
+        }
+
+        for (i, slc) in out.iter_lanes(&shape, ax).enumerate() {
+            let expected = (i..n + i).collect_vec();
+            assert_eq!(slc.iter().cloned().collect_vec(), expected);
+        }
+    }
+
+    #[rstest]
+    fn test_split_strided(
+        #[values(10, 11)] n0: usize,
+        #[values(10, 11)] n1: usize,
+        #[values(0, 1)] ax: usize,
+    ) {
+        let shape = [n0, n1];
+        let n_total: usize = shape.iter().product();
+        let n = shape[ax];
+        let ns = (n + 1) / 2;
+        let nd = n / 2;
+
+        let mut out = vec![0; n_total];
+        for (i, mut slc) in out.iter_lanes_mut(&shape, ax).enumerate() {
+            slc.iter_mut().zip(i..n + i).for_each(|(v1, v2)| *v1 = v2);
+        }
+
+        for (i, slc) in out.iter_lanes(&shape, ax).enumerate() {
+            let mut first = vec![0; ns];
+            let mut second = vec![0; nd];
+            slc.split(&mut first, &mut second);
+
+            assert_eq!(first, (i..ns + i).collect_vec());
+            assert_eq!(second, (ns + i..n + i).collect_vec());
+        }
+    }
+
+    #[rstest]
+    fn test_clone_slice_to_strided(
+        #[values(10, 11, 12)] n0: usize,
+        #[values(10, 11, 12)] n1: usize,
+        #[values(1, 2, 3)] stride: usize,
+    ) {
+        let n_min = n0.min(n1);
+        let inp = (1..n_min + 1).collect_vec();
+        let mut out = vec![0; n1 * stride];
+
+        let mut out_strided = StridedSliceMut::from_mut_slice(&mut out, stride);
+        out_strided.fill_from(&inp);
+
+        let output = out.iter().step_by(stride).cloned().collect_vec();
+
+        assert_eq!(output[..n_min], inp[..n_min]);
+    }
+
+    #[rstest]
+    fn test_clone_strided_to_slice(
+        #[values(10, 11, 12)] n0: usize,
+        #[values(10, 11, 12)] n1: usize,
+        #[values(1, 2, 3)] stride: usize,
+    ) {
+        let inp = (1..n0 * stride + 1).collect_vec();
+        let inp_strided = StridedSlice::from_slice(&inp, stride);
+
+        let n_min = n0.min(n1);
+        let mut out = vec![0; n_min];
+
+        inp_strided.pour_into(&mut out);
+
+        let out_ref = inp.iter().step_by(stride).cloned().collect_vec();
+
+        assert_eq!(out[..n_min], out_ref[..n_min]);
+    }
+
+    #[rstest]
+    fn test_stack_slices_to_outer_strided(
+        #[values(10, 11)] n0: usize,
+        #[values(0, 2, 5)] n_pad: usize,
+        #[values(1, 2, 3)] stride: usize,
+    ) {
+        let inp = (1..n0 + 1).collect_vec();
+        let n1 = n0 + n_pad;
+        let mut out = vec![0; n1 * stride];
+
+        let nf = (n0 + 1) / 2;
+        let ns = n0 / 2;
+
+        let (in_1, in_2) = inp.split_at(nf);
+
+        assert_eq!(in_1.len(), nf);
+        assert_eq!(in_2.len(), ns);
+
+        let mut out_strided = StridedSliceMut::from_mut_slice(&mut out, stride);
+        out_strided.stack(&in_1, &in_2);
+
+        let out_f = out.iter().step_by(stride).take(nf).cloned().collect_vec();
+        let out_s = out
+            .iter()
+            .step_by(stride)
+            .skip(n1 - ns)
+            .cloned()
+            .collect_vec();
+        assert_eq!(&out_f, in_1);
+        assert_eq!(&out_s, in_2);
+    }
+
+    #[rstest]
+    fn test_split_strided_outer_to_slices(
+        #[values(10, 11)] n0: usize,
+        #[values(0, 2, 5)] n_pad: usize,
+        #[values(1, 2, 3)] stride: usize,
+    ) {
+        let n1 = n0 + n_pad;
+        let inp = (1..n1 * stride + 1).collect_vec();
+        let mut out = vec![0; n0];
+
+        let nf = (n0 + 1) / 2;
+        let ns = n0 / 2;
+
+        let (out_f, out_s) = out.split_at_mut(nf);
+
+        assert_eq!(out_f.len(), nf);
+        assert_eq!(out_s.len(), ns);
+
+        let inp_strided = StridedSlice::from_slice(&inp, stride);
+        inp_strided.split(out_f, out_s);
+
+        let inp_f = inp.iter().step_by(stride).take(nf).cloned().collect_vec();
+        let inp_s = inp
+            .iter()
+            .step_by(stride)
+            .skip(n1 - ns)
+            .cloned()
+            .collect_vec();
+        assert_eq!(out_f, &inp_f);
+        assert_eq!(out_s, &inp_s);
     }
 }

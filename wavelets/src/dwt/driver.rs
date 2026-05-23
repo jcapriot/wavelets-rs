@@ -8,7 +8,6 @@ use aligned_vec::avec;
 use crate::boundarys::BoundaryExtension;
 use crate::dwt::{DiscreteTransform, get_outlen};
 use crate::iter::LanesIterator;
-use crate::utils::{avecs_to_mut_slices, avecs_to_slices};
 use crate::{Wavelets, max_level_nd};
 
 use crate::{ChunkWidth, Transformable};
@@ -903,14 +902,14 @@ fn general_nd_forward_multilevel<F, T, L, const N: usize>(
                                 .zip(out_chunks)
                                 .for_each(|(in_chunk, mut out_chunk)| {
                                     // copy strided chunks into the local storage
-                                    in_chunk.pour_into(&mut avecs_to_mut_slices(&mut x));
+                                    in_chunk.pour_into(&mut x);
                                     x.iter().zip(s.iter_mut().zip(d.iter_mut())).for_each(
                                         |(x, (s, d))| {
                                             func(x, s, d);
                                         },
                                     );
                                     // clone local storage to the output
-                                    out_chunk.stack(&avecs_to_slices(&s), &avecs_to_slices(&d));
+                                    out_chunk.stack(&s, &d);
                                 });
                         }
                         if in_rem.len() > 0 {
@@ -939,14 +938,14 @@ fn general_nd_forward_multilevel<F, T, L, const N: usize>(
                             let mut d = core::array::from_fn(|_| avec![T::zero(); n_sd]);
                             chunks.for_each(|mut chunk| {
                                 // copy (and deinterleave) strided chunks into the local storage
-                                chunk.pour_into(&mut avecs_to_mut_slices(&mut x));
+                                chunk.pour_into(&mut x);
                                 x.iter().zip(s.iter_mut().zip(d.iter_mut())).for_each(
                                     |(x, (s, d))| {
                                         func(x, s, d);
                                     },
                                 );
                                 // clone local storage to the output
-                                chunk.stack(&avecs_to_slices(&s), &avecs_to_slices(&d));
+                                chunk.stack(&s, &d);
                             });
                         }
                         if rem.len() > 0 {
@@ -1046,17 +1045,14 @@ fn general_nd_inverse_multilevel<F, T, L, const N: usize>(
                     let mut d = core::array::from_fn(|_| avec![T::zero(); n_sd]);
                     chunks.for_each(|mut chunk| {
                         // split the chunk into the approximation and detail coefficients.
-                        chunk.split(
-                            &mut avecs_to_mut_slices(&mut s),
-                            &mut avecs_to_mut_slices(&mut d),
-                        );
+                        chunk.split(&mut s, &mut d);
                         x.iter_mut()
                             .zip(s.iter().zip(d.iter()))
                             .for_each(|(x, (s, d))| {
                                 func(s, d, x);
                             });
                         // clone local storage to the output
-                        chunk.fill_from(&avecs_to_slices(&x));
+                        chunk.fill_from(&x);
                     });
                 }
                 if rem.len() > 0 {
@@ -1150,14 +1146,14 @@ fn general_nd_per_forward_multilevel<F, T, L, const N: usize>(
                                 .zip(out_chunks)
                                 .for_each(|(in_chunk, mut out_chunk)| {
                                     // copy strided chunks into the local storage
-                                    in_chunk.pour_into(&mut avecs_to_mut_slices(&mut x));
+                                    in_chunk.pour_into(&mut x);
                                     x.iter().zip(s.iter_mut().zip(d.iter_mut())).for_each(
                                         |(x, (s, d))| {
                                             func(x, s, d);
                                         },
                                     );
                                     // clone local storage to the output
-                                    out_chunk.stack(&avecs_to_slices(&s), &avecs_to_slices(&d));
+                                    out_chunk.stack(&s, &d);
                                 });
                         }
                         if in_rem.len() > 0 {
@@ -1185,14 +1181,14 @@ fn general_nd_per_forward_multilevel<F, T, L, const N: usize>(
                             let mut d = core::array::from_fn(|_| avec![T::zero(); n_d]);
                             chunks.for_each(|mut chunk| {
                                 // copy (and deinterleave) strided chunks into the local storage
-                                chunk.pour_into(&mut avecs_to_mut_slices(&mut x));
+                                chunk.pour_into(&mut x);
                                 x.iter().zip(s.iter_mut().zip(d.iter_mut())).for_each(
                                     |(x, (s, d))| {
                                         func(x, s, d);
                                     },
                                 );
                                 // clone local storage to the output
-                                chunk.stack(&avecs_to_slices(&s), &avecs_to_slices(&d));
+                                chunk.stack(&s, &d);
                             });
                         }
                         if rem.len() > 0 {
@@ -1316,17 +1312,14 @@ fn general_nd_per_inverse_multilevel<F, T, L, const N: usize>(
                     let mut d = core::array::from_fn(|_| avec![T::zero(); n_d]);
                     chunks.for_each(|mut chunk| {
                         // split the chunk into the approximation and detail coefficients.
-                        chunk.split(
-                            &mut avecs_to_mut_slices(&mut s),
-                            &mut avecs_to_mut_slices(&mut d),
-                        );
+                        chunk.split(&mut s, &mut d);
                         x.iter_mut()
                             .zip(s.iter().zip(d.iter()))
                             .for_each(|(x, (s, d))| {
                                 func(s, d, x);
                             });
                         // clone local storage to the output
-                        chunk.fill_from(&avecs_to_slices(&x));
+                        chunk.fill_from(&x);
                     });
                 }
                 if rem.len() > 0 {
@@ -2018,14 +2011,14 @@ pub mod parallel {
                                 |(x, s, d), (in_chunk, mut out_chunk)| {
                                     // copy strided chunks into the local storage
 
-                                    in_chunk.pour_into(&mut avecs_to_mut_slices(x));
+                                    in_chunk.pour_into(x);
                                     x.iter().zip(s.iter_mut().zip(d.iter_mut())).for_each(
                                         |(x, (s, d))| {
                                             func(x, s, d);
                                         },
                                     );
                                     // clone local storage to the output
-                                    out_chunk.stack(&avecs_to_slices(s), &avecs_to_slices(d));
+                                    out_chunk.stack(s, d);
                                 },
                             );
                             in_rem.zip(out_rem).for_each_init(
@@ -2062,14 +2055,14 @@ pub mod parallel {
                                     |(x, s, d), mut chunk| {
                                         // copy (and deinterleave) strided chunks into the local storage
 
-                                        chunk.pour_into(&mut avecs_to_mut_slices(x));
+                                        chunk.pour_into(x);
                                         x.iter().zip(s.iter_mut().zip(d.iter_mut())).for_each(
                                             |(x, (s, d))| {
                                                 func(x, s, d);
                                             },
                                         );
                                         // clone local storage to the output
-                                        chunk.stack(&avecs_to_slices(s), &avecs_to_slices(d));
+                                        chunk.stack(s, d);
                                     },
                                 );
                             }
@@ -2177,17 +2170,14 @@ pub mod parallel {
                             },
                             |(x, s, d), mut chunk| {
                                 // split the chunk into the approximation and detail coefficients.
-                                chunk.split(
-                                    &mut avecs_to_mut_slices(s),
-                                    &mut avecs_to_mut_slices(d),
-                                );
+                                chunk.split(s, d);
                                 x.iter_mut()
                                     .zip(s.iter().zip(d.iter()))
                                     .for_each(|(x, (s, d))| {
                                         func(s, d, x);
                                     });
                                 // clone local storage to the output
-                                chunk.fill_from(&avecs_to_slices(x));
+                                chunk.fill_from(x);
                             },
                         );
                     }
@@ -2288,14 +2278,14 @@ pub mod parallel {
                                 },
                                 |(x, s, d), (in_chunk, mut out_chunk)| {
                                     // copy strided chunks into the local storage
-                                    in_chunk.pour_into(&mut avecs_to_mut_slices(x));
+                                    in_chunk.pour_into(x);
                                     x.iter().zip(s.iter_mut().zip(d.iter_mut())).for_each(
                                         |(x, (s, d))| {
                                             func(x, s, d);
                                         },
                                     );
                                     // clone local storage to the output
-                                    out_chunk.stack(&avecs_to_slices(s), &avecs_to_slices(d));
+                                    out_chunk.stack(s, d);
                                 },
                             );
                             in_rem.zip(out_rem).for_each_init(
@@ -2331,14 +2321,14 @@ pub mod parallel {
                                     |(x, s, d), mut chunk| {
                                         // copy (and deinterleave) strided chunks into the local storage
 
-                                        chunk.pour_into(&mut avecs_to_mut_slices(x));
+                                        chunk.pour_into(x);
                                         x.iter().zip(s.iter_mut().zip(d.iter_mut())).for_each(
                                             |(x, (s, d))| {
                                                 func(x, s, d);
                                             },
                                         );
                                         // clone local storage to the output
-                                        chunk.stack(&avecs_to_slices(s), &avecs_to_slices(d));
+                                        chunk.stack(s, d);
                                     },
                                 );
                             }
@@ -2471,14 +2461,14 @@ pub mod parallel {
                         },
                         |(x, s, d), mut chunk| {
                             // split the chunk into the approximation and detail coefficients.
-                            chunk.split(&mut avecs_to_mut_slices(s), &mut avecs_to_mut_slices(d));
+                            chunk.split(s, d);
                             x.iter_mut()
                                 .zip(s.iter().zip(d.iter()))
                                 .for_each(|(x, (s, d))| {
                                     func(s, d, x);
                                 });
                             // clone local storage to the output
-                            chunk.fill_from(&avecs_to_slices(x));
+                            chunk.fill_from(x);
                         },
                     );
                     if rem.len() > 0 {

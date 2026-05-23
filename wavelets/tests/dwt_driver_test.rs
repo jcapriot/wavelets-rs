@@ -5,7 +5,6 @@ use wavelets::boundarys::{PeriodicBoundary, ZeroBoundary};
 use wavelets::dwt::driver::{WaveletTransform, WaveletTransformPer, get_transform_shape};
 use wavelets::dwt::{DiscreteTransform, get_outlen};
 use wavelets::iter::LanesIterator;
-use wavelets::utils::{clone_strided_to_slice, stack_to_strided};
 
 #[test]
 pub fn test_dwt_driver_db2_single_level_1d_along() {
@@ -82,9 +81,9 @@ pub fn test_dwt_driver_db2_single_level_1d_across() {
     x.iter_lanes(&shape, axes[0])
         .zip(sd2.iter_lanes_mut(&out_shape, axes[0]))
         .for_each(|(x, mut sd)| {
-            clone_strided_to_slice(&x, &mut x_w);
+            x.pour_into(&mut x_w);
             wavelets::dwt::daubechies::Daubechies2::forward(&x_w, &mut s_w, &mut d_w, &bc);
-            stack_to_strided(&s_w, &d_w, &mut sd);
+            sd.stack(&s_w, &d_w);
         });
 
     wavelets::tests::test_approx_equal(&sd, &sd2, 1E-15, 0.0);
@@ -543,8 +542,8 @@ pub fn test_dwt_driver_db2_per_single_level_1d_across() {
         .iter_lanes(&shape, axes[0])
         .zip(sd_bc.iter_lanes(&out_shape, axes[0]))
         .for_each(|(sd_per, sd_bc)| {
-            clone_strided_to_slice(&sd_per, &mut sd1);
-            clone_strided_to_slice(&sd_bc, &mut sd2);
+            sd_per.pour_into(&mut sd1);
+            sd_bc.pour_into(&mut sd2);
             let (s, d) = sd1.split_at(ns);
             let (s2, d2) = sd2.split_at(n_sd);
 

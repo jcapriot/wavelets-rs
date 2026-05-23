@@ -1,10 +1,7 @@
 use aligned_vec::{AVec, avec};
 use itertools::Itertools;
 use wavelets::iter::LanesIterator;
-use wavelets::utils::{
-    deinterleave_nd, deinterleave_strided, deinterleave_strided_chunk, stack_to_strided,
-    stack_to_strided_chunk,
-};
+use wavelets::utils::deinterleave_nd;
 
 fn ref_deinterleave_nd<T: Clone + num_traits::Zero>(x: &[T], shape: &[usize]) -> Vec<T> {
     let mut out = x.to_vec();
@@ -18,8 +15,8 @@ fn ref_deinterleave_nd<T: Clone + num_traits::Zero>(x: &[T], shape: &[usize]) ->
         let mut work_o = vec![T::zero(); no];
 
         for mut lane in out.iter_lanes_mut(shape, ax) {
-            deinterleave_strided(&lane, &mut work_e, &mut work_o);
-            stack_to_strided(&work_e, &work_o, &mut lane);
+            lane.deinterleave(&mut work_e, &mut work_o);
+            lane.stack(&work_e, &work_o);
         }
     }
     out
@@ -42,16 +39,16 @@ fn ref_deinterleave_chunk_nd<T: Clone + num_traits::Zero>(x: &[T], shape: &[usiz
         let mut work_o: [AVec<T>; N] = core::array::from_fn(|_| avec![T::zero(); no]);
 
         for mut chunk in chunks {
-            deinterleave_strided_chunk(&chunk, &mut work_e, &mut work_o);
-            stack_to_strided_chunk(&work_e, &work_o, &mut chunk);
+            chunk.deinterleave(&mut work_e, &mut work_o);
+            chunk.stack(&work_e, &work_o);
         }
 
         let mut work_e = vec![T::zero(); ne];
         let mut work_o = vec![T::zero(); no];
 
         for mut lane in rem {
-            deinterleave_strided(&lane, &mut work_e, &mut work_o);
-            stack_to_strided(&work_e, &work_o, &mut lane);
+            lane.deinterleave(&mut work_e, &mut work_o);
+            lane.stack(&work_e, &work_o);
         }
     }
     out

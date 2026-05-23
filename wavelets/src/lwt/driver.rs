@@ -7,9 +7,9 @@ use crate::Wavelets;
 use crate::boundarys::BoundaryExtension;
 use crate::iter::LanesIterator;
 
-use aligned_vec::{AVec, avec};
+use aligned_vec::avec;
 
-use crate::utils::{avecs_to_mut_slices, avecs_to_slices, deinterleave, interleave};
+use crate::utils::{deinterleave, interleave};
 use crate::{ChunkWidth, max_level_nd, simd::SimdTransformable};
 
 use wavelets_macros::generate_wavelet_match_arms;
@@ -425,16 +425,12 @@ fn general_nd_forward_multilevel<F, T, L, const N: usize>(
                         let out_rem = out_chunks.remainder();
 
                         if in_chunks.len() > 0 {
-                            let mut s_w: [AVec<T>; N] =
-                                core::array::from_fn(|_| avec![T::zero(); n_s]);
-                            let mut d_w: [AVec<T>; N] =
-                                core::array::from_fn(|_| avec![T::zero(); n_d]);
+                            let mut s = core::array::from_fn(|_| avec![T::zero(); n_s]);
+                            let mut d = core::array::from_fn(|_| avec![T::zero(); n_d]);
                             in_chunks
                                 .zip(out_chunks)
                                 .for_each(|(in_chunk, mut out_chunk)| {
                                     // copy (and deinterleave) strided chunks into the local storage
-                                    let mut s = avecs_to_mut_slices(&mut s_w);
-                                    let mut d = avecs_to_mut_slices(&mut d_w);
                                     in_chunk.deinterleave(&mut s, &mut d);
 
                                     s.iter_mut().zip(d.iter_mut()).for_each(|(s, d)| {
@@ -442,8 +438,6 @@ fn general_nd_forward_multilevel<F, T, L, const N: usize>(
                                     });
 
                                     // clone local storage to the output
-                                    let s = avecs_to_slices(&s_w);
-                                    let d = avecs_to_slices(&d_w);
                                     out_chunk.stack(&s, &d);
                                 });
                         }
@@ -466,21 +460,15 @@ fn general_nd_forward_multilevel<F, T, L, const N: usize>(
                         let rem = chunks.remainder();
 
                         if chunks.len() > 0 {
-                            let mut s_w: [AVec<T>; N] =
-                                core::array::from_fn(|_| avec![T::zero(); n_s]);
-                            let mut d_w: [AVec<T>; N] =
-                                core::array::from_fn(|_| avec![T::zero(); n_d]);
+                            let mut s = core::array::from_fn(|_| avec![T::zero(); n_s]);
+                            let mut d = core::array::from_fn(|_| avec![T::zero(); n_d]);
                             chunks.for_each(|mut chunk| {
                                 // copy (and deinterleave) strided chunks into the local storage
-                                let mut s = avecs_to_mut_slices(&mut s_w);
-                                let mut d = avecs_to_mut_slices(&mut d_w);
                                 chunk.deinterleave(&mut s, &mut d);
                                 s.iter_mut().zip(d.iter_mut()).for_each(|(s, d)| {
                                     func(s, d);
                                 });
                                 // clone local storage to the output
-                                let s = avecs_to_slices(&s_w);
-                                let d = avecs_to_slices(&d_w);
                                 chunk.stack(&s, &d);
                             });
                         }
@@ -571,18 +559,13 @@ fn general_nd_inverse_multilevel<F, T, L, const N: usize>(
                 let rem = chunks.remainder();
 
                 if chunks.len() > 0 {
-                    let mut s_w = core::array::from_fn(|_| avec![T::zero(); n_s]);
-                    let mut d_w = core::array::from_fn(|_| avec![T::zero(); n_d]);
+                    let mut s = core::array::from_fn(|_| avec![T::zero(); n_s]);
+                    let mut d = core::array::from_fn(|_| avec![T::zero(); n_d]);
                     chunks.for_each(|mut chunk| {
-                        let mut s = avecs_to_mut_slices(&mut s_w);
-                        let mut d = avecs_to_mut_slices(&mut d_w);
                         chunk.split(&mut s, &mut d);
                         s.iter_mut().zip(d.iter_mut()).for_each(|(s, d)| {
                             func(s, d);
                         });
-
-                        let s = avecs_to_slices(&s_w);
-                        let d = avecs_to_slices(&d_w);
                         chunk.interleave(&s, &d);
                     });
                 }
@@ -923,15 +906,12 @@ pub mod parallel {
                                 },
                                 |(s, d), (in_chunk, mut out_chunk)| {
                                     // copy (and deinterleave) strided chunks into the local storage
-                                    in_chunk.deinterleave(
-                                        &mut avecs_to_mut_slices(s),
-                                        &mut avecs_to_mut_slices(d),
-                                    );
+                                    in_chunk.deinterleave(s, d);
                                     s.iter_mut().zip(d.iter_mut()).for_each(|(s, d)| {
                                         func(s, d);
                                     });
                                     // clone local storage to the output
-                                    out_chunk.stack(&avecs_to_slices(s), &avecs_to_slices(d));
+                                    out_chunk.stack(s, d);
                                 },
                             );
                             in_rem.zip(out_rem).for_each_init(
@@ -962,15 +942,12 @@ pub mod parallel {
                                     (s, d)
                                 },
                                 |(s, d), mut chunk| {
-                                    chunk.deinterleave(
-                                        &mut avecs_to_mut_slices(s),
-                                        &mut avecs_to_mut_slices(d),
-                                    );
+                                    chunk.deinterleave(s, d);
                                     s.iter_mut().zip(d.iter_mut()).for_each(|(s, d)| {
                                         func(s, d);
                                     });
                                     // clone local storage to the output
-                                    chunk.stack(&avecs_to_slices(s), &avecs_to_slices(d));
+                                    chunk.stack(s, d);
                                 },
                             );
                             rem.for_each_init(
@@ -1069,14 +1046,11 @@ pub mod parallel {
                                 (s, d)
                             },
                             |(s, d), mut chunk| {
-                                chunk.split(
-                                    &mut avecs_to_mut_slices(s),
-                                    &mut avecs_to_mut_slices(d),
-                                );
+                                chunk.split(s, d);
                                 s.iter_mut().zip(d.iter_mut()).for_each(|(s, d)| {
                                     func(s, d);
                                 });
-                                chunk.interleave(&avecs_to_slices(s), &avecs_to_slices(d));
+                                chunk.interleave(s, d);
                             },
                         );
                     }

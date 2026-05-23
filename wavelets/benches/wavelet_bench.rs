@@ -1,7 +1,142 @@
 use aligned_vec::{AVec, avec};
 use criterion::{Criterion, criterion_group, criterion_main};
 use itertools::Itertools;
-use wavelets::utils::{avecs_to_mut_slices, avecs_to_slices};
+
+mod extras {
+    use wavelets::simd::*;
+    use wavelets::{boundarys::BoundaryExtension, simd::SimdTransformable};
+
+    /// Placeholder
+    pub(super) fn db2_forward_arr<T, BC, const N: usize>(
+        s: &mut [[T; N]],
+        d: &mut [[T; N]],
+        bc: &BC,
+    ) where
+        T: SimdTransformable,
+        BC: BoundaryExtension,
+    {
+        use wavelets::simd::Dispatch;
+        let n_lanes = T::lanes();
+
+        debug_assert_eq!(N, n_lanes);
+
+        let ns = s.len();
+        let nd = d.len();
+        assert!(
+            ns == nd || nd + 1 == ns,
+            "detail and smooth coefficient arrays must have compatible lengths, got {nd} d-chunks and {ns} s-chunks."
+        );
+
+        struct Impl<'a, 'b, 'c, T, BC>(&'a mut [T], &'b mut [T], &'c BC);
+
+        impl<'a, 'b, 'c, T: SimdTransformable, BC: BoundaryExtension> WithSimd for Impl<'a, 'b, 'c, T, BC>
+        where
+            T: SimdTransformable,
+            BC: BoundaryExtension,
+        {
+            type Output = ();
+            #[inline(always)]
+            fn with_simd<S: Simd>(self, simd: S) -> Self::Output {
+                let s = T::as_mut_simd(simd, self.0).0;
+                let d = T::as_mut_simd(simd, self.1).0;
+                let ns = s.len();
+                let nd = d.len();
+                let bc = self.2;
+
+                let c = T::simd_splat(
+                    simd,
+                    T::scalar_type_from_f64(
+                        -1.73205080756887729352744634150587236694280525381038062805581,
+                    ),
+                );
+
+                d.iter_mut().zip(s.iter()).for_each(|(l, r)| {
+                    *l = T::simd_mul_add(simd, *r, c, *l);
+                });
+
+                let c = [
+                    T::simd_splat(
+                        simd,
+                        T::scalar_type_from_f64(
+                            0.433012701892219323381861585376468091735701313452595157013952,
+                        ),
+                    ),
+                    T::simd_splat(
+                        simd,
+                        T::scalar_type_from_f64(
+                            -0.0669872981077806766181384146235319082642986865474048429860483,
+                        ),
+                    ),
+                ];
+
+                let (sf, sb) = s.split_at_mut(nd - 1);
+
+                sf.iter_mut()
+                    .zip(d.array_windows())
+                    .for_each(|(l, [r0, r1])| {
+                        *l = T::simd_mul_add(simd, *r0, c[0], *l);
+                        *l = T::simd_mul_add(simd, *r1, c[1], *l);
+                    });
+
+                (nd as isize - 1..ns as isize).zip(sb).for_each(|(io, l)| {
+                    c.iter().enumerate().for_each(|(i, c)| {
+                        let bc_parts = bc.get_parts::<T>(nd, io + i as isize);
+                        for (coef, i_bc) in bc_parts {
+                            let rv = match coef {
+                                Some(coef) => {
+                                    let c = T::simd_splat(simd, coef);
+                                    T::simd_mul(simd, d[i_bc], c)
+                                }
+                                None => d[i_bc],
+                            };
+                            *l = T::simd_mul_add(simd, rv, *c, *l);
+                        }
+                    });
+                });
+
+                let (df, dv) = d.split_at_mut(1);
+
+                (-1..0).zip(df).for_each(|(io, l)| {
+                    let bc_parts = bc.get_parts::<T>(nd, io);
+                    for (coef, i_bc) in bc_parts {
+                        match coef {
+                            Some(coef) => {
+                                let c = T::simd_splat(simd, coef);
+                                *l = T::simd_mul_add(simd, s[i_bc], c, *l);
+                            }
+                            None => {
+                                *l = T::simd_add(simd, s[i_bc], *l);
+                            }
+                        };
+                    }
+                });
+
+                dv.iter_mut().zip(s.iter()).for_each(|(l, r)| {
+                    *l = T::simd_add(simd, *r, *l);
+                });
+
+                let scale = T::simd_splat(
+                    simd,
+                    T::scalar_type_from_f64(
+                        1.93185165257813657349948639945779473526780967801680910080469,
+                    ),
+                );
+                let inv_scale = T::simd_splat(
+                    simd,
+                    T::scalar_type_from_f64(
+                        1.0 / 1.93185165257813657349948639945779473526780967801680910080469,
+                    ),
+                );
+
+                s.iter_mut().for_each(|s| *s = T::simd_mul(simd, *s, scale));
+                d.iter_mut()
+                    .for_each(|d| *d = T::simd_mul(simd, *d, inv_scale));
+            }
+        }
+
+        wavelets::simd::ARCH.dispatch_wvlt(Impl(s.as_flattened_mut(), d.as_flattened_mut(), bc));
+    }
+}
 
 fn db2_benchmark(c: &mut Criterion) {
     use wavelets::boundarys::BoundaryCondition;
@@ -184,13 +319,8 @@ fn interleave_strided_benchmark(c: &mut Criterion) {
             let out_rem = out_chunk.remainder();
 
             for (in_chunk, mut out_chunk) in in_chunk.zip(out_chunk) {
-                let mut f_slcs = avecs_to_mut_slices(&mut work_f);
-                let mut s_slcs = avecs_to_mut_slices(&mut work_s);
-                in_chunk.split(&mut f_slcs, &mut s_slcs);
-
-                let f_slcs = avecs_to_slices(&work_f);
-                let s_slcs = avecs_to_slices(&work_s);
-                out_chunk.interleave(&f_slcs, &s_slcs);
+                in_chunk.split(&mut work_f, &mut work_s);
+                out_chunk.interleave(&&work_f, &work_s);
             }
             for (in_rem, mut out_rem) in in_rem.zip(out_rem) {
                 in_rem.split(&mut work_f2, &mut work_s2);
@@ -208,13 +338,8 @@ fn interleave_strided_benchmark(c: &mut Criterion) {
             let out_rem = out_chunk.remainder();
 
             for (in_chunk, mut out_chunk) in in_chunk.zip(out_chunk) {
-                let mut f_slcs = avecs_to_mut_slices(&mut work_f);
-                let mut s_slcs = avecs_to_mut_slices(&mut work_s);
-                in_chunk.split(&mut f_slcs, &mut s_slcs);
-
-                let f_slcs = avecs_to_slices(&work_f);
-                let s_slcs = avecs_to_slices(&work_s);
-                out_chunk.interleave(&f_slcs, &s_slcs);
+                in_chunk.split(&mut work_f, &mut work_s);
+                out_chunk.interleave(&work_f, &work_s);
             }
             for (in_rem, mut out_rem) in in_rem.zip(out_rem) {
                 in_rem.split(&mut work_f2, &mut work_s2);
@@ -332,17 +457,8 @@ fn deinterleave_benchmark(c: &mut Criterion) {
             let out_rem = out_chunk.remainder();
 
             for (in_chunk, mut out_chunk) in in_chunk.zip(out_chunk) {
-                let mut e_slcs = avecs_to_mut_slices(&mut work_e);
-                let mut o_slcs = avecs_to_mut_slices(&mut work_o);
-                in_chunk.deinterleave(&mut e_slcs, &mut o_slcs);
-
-                let e_slcs = avecs_to_slices(&work_e);
-                let o_slcs = avecs_to_slices(&work_o);
-
-                out_chunk.stack(&e_slcs, &o_slcs);
-
-                // deinterleave_strided_chunk(&in_chunk, &mut work_e, &mut work_o);
-                // stack_to_strided_chunk(&work_e, &work_o, &mut out_chunk);
+                in_chunk.deinterleave(&mut work_e, &mut work_o);
+                out_chunk.stack(&work_e, &work_o);
             }
             for (in_rem, mut out_rem) in in_rem.zip(out_rem) {
                 in_rem.deinterleave(&mut work_e2, &mut work_o2);
@@ -370,14 +486,8 @@ fn deinterleave_benchmark(c: &mut Criterion) {
             let out_rem = out_chunk.remainder();
 
             for (in_chunk, mut out_chunk) in in_chunk.zip(out_chunk) {
-                let mut e_slcs = avecs_to_mut_slices(&mut work_e);
-                let mut o_slcs = avecs_to_mut_slices(&mut work_o);
-                in_chunk.deinterleave(&mut e_slcs, &mut o_slcs);
-
-                let e_slcs = avecs_to_slices(&work_e);
-                let o_slcs = avecs_to_slices(&work_o);
-
-                out_chunk.stack(&e_slcs, &o_slcs);
+                in_chunk.deinterleave(&mut work_e, &mut work_o);
+                out_chunk.stack(&work_e, &work_o);
             }
             for (in_rem, mut out_rem) in in_rem.zip(out_rem) {
                 in_rem.deinterleave(&mut work_e2, &mut work_o2);
@@ -454,12 +564,12 @@ fn deinterleave_benchmark(c: &mut Criterion) {
 }
 
 fn driver_vs_array_db2(c: &mut Criterion) {
+    use extras::db2_forward_arr;
     use wavelets::Wavelets;
     use wavelets::boundarys::ZeroBoundary;
     use wavelets::daubechies::Daubechies2;
     use wavelets::iter::LanesIterator;
     use wavelets::lwt::LiftingTransform;
-    use wavelets::lwt::bench::db2_forward_arr;
     use wavelets::lwt::driver::WaveletTransform;
     use wavelets::simd::Alignable;
 

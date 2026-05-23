@@ -4,7 +4,6 @@ use wavelets::Wavelets;
 use wavelets::boundarys::BoundaryCondition;
 use wavelets::iter::LanesIterator;
 use wavelets::lwt::driver::WaveletTransform;
-use wavelets::utils::{clone_strided_to_slice, stack_to_strided};
 
 // ── Single-level forward: compare against hand-rolled 1-D transforms ───────────
 
@@ -69,9 +68,9 @@ pub fn test_lwt_driver_db2_single_level_1d_across() {
     x.iter_lanes(&shape, axes[0])
         .zip(sd2.iter_lanes_mut(&shape, axes[0]))
         .for_each(|(x_lane, mut sd_lane)| {
-            clone_strided_to_slice(&x_lane, &mut x_w);
+            x_lane.pour_into(&mut x_w);
             trans.forward_1d(&x_w, &mut s_w, &mut d_w);
-            stack_to_strided(&s_w, &d_w, &mut sd_lane);
+            sd_lane.stack(&s_w, &d_w);
         });
 
     wavelets::tests::test_approx_equal(&sd, &sd2, 1e-12, 1e-11);

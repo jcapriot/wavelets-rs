@@ -179,7 +179,9 @@ impl Simd for pulp::Scalar {
     }
 }
 
-pub(crate) trait Dispatch {
+/// A trait to for simd dispatch using this crate's extended [`WithSimd`]
+pub trait Dispatch {
+    /// Dispatch the callable simd function.
     fn dispatch_wvlt<Op: WithSimd>(self, op: Op) -> Op::Output;
 }
 
