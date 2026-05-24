@@ -1,4 +1,4 @@
-#[cfg(feature = "ndarray")]
+﻿#[cfg(feature = "ndarray")]
 use ndarray::{ArrayRef, Dimension};
 use num_traits::Zero;
 use std::collections::HashSet;
@@ -42,6 +42,7 @@ macro_rules! assert_slice_matches_shape {
 /// # Panics
 ///
 /// Panics if any element of `axes` is `>= in_shape.len()`.
+#[track_caller]
 pub fn get_transform_shape<'a, IT: IntoIterator<Item = &'a usize>>(
     in_shape: &[usize],
     axes: IT,
@@ -161,6 +162,7 @@ where
     ///
     /// Panics if `s.len() != d.len()` or if either length differs from
     /// `get_outlen(width, input.len())`.
+    #[track_caller]
     pub fn forward_1d(&self, input: &[T], s: &mut [T], d: &mut [T]) {
         (self.dwt_forward)(input, s, d, &self.bc);
     }
@@ -173,6 +175,7 @@ where
     ///
     /// Panics if `s.len() != d.len()` or if either length differs from
     /// `get_outlen(width, output.len())`.
+    #[track_caller]
     pub fn inverse_1d(&self, s: &[T], d: &[T], output: &mut [T]) {
         (self.dwt_inverse)(s, d, output);
     }
@@ -187,6 +190,7 @@ where
     ///
     /// Panics if `s.len() != d.len()` or if either length differs from
     /// `get_outlen(width, output.len())`.
+    #[track_caller]
     pub fn adj_forward_1d(&self, s: &[T], d: &[T], output: &mut [T]) {
         (self.dwt_adj_forward)(s, d, output, &self.bc);
     }
@@ -197,6 +201,7 @@ where
     ///
     /// Panics if `s.len() != d.len()` or if either length differs from
     /// `get_outlen(width, input.len())`.
+    #[track_caller]
     pub fn adj_inverse_1d(&self, input: &[T], s: &mut [T], d: &mut [T]) {
         (self.dwt_adj_inverse)(input, s, d);
     }
@@ -209,6 +214,7 @@ where
     /// # Panics
     ///
     /// See [`forward_multilevel_nd`](Self::forward_multilevel_nd).
+    #[track_caller]
     pub fn forward_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
         self.forward_multilevel_nd(input, output, shape, axes, 1);
     }
@@ -218,6 +224,7 @@ where
     /// # Panics
     ///
     /// See [`inverse_multilevel_nd`](Self::inverse_multilevel_nd).
+    #[track_caller]
     pub fn inverse_nd(&self, input: &mut [T], output: &mut [T], shape: &[usize], axes: &[usize]) {
         self.inverse_multilevel_nd(input, output, shape, axes, 1);
     }
@@ -231,6 +238,7 @@ where
     /// # Panics
     ///
     /// See [`adj_forward_multilevel_nd`](Self::adj_forward_multilevel_nd).
+    #[track_caller]
     pub fn adj_forward_nd(
         &self,
         input: &mut [T],
@@ -246,6 +254,7 @@ where
     /// # Panics
     ///
     /// See [`adj_inverse_multilevel_nd`](Self::adj_inverse_multilevel_nd).
+    #[track_caller]
     pub fn adj_inverse_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
         self.adj_inverse_multilevel_nd(input, output, shape, axes, 1);
     }
@@ -260,6 +269,7 @@ where
     /// Panics if any element of `axes` is `>= in_shape.len()`, if `input.len()` does
     /// not equal `in_shape.iter().product()`, or if `output.len()` does not equal the
     /// product of `get_transform_shape(in_shape, axes, level, width, false)`.
+    #[track_caller]
     pub fn forward_multilevel_nd(
         &self,
         input: &[T],
@@ -301,6 +311,7 @@ where
     /// Panics if any element of `axes` is `>= out_shape.len()`, if `output.len()` does
     /// not equal `out_shape.iter().product()`, or if `input.len()` does not equal the
     /// product of `get_transform_shape(out_shape, axes, level, width, false)`.
+    #[track_caller]
     pub fn inverse_multilevel_nd(
         &self,
         input: &mut [T],
@@ -344,6 +355,7 @@ where
     /// # Panics
     ///
     /// Same conditions as [`inverse_multilevel_nd`](Self::inverse_multilevel_nd).
+    #[track_caller]
     pub fn adj_forward_multilevel_nd(
         &self,
         input: &mut [T],
@@ -379,6 +391,7 @@ where
     /// # Panics
     ///
     /// Same conditions as [`forward_multilevel_nd`](Self::forward_multilevel_nd).
+    #[track_caller]
     pub fn adj_inverse_multilevel_nd(
         &self,
         input: &[T],
@@ -424,6 +437,7 @@ where
     ///
     /// Panics if `output.shape()` does not match `get_transform_shape(input.shape(), axes,
     /// level, width, false)`, or if any element of `axes` is `>= input.ndim()`.
+    #[track_caller]
     pub fn forward_ndarray_multilevel<D: Dimension>(
         &self,
         input: &ArrayRef<T, D>,
@@ -467,6 +481,7 @@ where
     ///
     /// Panics if `input.shape()` does not match `get_transform_shape(output.shape(), axes,
     /// level, width, false)`, or if any element of `axes` is `>= output.ndim()`.
+    #[track_caller]
     pub fn inverse_ndarray_multilevel<D: Dimension>(
         &self,
         input: &mut ArrayRef<T, D>,
@@ -510,6 +525,7 @@ where
     /// # Panics
     ///
     /// Same conditions as [`inverse_ndarray_multilevel`](Self::inverse_ndarray_multilevel).
+    #[track_caller]
     pub fn adj_forward_ndarray_multilevel<D: Dimension>(
         &self,
         input: &mut ArrayRef<T, D>,
@@ -551,6 +567,7 @@ where
     /// # Panics
     ///
     /// Same conditions as [`forward_ndarray_multilevel`](Self::forward_ndarray_multilevel).
+    #[track_caller]
     pub fn adj_inverse_ndarray_multilevel<D: Dimension>(
         &self,
         input: &ArrayRef<T, D>,
@@ -593,8 +610,8 @@ where
 /// this variant requires even-length signals along each transformed axis.
 ///
 /// # Type parameters
-/// * `T` — element type (e.g. `f32`, `f64`, `Complex<f32>`).
-/// * `N` — SIMD lane width (use `1` to disable SIMD).
+/// * `T` - element type (e.g. `f32`, `f64`, `Complex<f32>`).
+/// * `N` - SIMD lane width (use `1` to disable SIMD).
 pub struct WaveletTransformPer<T, const N: usize>
 where
     T: ChunkWidth<T, N>,
@@ -656,6 +673,7 @@ where
     ///
     /// Panics if `s.len() + d.len() != input.len()`, or if `s.len()` and `d.len()` are
     /// not related by `s.len() == d.len()` or `s.len() == d.len() + 1`.
+    #[track_caller]
     pub fn forward_1d(&self, input: &[T], s: &mut [T], d: &mut [T]) {
         (self.dwt_forward)(input, s, d);
     }
@@ -666,6 +684,7 @@ where
     ///
     /// Panics if `s.len() + d.len() != output.len()`, or if `s.len()` and `d.len()` are
     /// not related by `s.len() == d.len()` or `s.len() == d.len() + 1`.
+    #[track_caller]
     pub fn inverse_1d(&self, s: &[T], d: &[T], output: &mut [T]) {
         (self.dwt_inverse)(s, d, output);
     }
@@ -676,6 +695,7 @@ where
     ///
     /// Panics if `s.len() + d.len() != output.len()`, or if `s.len()` and `d.len()` are
     /// not related by `s.len() == d.len()` or `s.len() == d.len() + 1`.
+    #[track_caller]
     pub fn adj_forward_1d(&self, s: &[T], d: &[T], output: &mut [T]) {
         (self.dwt_adj_forward)(s, d, output);
     }
@@ -686,6 +706,7 @@ where
     ///
     /// Panics if `s.len() + d.len() != input.len()`, or if `s.len()` and `d.len()` are
     /// not related by `s.len() == d.len()` or `s.len() == d.len() + 1`.
+    #[track_caller]
     pub fn adj_inverse_1d(&self, input: &[T], s: &mut [T], d: &mut [T]) {
         (self.dwt_adj_inverse)(input, s, d);
     }
@@ -695,6 +716,7 @@ where
     /// # Panics
     ///
     /// See [`forward_multilevel_nd`](Self::forward_multilevel_nd).
+    #[track_caller]
     pub fn forward_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
         self.forward_multilevel_nd(input, output, shape, axes, 1);
     }
@@ -704,6 +726,7 @@ where
     /// # Panics
     ///
     /// See [`inverse_multilevel_nd`](Self::inverse_multilevel_nd).
+    #[track_caller]
     pub fn inverse_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
         self.inverse_multilevel_nd(input, output, shape, axes, 1);
     }
@@ -713,6 +736,7 @@ where
     /// # Panics
     ///
     /// See [`adj_forward_multilevel_nd`](Self::adj_forward_multilevel_nd).
+    #[track_caller]
     pub fn adj_forward_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
         self.adj_forward_multilevel_nd(input, output, shape, axes, 1);
     }
@@ -722,6 +746,7 @@ where
     /// # Panics
     ///
     /// See [`adj_inverse_multilevel_nd`](Self::adj_inverse_multilevel_nd).
+    #[track_caller]
     pub fn adj_inverse_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
         self.adj_inverse_multilevel_nd(input, output, shape, axes, 1);
     }
@@ -732,6 +757,7 @@ where
     ///
     /// Panics if any element of `axes` is `>= shape.len()`, or if `input.len()` or
     /// `output.len()` does not equal `shape.iter().product()`.
+    #[track_caller]
     pub fn forward_multilevel_nd(
         &self,
         input: &[T],
@@ -742,6 +768,7 @@ where
     ) {
         assert_slice_matches_shape!("input", input, shape);
         assert_slice_matches_shape!("output", output, shape);
+        assert!(axes.iter().all(|i| *i < shape.len()));
         let level = if level == 0 {
             max_level_nd(self.width, shape, axes)
         } else {
@@ -762,6 +789,7 @@ where
     /// # Panics
     ///
     /// Same conditions as [`forward_multilevel_nd`](Self::forward_multilevel_nd).
+    #[track_caller]
     pub fn inverse_multilevel_nd(
         &self,
         input: &[T],
@@ -772,6 +800,7 @@ where
     ) {
         assert_slice_matches_shape!("input", input, shape);
         assert_slice_matches_shape!("output", output, shape);
+        assert!(axes.iter().all(|i| *i < shape.len()));
         let level = if level == 0 {
             max_level_nd(self.width, shape, axes)
         } else {
@@ -793,6 +822,7 @@ where
     /// # Panics
     ///
     /// Same conditions as [`forward_multilevel_nd`](Self::forward_multilevel_nd).
+    #[track_caller]
     pub fn adj_forward_multilevel_nd(
         &self,
         input: &[T],
@@ -803,6 +833,7 @@ where
     ) {
         assert_slice_matches_shape!("input", input, shape);
         assert_slice_matches_shape!("output", output, shape);
+        assert!(axes.iter().all(|i| *i < shape.len()));
 
         let level = if level == 0 {
             max_level_nd(self.width, shape, axes)
@@ -824,6 +855,7 @@ where
     /// # Panics
     ///
     /// Same conditions as [`forward_multilevel_nd`](Self::forward_multilevel_nd).
+    #[track_caller]
     pub fn adj_inverse_multilevel_nd(
         &self,
         input: &[T],
@@ -834,6 +866,7 @@ where
     ) {
         assert_slice_matches_shape!("input", input, shape);
         assert_slice_matches_shape!("output", output, shape);
+        assert!(axes.iter().all(|i| *i < shape.len()));
 
         let level = if level == 0 {
             max_level_nd(self.width, shape, axes)
@@ -862,6 +895,7 @@ where
     ///
     /// Panics if `input.shape() != output.shape()`, or if any element of `axes` is
     /// `>= input.ndim()`.
+    #[track_caller]
     pub fn forward_ndarray_multilevel<D: Dimension>(
         &self,
         input: &ArrayRef<T, D>,
@@ -875,6 +909,7 @@ where
             output.shape(),
             "input and output shapes must be the same."
         );
+        assert!(axes.iter().all(|i| *i < shape.len()));
 
         let level = if level == 0 {
             max_level_nd(self.width, shape, axes)
@@ -897,6 +932,7 @@ where
     /// # Panics
     ///
     /// Same conditions as [`forward_ndarray_multilevel`](Self::forward_ndarray_multilevel).
+    #[track_caller]
     pub fn inverse_ndarray_multilevel<D: Dimension>(
         &self,
         input: &ArrayRef<T, D>,
@@ -910,6 +946,7 @@ where
             output.shape(),
             "input and output shapes must be the same."
         );
+        assert!(axes.iter().all(|i| *i < shape.len()));
 
         let level = if level == 0 {
             max_level_nd(self.width, shape, axes)
@@ -932,6 +969,7 @@ where
     /// # Panics
     ///
     /// Same conditions as [`forward_ndarray_multilevel`](Self::forward_ndarray_multilevel).
+    #[track_caller]
     pub fn adj_forward_ndarray_multilevel<D: Dimension>(
         &self,
         input: &ArrayRef<T, D>,
@@ -945,6 +983,7 @@ where
             output.shape(),
             "input and output shapes must be the same."
         );
+        assert!(axes.iter().all(|i| *i < shape.len()));
 
         let level = if level == 0 {
             max_level_nd(self.width, shape, axes)
@@ -967,6 +1006,7 @@ where
     /// # Panics
     ///
     /// Same conditions as [`forward_ndarray_multilevel`](Self::forward_ndarray_multilevel).
+    #[track_caller]
     pub fn adj_inverse_ndarray_multilevel<D: Dimension>(
         &self,
         input: &ArrayRef<T, D>,
@@ -980,6 +1020,7 @@ where
             output.shape(),
             "input and output shapes must be the same."
         );
+        assert!(axes.iter().all(|i| *i < shape.len()));
 
         let level = if level == 0 {
             max_level_nd(self.width, shape, axes)
@@ -1019,12 +1060,12 @@ fn general_nd_forward_multilevel<F, T, L, const N: usize>(
     let TransformParams { axes, level, width } = params;
     let ndim = in_shape.len();
     let axes = HashSet::<_>::from_iter(axes.iter().cloned());
-    assert_eq!(
+    debug_assert_eq!(
         in_shape.len(),
         out_shape.len(),
         "input and output shapes must have the same number of dimensions"
     );
-    assert!(axes.iter().all(|i| *i < ndim));
+    debug_assert!(axes.iter().all(|i| *i < ndim));
     // note that axes is a HashSet, so they are gauranteed to be different axes.
 
     let mut first = true;
@@ -1149,12 +1190,12 @@ fn general_nd_inverse_multilevel<F, T, L, const N: usize>(
     let TransformParams { axes, level, width } = params;
     let ndim = in_shape.len();
     let axes = HashSet::<_>::from_iter(axes.iter().cloned());
-    assert_eq!(
+    debug_assert_eq!(
         in_shape.len(),
         out_shape.len(),
         "input and output shapes must have the same number of dimensions"
     );
-    assert!(axes.iter().all(|i| *i < ndim));
+    debug_assert!(axes.iter().all(|i| *i < ndim));
     // note that axes is a HashSet, so they are gauranteed to be different axes.
 
     // make some lists to keep track of the shapes at each level, as we need to iterate in reverse order later.
@@ -1267,7 +1308,7 @@ fn general_nd_per_forward_multilevel<F, T, L, const N: usize>(
 {
     let ndim = shape.len();
     let axes = HashSet::<_>::from_iter(axes.iter().cloned());
-    assert!(axes.iter().all(|i| *i < ndim));
+    debug_assert!(axes.iter().all(|i| *i < ndim));
     // note that axes is a HashSet, so they are gauranteed to be different axes.
 
     let mut first = true;
@@ -1392,7 +1433,7 @@ fn general_nd_per_inverse_multilevel<F, T, L, const N: usize>(
 {
     let ndim = shape.len();
     let axes = HashSet::<_>::from_iter(axes.iter().cloned());
-    assert!(axes.iter().all(|i| *i < ndim));
+    debug_assert!(axes.iter().all(|i| *i < ndim));
     // note that axes is a HashSet, so they are gauranteed to be different axes.
 
     // If the input shape and the output shape are the same, then we are in per mode
@@ -1519,6 +1560,7 @@ pub mod parallel {
         /// # Panics
         ///
         /// See [`par_forward_multilevel_nd`](WaveletTransform::par_forward_multilevel_nd).
+        #[track_caller]
         pub fn par_forward_nd(
             &self,
             input: &[T],
@@ -1534,6 +1576,7 @@ pub mod parallel {
         /// # Panics
         ///
         /// See [`par_inverse_multilevel_nd`](WaveletTransform::par_inverse_multilevel_nd).
+        #[track_caller]
         pub fn par_inverse_nd(
             &self,
             input: &mut [T],
@@ -1552,6 +1595,7 @@ pub mod parallel {
         /// # Panics
         ///
         /// See [`par_adj_forward_multilevel_nd`](WaveletTransform::par_adj_forward_multilevel_nd).
+        #[track_caller]
         pub fn par_adj_forward_nd(
             &self,
             input: &mut [T],
@@ -1567,6 +1611,7 @@ pub mod parallel {
         /// # Panics
         ///
         /// See [`par_adj_inverse_multilevel_nd`](WaveletTransform::par_adj_inverse_multilevel_nd).
+        #[track_caller]
         pub fn par_adj_inverse_nd(
             &self,
             input: &[T],
@@ -1584,6 +1629,7 @@ pub mod parallel {
         /// Panics if any element of `axes` is `>= in_shape.len()`, if `input.len()` does
         /// not equal `in_shape.iter().product()`, or if `output.len()` does not equal the
         /// product of `get_transform_shape(in_shape, axes, level, width, false)`.
+        #[track_caller]
         pub fn par_forward_multilevel_nd(
             &self,
             input: &[T],
@@ -1592,6 +1638,7 @@ pub mod parallel {
             axes: &[usize],
             level: usize,
         ) {
+            assert!(axes.iter().all(|i| *i < in_shape.len()));
             let level = if level == 0 {
                 max_level_nd(self.width, in_shape, axes)
             } else {
@@ -1627,6 +1674,7 @@ pub mod parallel {
         /// Panics if any element of `axes` is `>= out_shape.len()`, if `output.len()` does
         /// not equal `out_shape.iter().product()`, or if `input.len()` does not equal the
         /// product of `get_transform_shape(out_shape, axes, level, width, false)`.
+        #[track_caller]
         pub fn par_inverse_multilevel_nd(
             &self,
             input: &mut [T],
@@ -1635,6 +1683,7 @@ pub mod parallel {
             axes: &[usize],
             level: usize,
         ) {
+            assert!(axes.iter().all(|i| *i < out_shape.len()));
             let level = if level == 0 {
                 max_level_nd(self.width, out_shape, axes)
             } else {
@@ -1668,6 +1717,7 @@ pub mod parallel {
         /// # Panics
         ///
         /// Same conditions as [`par_inverse_multilevel_nd`](WaveletTransform::par_inverse_multilevel_nd).
+        #[track_caller]
         pub fn par_adj_forward_multilevel_nd(
             &self,
             input: &mut [T],
@@ -1676,6 +1726,7 @@ pub mod parallel {
             axes: &[usize],
             level: usize,
         ) {
+            assert!(axes.iter().all(|i| *i < out_shape.len()));
             let level = if level == 0 {
                 max_level_nd(self.width, out_shape, axes)
             } else {
@@ -1703,6 +1754,7 @@ pub mod parallel {
         /// # Panics
         ///
         /// Same conditions as [`par_forward_multilevel_nd`](WaveletTransform::par_forward_multilevel_nd).
+        #[track_caller]
         pub fn par_adj_inverse_multilevel_nd(
             &self,
             input: &[T],
@@ -1711,6 +1763,7 @@ pub mod parallel {
             axes: &[usize],
             level: usize,
         ) {
+            assert!(axes.iter().all(|i| *i < in_shape.len()));
             let level = if level == 0 {
                 max_level_nd(self.width, in_shape, axes)
             } else {
@@ -1746,6 +1799,7 @@ pub mod parallel {
         ///
         /// Panics if `output.shape()` does not match `get_transform_shape(input.shape(), axes,
         /// level, width, false)`, or if any element of `axes` is `>= input.ndim()`.
+        #[track_caller]
         pub fn par_forward_ndarray_multilevel<D: Dimension>(
             &self,
             input: &ArrayRef<T, D>,
@@ -1754,6 +1808,7 @@ pub mod parallel {
             level: usize,
         ) {
             let in_shape = input.shape();
+            assert!(axes.iter().all(|i| *i < in_shape.len()));
             let level = if level == 0 {
                 max_level_nd(self.width, in_shape, axes)
             } else {
@@ -1789,6 +1844,7 @@ pub mod parallel {
         ///
         /// Panics if `input.shape()` does not match `get_transform_shape(output.shape(), axes,
         /// level, width, false)`, or if any element of `axes` is `>= output.ndim()`.
+        #[track_caller]
         pub fn par_inverse_ndarray_multilevel<D: Dimension>(
             &self,
             input: &mut ArrayRef<T, D>,
@@ -1797,6 +1853,7 @@ pub mod parallel {
             level: usize,
         ) {
             let out_shape = output.shape().to_owned();
+            assert!(axes.iter().all(|i| *i < out_shape.len()));
             let level = if level == 0 {
                 max_level_nd(self.width, &out_shape, axes)
             } else {
@@ -1831,6 +1888,7 @@ pub mod parallel {
         /// # Panics
         ///
         /// Same conditions as [`par_inverse_ndarray_multilevel`](WaveletTransform::par_inverse_ndarray_multilevel).
+        #[track_caller]
         pub fn par_adj_forward_ndarray_multilevel<D: Dimension>(
             &self,
             input: &mut ArrayRef<T, D>,
@@ -1839,6 +1897,7 @@ pub mod parallel {
             level: usize,
         ) {
             let out_shape = output.shape().to_owned();
+            assert!(axes.iter().all(|i| *i < out_shape.len()));
             let level = if level == 0 {
                 max_level_nd(self.width, &out_shape, axes)
             } else {
@@ -1870,6 +1929,7 @@ pub mod parallel {
         /// # Panics
         ///
         /// Same conditions as [`par_forward_ndarray_multilevel`](WaveletTransform::par_forward_ndarray_multilevel).
+        #[track_caller]
         pub fn par_adj_inverse_ndarray_multilevel<D: Dimension>(
             &self,
             input: &ArrayRef<T, D>,
@@ -1878,6 +1938,7 @@ pub mod parallel {
             level: usize,
         ) {
             let in_shape = input.shape();
+            assert!(axes.iter().all(|i| *i < in_shape.len()));
             let level = if level == 0 {
                 max_level_nd(self.width, in_shape, axes)
             } else {
@@ -1914,6 +1975,7 @@ pub mod parallel {
         /// # Panics
         ///
         /// See [`par_forward_multilevel_nd`](WaveletTransformPer::par_forward_multilevel_nd).
+        #[track_caller]
         pub fn par_forward_nd(
             &self,
             input: &[T],
@@ -1929,6 +1991,7 @@ pub mod parallel {
         /// # Panics
         ///
         /// See [`par_inverse_multilevel_nd`](WaveletTransformPer::par_inverse_multilevel_nd).
+        #[track_caller]
         pub fn par_inverse_nd(
             &self,
             input: &[T],
@@ -1944,6 +2007,7 @@ pub mod parallel {
         /// # Panics
         ///
         /// See [`par_adj_forward_multilevel_nd`](WaveletTransformPer::par_adj_forward_multilevel_nd).
+        #[track_caller]
         pub fn par_adj_forward_nd(
             &self,
             input: &[T],
@@ -1959,6 +2023,7 @@ pub mod parallel {
         /// # Panics
         ///
         /// See [`par_adj_inverse_multilevel_nd`](WaveletTransformPer::par_adj_inverse_multilevel_nd).
+        #[track_caller]
         pub fn par_adj_inverse_nd(
             &self,
             input: &[T],
@@ -1975,6 +2040,7 @@ pub mod parallel {
         ///
         /// Panics if any element of `axes` is `>= shape.len()`, or if `input.len()` or
         /// `output.len()` does not equal `shape.iter().product()`.
+        #[track_caller]
         pub fn par_forward_multilevel_nd(
             &self,
             input: &[T],
@@ -1985,6 +2051,7 @@ pub mod parallel {
         ) {
             assert_slice_matches_shape!("input", input, shape);
             assert_slice_matches_shape!("output", output, shape);
+            assert!(axes.iter().all(|i| *i < shape.len()));
             let level = if level == 0 {
                 max_level_nd(self.width, shape, axes)
             } else {
@@ -2005,6 +2072,7 @@ pub mod parallel {
         /// # Panics
         ///
         /// Same conditions as [`par_forward_multilevel_nd`](WaveletTransformPer::par_forward_multilevel_nd).
+        #[track_caller]
         pub fn par_inverse_multilevel_nd(
             &self,
             input: &[T],
@@ -2015,6 +2083,7 @@ pub mod parallel {
         ) {
             assert_slice_matches_shape!("input", input, shape);
             assert_slice_matches_shape!("output", output, shape);
+            assert!(axes.iter().all(|i| *i < shape.len()));
             let level = if level == 0 {
                 max_level_nd(self.width, shape, axes)
             } else {
@@ -2036,6 +2105,7 @@ pub mod parallel {
         /// # Panics
         ///
         /// Same conditions as [`par_forward_multilevel_nd`](WaveletTransformPer::par_forward_multilevel_nd).
+        #[track_caller]
         pub fn par_adj_forward_multilevel_nd(
             &self,
             input: &[T],
@@ -2046,6 +2116,7 @@ pub mod parallel {
         ) {
             assert_slice_matches_shape!("input", input, shape);
             assert_slice_matches_shape!("output", output, shape);
+            assert!(axes.iter().all(|i| *i < shape.len()));
             let level = if level == 0 {
                 max_level_nd(self.width, shape, axes)
             } else {
@@ -2066,6 +2137,7 @@ pub mod parallel {
         /// # Panics
         ///
         /// Same conditions as [`par_forward_multilevel_nd`](WaveletTransformPer::par_forward_multilevel_nd).
+        #[track_caller]
         pub fn par_adj_inverse_multilevel_nd(
             &self,
             input: &[T],
@@ -2076,6 +2148,7 @@ pub mod parallel {
         ) {
             assert_slice_matches_shape!("input", input, shape);
             assert_slice_matches_shape!("output", output, shape);
+            assert!(axes.iter().all(|i| *i < shape.len()));
             let level = if level == 0 {
                 max_level_nd(self.width, shape, axes)
             } else {
@@ -2103,6 +2176,7 @@ pub mod parallel {
         ///
         /// Panics if `input.shape() != output.shape()`, or if any element of `axes` is
         /// `>= input.ndim()`.
+        #[track_caller]
         pub fn par_forward_ndarray_multilevel<D: Dimension>(
             &self,
             input: &ArrayRef<T, D>,
@@ -2116,6 +2190,7 @@ pub mod parallel {
                 output.shape(),
                 "input and output shapes must be the same."
             );
+            assert!(axes.iter().all(|i| *i < shape.len()));
 
             general_nd_per_forward_multilevel(
                 |x, s, d| (self.dwt_forward)(x, s, d),
@@ -2132,6 +2207,7 @@ pub mod parallel {
         /// # Panics
         ///
         /// Same conditions as [`par_forward_ndarray_multilevel`](WaveletTransformPer::par_forward_ndarray_multilevel).
+        #[track_caller]
         pub fn par_inverse_ndarray_multilevel<D: Dimension>(
             &self,
             input: &ArrayRef<T, D>,
@@ -2145,6 +2221,7 @@ pub mod parallel {
                 output.shape(),
                 "input and output shapes must be the same."
             );
+            assert!(axes.iter().all(|i| *i < shape.len()));
 
             general_nd_per_inverse_multilevel(
                 |s, d, x| (self.dwt_inverse)(s, d, x),
@@ -2161,6 +2238,7 @@ pub mod parallel {
         /// # Panics
         ///
         /// Same conditions as [`par_forward_ndarray_multilevel`](WaveletTransformPer::par_forward_ndarray_multilevel).
+        #[track_caller]
         pub fn par_adj_forward_ndarray_multilevel<D: Dimension>(
             &self,
             input: &ArrayRef<T, D>,
@@ -2174,6 +2252,7 @@ pub mod parallel {
                 output.shape(),
                 "input and output shapes must be the same."
             );
+            assert!(axes.iter().all(|i| *i < shape.len()));
 
             general_nd_per_inverse_multilevel(
                 |s, d, x| (self.dwt_adj_forward)(s, d, x),
@@ -2190,6 +2269,7 @@ pub mod parallel {
         /// # Panics
         ///
         /// Same conditions as [`par_forward_ndarray_multilevel`](WaveletTransformPer::par_forward_ndarray_multilevel).
+        #[track_caller]
         pub fn par_adj_inverse_ndarray_multilevel<D: Dimension>(
             &self,
             input: &ArrayRef<T, D>,
@@ -2203,6 +2283,7 @@ pub mod parallel {
                 output.shape(),
                 "input and output shapes must be the same."
             );
+            assert!(axes.iter().all(|i| *i < shape.len()));
 
             general_nd_per_forward_multilevel(
                 |x, s, d| (self.dwt_adj_inverse)(x, s, d),
@@ -2229,12 +2310,12 @@ pub mod parallel {
     {
         let TransformParams { axes, level, width } = params;
         let ndim = in_shape.len();
-        assert_eq!(
+        debug_assert_eq!(
             in_shape.len(),
             out_shape.len(),
             "input and output shapes must have the same number of dimensions"
         );
-        assert!(axes.iter().all(|i| *i < ndim));
+        debug_assert!(axes.iter().all(|i| *i < ndim));
         let axes = HashSet::<_>::from_iter(axes.iter().cloned());
         // note that axes is a HashSet, so they are gauranteed to be different axes.
 
@@ -2373,13 +2454,13 @@ pub mod parallel {
     {
         let TransformParams { axes, level, width } = params;
         let ndim = in_shape.len();
-        assert_eq!(
+        debug_assert_eq!(
             in_shape.len(),
             out_shape.len(),
             "input and output shapes must have the same number of dimensions"
         );
         let axes = HashSet::<_>::from_iter(axes.iter().cloned());
-        assert!(axes.iter().all(|i| *i < ndim));
+        debug_assert!(axes.iter().all(|i| *i < ndim));
         // note that axes is a HashSet, so they are gauranteed to be different axes.
 
         // make some lists to keep track of the shapes at each level, as we need to iterate in reverse order later.
@@ -2502,7 +2583,7 @@ pub mod parallel {
     {
         let ndim = shape.len();
         let axes = HashSet::<_>::from_iter(axes.iter().cloned());
-        assert!(axes.iter().all(|i| *i < ndim));
+        debug_assert!(axes.iter().all(|i| *i < ndim));
         // note that axes is a HashSet, so they are gauranteed to be different axes.
 
         let mut first = true;
@@ -2642,7 +2723,7 @@ pub mod parallel {
     {
         let ndim = shape.len();
         let axes = HashSet::<_>::from_iter(axes.iter().cloned());
-        assert!(axes.iter().all(|i| *i < ndim));
+        debug_assert!(axes.iter().all(|i| *i < ndim));
         // note that axes is a HashSet, so they are gauranteed to be different axes.
 
         // If the input shape and the output shape are the same, then we are in per mode

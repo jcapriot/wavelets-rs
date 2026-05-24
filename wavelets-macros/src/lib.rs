@@ -1464,6 +1464,7 @@ fn generate_forward_chunk_op(steps: &[LiftingStep<LitFloat>]) -> TokenStream {
     }
 
     quote! {
+        #[track_caller]
         fn forward_chunk<T, BC>(s: &mut [T], d: &mut [T], chunk_size: usize, bc: &BC)
         where
             T: crate::Transformable,
@@ -1485,6 +1486,7 @@ fn generate_forward_op(steps: &[LiftingStep<LitFloat>]) -> TokenStream {
     }
 
     quote! {
+        #[track_caller]
         fn forward<T, BC>(s: &mut [T], d: &mut [T], bc: &BC)
         where
             T: crate::simd::SimdTransformable,
@@ -1528,6 +1530,7 @@ fn generate_inverse_op(steps: &[LiftingStep<LitFloat>]) -> TokenStream {
     }
 
     quote! {
+        #[track_caller]
         fn inverse<T, BC>(s: &mut [T], d: &mut [T], bc: &BC)
         where
             T: crate::simd::SimdTransformable,
@@ -1571,6 +1574,7 @@ fn generate_adjoint_inverse_op(steps: &[LiftingStep<LitFloat>]) -> TokenStream {
     }
 
     quote! {
+        #[track_caller]
         fn adjoint_inverse<T, BC>(s: &mut [T], d: &mut [T], bc: &BC)
         where
             T: crate::simd::SimdTransformable,
@@ -1614,6 +1618,7 @@ fn generate_adjoint_forward_op(steps: &[LiftingStep<LitFloat>]) -> TokenStream {
     }
 
     quote! {
+        #[track_caller]
         fn adjoint_forward<T, BC>(s: &mut [T], d: &mut [T], bc: &BC)
         where
             T: crate::simd::SimdTransformable,

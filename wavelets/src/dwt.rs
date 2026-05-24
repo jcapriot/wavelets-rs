@@ -199,6 +199,7 @@ const fn get_offset(n: usize) -> usize {
 ///
 /// Panics if `s.len() != d.len()` or if either length is inconsistent with
 /// `get_outlen(N, x.len())`.
+#[track_caller]
 pub fn dwt_forward<T: Transformable + Zero, const N: usize, BC: BoundaryExtension>(
     g: &[f64; N],
     h: &[f64; N],
@@ -305,6 +306,7 @@ pub fn dwt_forward<T: Transformable + Zero, const N: usize, BC: BoundaryExtensio
 /// # Panics
 ///
 /// Panics if `s.len() != d.len()` or if the lengths are inconsistent with `x.len()`.
+#[track_caller]
 pub fn dwt_inverse<T: Transformable + Zero, const N: usize, const NH: usize>(
     gi: &[f64; N],
     hi: &[f64; N],
@@ -392,6 +394,7 @@ pub fn dwt_inverse<T: Transformable + Zero, const N: usize, const NH: usize>(
 ///
 /// Panics if `s.len() != d.len()` or if either length is inconsistent with
 /// `get_outlen(N, x.len())`.
+#[track_caller]
 pub fn dwt_adjoint_forward<T: Transformable + Zero, const N: usize, BC: BoundaryExtension>(
     g: &[f64; N],
     h: &[f64; N],
@@ -489,6 +492,7 @@ pub fn dwt_adjoint_forward<T: Transformable + Zero, const N: usize, BC: Boundary
 ///
 /// Panics if `s.len() + d.len() != x.len()` or if the relative lengths of `s` and
 /// `d` are inconsistent (they must satisfy `s.len() == d.len()` or `s.len() == d.len() + 1`).
+#[track_caller]
 pub fn dwt_per_forward<T: Transformable + Zero, const N: usize>(
     g: &[f64; N],
     h: &[f64; N],
@@ -614,6 +618,7 @@ pub fn dwt_per_forward<T: Transformable + Zero, const N: usize>(
 ///
 /// Panics if `s.len() + d.len() != x.len()` or if the relative lengths of `s` and
 /// `d` are inconsistent (they must satisfy `s.len() == d.len()` or `s.len() == d.len() + 1`).
+#[track_caller]
 pub fn dwt_per_inverse<T: Transformable + Zero, const N: usize, const NH: usize>(
     gi: &[f64; N],
     hi: &[f64; N],

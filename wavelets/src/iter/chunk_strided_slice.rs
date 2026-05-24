@@ -46,6 +46,7 @@ impl<'a, T, const N: usize> ChunkStridedSlice<'a, T, N> {
     ///
     /// Panics if `slice` is empty, `shape.iter().product() != slice.len()`, `ax >= shape.len()`,
     /// or `ind + N > shape.iter().product::<usize>() / shape[ax]` (insufficient lanes remaining).
+    #[track_caller]
     pub fn from_slice(slice: &'a [T], shape: &[usize], ax: usize, ind: usize) -> Self {
         assert_ne!(slice.len(), 0);
         assert_eq!(shape.iter().product::<usize>(), slice.len());
@@ -89,6 +90,7 @@ impl<'a, T, const N: usize> ChunkStridedSliceMut<'a, T, N> {
     ///
     /// Panics if `slice` is empty, `shape.iter().product() != slice.len()`, `ax >= shape.len()`,
     /// or `ind + N > shape.iter().product::<usize>() / shape[ax]` (insufficient lanes remaining).
+    #[track_caller]
     pub fn from_mut_slice(slice: &'a mut [T], shape: &[usize], ax: usize, ind: usize) -> Self {
         assert_ne!(slice.len(), 0);
         assert_eq!(shape.iter().cloned().product::<usize>(), slice.len());

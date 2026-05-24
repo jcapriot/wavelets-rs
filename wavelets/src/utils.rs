@@ -28,6 +28,7 @@ pub fn stride_from_shape(shape: &[usize]) -> Vec<usize> {
 ///
 /// Panics if `odds.len() != x.len() / 2` or `evens.len() != (x.len() + 1) / 2`.
 #[inline]
+#[track_caller]
 pub fn deinterleave<T: Clone>(x: &[T], evens: &mut [T], odds: &mut [T]) {
     let nx = x.len();
     let n_e = evens.len();
@@ -69,6 +70,7 @@ pub fn deinterleave<T: Clone>(x: &[T], evens: &mut [T], odds: &mut [T]) {
 ///
 /// Panics if `input.len()` or `output.len()` is not equal to `shape[0] * shape[1]`.
 #[inline]
+#[track_caller]
 pub fn deinterleave_2d<T: Clone>(input: &[T], output: &mut [T], shape: &[usize; 2]) {
     let n_total: usize = shape.iter().product();
     assert_eq!(input.len(), n_total);
@@ -110,6 +112,7 @@ pub fn deinterleave_2d<T: Clone>(input: &[T], output: &mut [T], shape: &[usize; 
 /// Panics if `input.len()` is not equal to `shape.iter().product()` (for N ≥ 3),
 /// or with the same constraints as [`deinterleave`] for 1-D or [`deinterleave_2d`] for 2-D.
 #[inline]
+#[track_caller]
 pub fn deinterleave_nd<T: Clone>(input: &[T], output: &mut [T], shape: &[usize]) {
     match shape.len() {
         0 => {}
@@ -182,6 +185,7 @@ fn deinterleave_nd_unchecked<T: Clone>(input: &[T], output: &mut [T], shape: &[u
 ///
 /// Panics if `odds.len() != x.len() / 2` or `evens.len() != (x.len() + 1) / 2`.
 #[inline]
+#[track_caller]
 pub fn interleave<T: Clone>(evens: &[T], odds: &[T], x: &mut [T]) {
     let nx = x.len();
     let n_e = evens.len();
