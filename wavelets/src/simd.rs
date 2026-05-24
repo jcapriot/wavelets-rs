@@ -111,7 +111,11 @@ pub trait Simd: pulp::Simd {
         cast(self.div_f64s(cast(a), b))
     }
 
-    /// Vectorize the wvlt function.
+    /// Dispatch `op` through this SIMD backend's vectorization path.
+    ///
+    /// Equivalent to [`pulp::Simd::vectorize`] but uses the local [`WithSimd`] callback
+    /// type so that implementations of this crate's extended [`Simd`] trait can be
+    /// called correctly.
     fn vectorize_wvlt<Op: WithSimd>(self, op: Op) -> Op::Output;
 }
 
@@ -179,9 +183,13 @@ impl Simd for pulp::Scalar {
     }
 }
 
-/// A trait to for simd dispatch using this crate's extended [`WithSimd`]
+/// Runtime CPU-feature dispatch for this crate's extended [`WithSimd`] callbacks.
+///
+/// Selects the highest available SIMD tier (e.g. AVX-512 → AVX2/FMA → scalar fallback)
+/// and calls `Op::with_simd` with the matching backend.  Implemented for each
+/// platform's `pulp::Arch` type.
 pub trait Dispatch {
-    /// Dispatch the callable simd function.
+    /// Detect the best available SIMD tier at runtime and invoke `op` with it.
     fn dispatch_wvlt<Op: WithSimd>(self, op: Op) -> Op::Output;
 }
 

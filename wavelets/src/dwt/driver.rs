@@ -38,6 +38,10 @@ macro_rules! assert_slice_matches_shape {
 /// detail lengths.
 ///
 /// When `per_mode` is `true` (periodic DWT) the output shape equals the input shape.
+///
+/// # Panics
+///
+/// Panics if any element of `axes` is `>= in_shape.len()`.
 pub fn get_transform_shape<'a, IT: IntoIterator<Item = &'a usize>>(
     in_shape: &[usize],
     axes: IT,
@@ -106,7 +110,12 @@ where
     T: Transformable + Zero + ChunkWidth<T, N>,
     BC: BoundaryExtension,
 {
-    /// Construct a `WaveletTransform` for the given `wvlt` and `bc`.
+    /// Construct a `WaveletTransform` for the given wavelet family `wvlt` and boundary
+    /// condition `bc`.
+    ///
+    /// Function pointers to the correct DWT implementations are resolved at construction
+    /// time so that every subsequent transform call is a direct (non-virtual) dispatch
+    /// with no runtime branching on the wavelet type.
     pub fn new(wvlt: Wavelets, bc: BC) -> Self {
         use crate::dwt::bior::*;
         use crate::dwt::coiflet::*;
@@ -147,6 +156,11 @@ where
     /// Single-level forward DWT of a 1-D signal.
     ///
     /// `s` and `d` must each have length `get_outlen(width, input.len())`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `s.len() != d.len()` or if either length differs from
+    /// `get_outlen(width, input.len())`.
     pub fn forward_1d(&self, input: &[T], s: &mut [T], d: &mut [T]) {
         (self.dwt_forward)(input, s, d, &self.bc);
     }
@@ -154,6 +168,11 @@ where
     /// Single-level inverse DWT of a 1-D signal.
     ///
     /// Reconstructs the signal from approximation `s` and detail `d`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `s.len() != d.len()` or if either length differs from
+    /// `get_outlen(width, output.len())`.
     pub fn inverse_1d(&self, s: &[T], d: &[T], output: &mut [T]) {
         (self.dwt_inverse)(s, d, output);
     }
@@ -163,11 +182,21 @@ where
     /// Takes approximation `s` and detail `d` sub-bands and reconstructs a signal of
     /// the same length as the original input to the forward transform.  Has the same
     /// shape semantics as [`inverse_1d`](Self::inverse_1d).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `s.len() != d.len()` or if either length differs from
+    /// `get_outlen(width, output.len())`.
     pub fn adj_forward_1d(&self, s: &[T], d: &[T], output: &mut [T]) {
         (self.dwt_adj_forward)(s, d, output, &self.bc);
     }
 
     /// Adjoint of the inverse 1-D DWT.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `s.len() != d.len()` or if either length differs from
+    /// `get_outlen(width, input.len())`.
     pub fn adj_inverse_1d(&self, input: &[T], s: &mut [T], d: &mut [T]) {
         (self.dwt_adj_inverse)(input, s, d);
     }
@@ -176,11 +205,19 @@ where
     ///
     /// `input` must be a flat slice whose logical shape is `shape`.  `output` must
     /// have the shape returned by `get_transform_shape(shape, axes, 1, width, false)`.
+    ///
+    /// # Panics
+    ///
+    /// See [`forward_multilevel_nd`](Self::forward_multilevel_nd).
     pub fn forward_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
         self.forward_multilevel_nd(input, output, shape, axes, 1);
     }
 
     /// Single-level inverse DWT on an N-D array.
+    ///
+    /// # Panics
+    ///
+    /// See [`inverse_multilevel_nd`](Self::inverse_multilevel_nd).
     pub fn inverse_nd(&self, input: &mut [T], output: &mut [T], shape: &[usize], axes: &[usize]) {
         self.inverse_multilevel_nd(input, output, shape, axes, 1);
     }
@@ -190,6 +227,10 @@ where
     /// `shape` is the original signal shape; `input` must have the transform-expanded shape
     /// `get_transform_shape(shape, axes, 1, width, false)`.
     /// `input` is `&mut` for the same reason as [`adj_forward_multilevel_nd`](Self::adj_forward_multilevel_nd).
+    ///
+    /// # Panics
+    ///
+    /// See [`adj_forward_multilevel_nd`](Self::adj_forward_multilevel_nd).
     pub fn adj_forward_nd(
         &self,
         input: &mut [T],
@@ -201,6 +242,10 @@ where
     }
 
     /// Single-level adjoint of the inverse DWT on an N-D array.
+    ///
+    /// # Panics
+    ///
+    /// See [`adj_inverse_multilevel_nd`](Self::adj_inverse_multilevel_nd).
     pub fn adj_inverse_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
         self.adj_inverse_multilevel_nd(input, output, shape, axes, 1);
     }
@@ -209,6 +254,12 @@ where
     ///
     /// Applies `level` successive single-level forward transforms along each axis in
     /// `axes`, recursively decomposing the approximation sub-band.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any element of `axes` is `>= in_shape.len()`, if `input.len()` does
+    /// not equal `in_shape.iter().product()`, or if `output.len()` does not equal the
+    /// product of `get_transform_shape(in_shape, axes, level, width, false)`.
     pub fn forward_multilevel_nd(
         &self,
         input: &[T],
@@ -244,6 +295,12 @@ where
     /// `out_shape` is the shape of the *original* signal (before decomposition).
     /// The input must have the shape produced by `forward_multilevel_nd` with the
     /// same `level` and `axes`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any element of `axes` is `>= out_shape.len()`, if `output.len()` does
+    /// not equal `out_shape.iter().product()`, or if `input.len()` does not equal the
+    /// product of `get_transform_shape(out_shape, axes, level, width, false)`.
     pub fn inverse_multilevel_nd(
         &self,
         input: &mut [T],
@@ -283,6 +340,10 @@ where
     ///
     /// `input` is taken as `&mut` because the internal multilevel algorithm writes
     /// intermediate results back into the buffer during reconstruction.
+    ///
+    /// # Panics
+    ///
+    /// Same conditions as [`inverse_multilevel_nd`](Self::inverse_multilevel_nd).
     pub fn adj_forward_multilevel_nd(
         &self,
         input: &mut [T],
@@ -314,6 +375,10 @@ where
     }
 
     /// Multi-level adjoint of the inverse DWT on an N-D array.
+    ///
+    /// # Panics
+    ///
+    /// Same conditions as [`forward_multilevel_nd`](Self::forward_multilevel_nd).
     pub fn adj_inverse_multilevel_nd(
         &self,
         input: &[T],
@@ -354,6 +419,11 @@ where
     /// Forward DWT applied to an ndarray (multi-level).
     ///
     /// `output` must have the transform-expanded shape returned by [`get_transform_shape`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if `output.shape()` does not match `get_transform_shape(input.shape(), axes,
+    /// level, width, false)`, or if any element of `axes` is `>= input.ndim()`.
     pub fn forward_ndarray_multilevel<D: Dimension>(
         &self,
         input: &ArrayRef<T, D>,
@@ -392,6 +462,11 @@ where
     ///
     /// `input` must have the transform-expanded shape; `output` has the original signal shape.
     /// `input` is `&mut` because the multilevel algorithm writes intermediate results back.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `input.shape()` does not match `get_transform_shape(output.shape(), axes,
+    /// level, width, false)`, or if any element of `axes` is `>= output.ndim()`.
     pub fn inverse_ndarray_multilevel<D: Dimension>(
         &self,
         input: &mut ArrayRef<T, D>,
@@ -431,6 +506,10 @@ where
     /// `input` must have the transform-expanded shape; `output` must have the original
     /// signal shape.  `input` is taken as `&mut` because the internal multilevel
     /// algorithm writes intermediate results back into the buffer.
+    ///
+    /// # Panics
+    ///
+    /// Same conditions as [`inverse_ndarray_multilevel`](Self::inverse_ndarray_multilevel).
     pub fn adj_forward_ndarray_multilevel<D: Dimension>(
         &self,
         input: &mut ArrayRef<T, D>,
@@ -468,6 +547,10 @@ where
     /// Adjoint of the inverse DWT applied to an ndarray (multi-level).
     ///
     /// `output` must have the transform-expanded shape returned by [`get_transform_shape`].
+    ///
+    /// # Panics
+    ///
+    /// Same conditions as [`forward_ndarray_multilevel`](Self::forward_ndarray_multilevel).
     pub fn adj_inverse_ndarray_multilevel<D: Dimension>(
         &self,
         input: &ArrayRef<T, D>,
@@ -527,7 +610,11 @@ impl<T, const N: usize> WaveletTransformPer<T, N>
 where
     T: Transformable + Zero + ChunkWidth<T, N>,
 {
-    /// Construct a new periodic DWT driver for the given wavelet family.
+    /// Construct a `WaveletTransformPer` for the given wavelet family `wvlt`.
+    ///
+    /// Function pointers are resolved at construction time; see [`WaveletTransform::new`]
+    /// for details.  No boundary condition is stored because the periodic transform
+    /// always wraps circularly.
     pub fn new(wvlt: Wavelets) -> Self {
         use crate::dwt::bior::*;
         use crate::dwt::coiflet::*;
@@ -564,46 +651,87 @@ where
     }
 
     /// Forward periodic DWT: decompose `input` into approximation (`s`) and detail (`d`) sub-bands.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `s.len() + d.len() != input.len()`, or if `s.len()` and `d.len()` are
+    /// not related by `s.len() == d.len()` or `s.len() == d.len() + 1`.
     pub fn forward_1d(&self, input: &[T], s: &mut [T], d: &mut [T]) {
         (self.dwt_forward)(input, s, d);
     }
 
     /// Inverse periodic DWT: reconstruct `output` from sub-bands `s` and `d`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `s.len() + d.len() != output.len()`, or if `s.len()` and `d.len()` are
+    /// not related by `s.len() == d.len()` or `s.len() == d.len() + 1`.
     pub fn inverse_1d(&self, s: &[T], d: &[T], output: &mut [T]) {
         (self.dwt_inverse)(s, d, output);
     }
 
     /// Adjoint of the forward periodic DWT (one level).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `s.len() + d.len() != output.len()`, or if `s.len()` and `d.len()` are
+    /// not related by `s.len() == d.len()` or `s.len() == d.len() + 1`.
     pub fn adj_forward_1d(&self, s: &[T], d: &[T], output: &mut [T]) {
         (self.dwt_adj_forward)(s, d, output);
     }
 
     /// Adjoint of the inverse periodic DWT: split `input` into sub-bands `s` and `d`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `s.len() + d.len() != input.len()`, or if `s.len()` and `d.len()` are
+    /// not related by `s.len() == d.len()` or `s.len() == d.len() + 1`.
     pub fn adj_inverse_1d(&self, input: &[T], s: &mut [T], d: &mut [T]) {
         (self.dwt_adj_inverse)(input, s, d);
     }
 
     /// Single-level periodic forward DWT along the given `axes`.
+    ///
+    /// # Panics
+    ///
+    /// See [`forward_multilevel_nd`](Self::forward_multilevel_nd).
     pub fn forward_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
         self.forward_multilevel_nd(input, output, shape, axes, 1);
     }
 
     /// Single-level periodic inverse DWT along the given `axes`.
+    ///
+    /// # Panics
+    ///
+    /// See [`inverse_multilevel_nd`](Self::inverse_multilevel_nd).
     pub fn inverse_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
         self.inverse_multilevel_nd(input, output, shape, axes, 1);
     }
 
     /// Single-level periodic adjoint forward DWT along the given `axes`.
+    ///
+    /// # Panics
+    ///
+    /// See [`adj_forward_multilevel_nd`](Self::adj_forward_multilevel_nd).
     pub fn adj_forward_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
         self.adj_forward_multilevel_nd(input, output, shape, axes, 1);
     }
 
     /// Single-level periodic adjoint inverse DWT along the given `axes`.
+    ///
+    /// # Panics
+    ///
+    /// See [`adj_inverse_multilevel_nd`](Self::adj_inverse_multilevel_nd).
     pub fn adj_inverse_nd(&self, input: &[T], output: &mut [T], shape: &[usize], axes: &[usize]) {
         self.adj_inverse_multilevel_nd(input, output, shape, axes, 1);
     }
 
     /// Multi-level periodic forward DWT along the given `axes`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any element of `axes` is `>= shape.len()`, or if `input.len()` or
+    /// `output.len()` does not equal `shape.iter().product()`.
     pub fn forward_multilevel_nd(
         &self,
         input: &[T],
@@ -630,6 +758,10 @@ where
     }
 
     /// Multi-level periodic inverse DWT along the given `axes`.
+    ///
+    /// # Panics
+    ///
+    /// Same conditions as [`forward_multilevel_nd`](Self::forward_multilevel_nd).
     pub fn inverse_multilevel_nd(
         &self,
         input: &[T],
@@ -657,6 +789,10 @@ where
     }
 
     /// Multi-level periodic adjoint forward DWT along the given `axes`.
+    ///
+    /// # Panics
+    ///
+    /// Same conditions as [`forward_multilevel_nd`](Self::forward_multilevel_nd).
     pub fn adj_forward_multilevel_nd(
         &self,
         input: &[T],
@@ -684,6 +820,10 @@ where
     }
 
     /// Multi-level periodic adjoint inverse DWT along the given `axes`.
+    ///
+    /// # Panics
+    ///
+    /// Same conditions as [`forward_multilevel_nd`](Self::forward_multilevel_nd).
     pub fn adj_inverse_multilevel_nd(
         &self,
         input: &[T],
@@ -717,6 +857,11 @@ where
     T: Transformable + Zero + ChunkWidth<T, N>,
 {
     /// Forward periodic DWT applied to an ndarray (multi-level).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `input.shape() != output.shape()`, or if any element of `axes` is
+    /// `>= input.ndim()`.
     pub fn forward_ndarray_multilevel<D: Dimension>(
         &self,
         input: &ArrayRef<T, D>,
@@ -748,6 +893,10 @@ where
     }
 
     /// Inverse periodic DWT applied to an ndarray (multi-level).
+    ///
+    /// # Panics
+    ///
+    /// Same conditions as [`forward_ndarray_multilevel`](Self::forward_ndarray_multilevel).
     pub fn inverse_ndarray_multilevel<D: Dimension>(
         &self,
         input: &ArrayRef<T, D>,
@@ -778,7 +927,11 @@ where
         );
     }
 
-    /// Adjoint forward periodic DWT applied to an ndarray (multi-level).
+    /// Adjoint of the forward periodic DWT applied to an ndarray (multi-level).
+    ///
+    /// # Panics
+    ///
+    /// Same conditions as [`forward_ndarray_multilevel`](Self::forward_ndarray_multilevel).
     pub fn adj_forward_ndarray_multilevel<D: Dimension>(
         &self,
         input: &ArrayRef<T, D>,
@@ -800,7 +953,7 @@ where
         };
 
         general_nd_per_inverse_multilevel(
-            |s, d, x| (self.dwt_inverse)(s, d, x),
+            |s, d, x| (self.dwt_adj_forward)(s, d, x),
             input,
             output,
             shape,
@@ -809,7 +962,11 @@ where
         );
     }
 
-    /// Adjoint inverse periodic DWT applied to an ndarray (multi-level).
+    /// Adjoint of the inverse periodic DWT applied to an ndarray (multi-level).
+    ///
+    /// # Panics
+    ///
+    /// Same conditions as [`forward_ndarray_multilevel`](Self::forward_ndarray_multilevel).
     pub fn adj_inverse_ndarray_multilevel<D: Dimension>(
         &self,
         input: &ArrayRef<T, D>,
@@ -1358,6 +1515,10 @@ pub mod parallel {
         BC: BoundaryExtension,
     {
         /// Single-level parallel forward DWT along the given `axes`.
+        ///
+        /// # Panics
+        ///
+        /// See [`par_forward_multilevel_nd`](WaveletTransform::par_forward_multilevel_nd).
         pub fn par_forward_nd(
             &self,
             input: &[T],
@@ -1369,6 +1530,10 @@ pub mod parallel {
         }
 
         /// Single-level parallel inverse DWT along the given `axes`.
+        ///
+        /// # Panics
+        ///
+        /// See [`par_inverse_multilevel_nd`](WaveletTransform::par_inverse_multilevel_nd).
         pub fn par_inverse_nd(
             &self,
             input: &mut [T],
@@ -1383,6 +1548,10 @@ pub mod parallel {
         ///
         /// `input` is taken as `&mut` because the internal multilevel algorithm writes
         /// intermediate results back into the buffer during reconstruction.
+        ///
+        /// # Panics
+        ///
+        /// See [`par_adj_forward_multilevel_nd`](WaveletTransform::par_adj_forward_multilevel_nd).
         pub fn par_adj_forward_nd(
             &self,
             input: &mut [T],
@@ -1394,6 +1563,10 @@ pub mod parallel {
         }
 
         /// Single-level parallel adjoint inverse DWT along the given `axes`.
+        ///
+        /// # Panics
+        ///
+        /// See [`par_adj_inverse_multilevel_nd`](WaveletTransform::par_adj_inverse_multilevel_nd).
         pub fn par_adj_inverse_nd(
             &self,
             input: &[T],
@@ -1405,6 +1578,12 @@ pub mod parallel {
         }
 
         /// Multi-level parallel forward DWT along the given `axes`.
+        ///
+        /// # Panics
+        ///
+        /// Panics if any element of `axes` is `>= in_shape.len()`, if `input.len()` does
+        /// not equal `in_shape.iter().product()`, or if `output.len()` does not equal the
+        /// product of `get_transform_shape(in_shape, axes, level, width, false)`.
         pub fn par_forward_multilevel_nd(
             &self,
             input: &[T],
@@ -1442,6 +1621,12 @@ pub mod parallel {
         /// `get_transform_shape(out_shape, axes, level, width, false)`.
         /// `input` is taken as `&mut` because the internal multilevel algorithm writes
         /// intermediate results back into the buffer during reconstruction.
+        ///
+        /// # Panics
+        ///
+        /// Panics if any element of `axes` is `>= out_shape.len()`, if `output.len()` does
+        /// not equal `out_shape.iter().product()`, or if `input.len()` does not equal the
+        /// product of `get_transform_shape(out_shape, axes, level, width, false)`.
         pub fn par_inverse_multilevel_nd(
             &self,
             input: &mut [T],
@@ -1479,6 +1664,10 @@ pub mod parallel {
         /// `get_transform_shape(out_shape, axes, level, width, false)`.
         /// `input` is taken as `&mut` because the internal multilevel algorithm writes
         /// intermediate results back into the buffer during reconstruction.
+        ///
+        /// # Panics
+        ///
+        /// Same conditions as [`par_inverse_multilevel_nd`](WaveletTransform::par_inverse_multilevel_nd).
         pub fn par_adj_forward_multilevel_nd(
             &self,
             input: &mut [T],
@@ -1510,6 +1699,10 @@ pub mod parallel {
         }
 
         /// Multi-level parallel adjoint inverse DWT along the given `axes`.
+        ///
+        /// # Panics
+        ///
+        /// Same conditions as [`par_forward_multilevel_nd`](WaveletTransform::par_forward_multilevel_nd).
         pub fn par_adj_inverse_multilevel_nd(
             &self,
             input: &[T],
@@ -1548,6 +1741,11 @@ pub mod parallel {
         BC: BoundaryExtension,
     {
         /// Forward DWT applied to an ndarray (parallel, multi-level).
+        ///
+        /// # Panics
+        ///
+        /// Panics if `output.shape()` does not match `get_transform_shape(input.shape(), axes,
+        /// level, width, false)`, or if any element of `axes` is `>= input.ndim()`.
         pub fn par_forward_ndarray_multilevel<D: Dimension>(
             &self,
             input: &ArrayRef<T, D>,
@@ -1586,6 +1784,11 @@ pub mod parallel {
         ///
         /// `input` is taken as `&mut` because the internal multilevel algorithm writes
         /// intermediate results back into the buffer during reconstruction.
+        ///
+        /// # Panics
+        ///
+        /// Panics if `input.shape()` does not match `get_transform_shape(output.shape(), axes,
+        /// level, width, false)`, or if any element of `axes` is `>= output.ndim()`.
         pub fn par_inverse_ndarray_multilevel<D: Dimension>(
             &self,
             input: &mut ArrayRef<T, D>,
@@ -1624,6 +1827,10 @@ pub mod parallel {
         ///
         /// `input` is taken as `&mut` because the internal multilevel algorithm writes
         /// intermediate results back into the buffer during reconstruction.
+        ///
+        /// # Panics
+        ///
+        /// Same conditions as [`par_inverse_ndarray_multilevel`](WaveletTransform::par_inverse_ndarray_multilevel).
         pub fn par_adj_forward_ndarray_multilevel<D: Dimension>(
             &self,
             input: &mut ArrayRef<T, D>,
@@ -1659,6 +1866,10 @@ pub mod parallel {
         }
 
         /// Adjoint inverse DWT applied to an ndarray (parallel, multi-level).
+        ///
+        /// # Panics
+        ///
+        /// Same conditions as [`par_forward_ndarray_multilevel`](WaveletTransform::par_forward_ndarray_multilevel).
         pub fn par_adj_inverse_ndarray_multilevel<D: Dimension>(
             &self,
             input: &ArrayRef<T, D>,
@@ -1699,6 +1910,10 @@ pub mod parallel {
         T: Transformable + Zero + ChunkWidth<T, N> + Sync + Send,
     {
         /// Single-level parallel periodic forward DWT along the given `axes`.
+        ///
+        /// # Panics
+        ///
+        /// See [`par_forward_multilevel_nd`](WaveletTransformPer::par_forward_multilevel_nd).
         pub fn par_forward_nd(
             &self,
             input: &[T],
@@ -1710,6 +1925,10 @@ pub mod parallel {
         }
 
         /// Single-level parallel periodic inverse DWT along the given `axes`.
+        ///
+        /// # Panics
+        ///
+        /// See [`par_inverse_multilevel_nd`](WaveletTransformPer::par_inverse_multilevel_nd).
         pub fn par_inverse_nd(
             &self,
             input: &[T],
@@ -1721,6 +1940,10 @@ pub mod parallel {
         }
 
         /// Single-level parallel periodic adjoint forward DWT along the given `axes`.
+        ///
+        /// # Panics
+        ///
+        /// See [`par_adj_forward_multilevel_nd`](WaveletTransformPer::par_adj_forward_multilevel_nd).
         pub fn par_adj_forward_nd(
             &self,
             input: &[T],
@@ -1732,6 +1955,10 @@ pub mod parallel {
         }
 
         /// Single-level parallel periodic adjoint inverse DWT along the given `axes`.
+        ///
+        /// # Panics
+        ///
+        /// See [`par_adj_inverse_multilevel_nd`](WaveletTransformPer::par_adj_inverse_multilevel_nd).
         pub fn par_adj_inverse_nd(
             &self,
             input: &[T],
@@ -1743,6 +1970,11 @@ pub mod parallel {
         }
 
         /// Multi-level parallel periodic forward DWT along the given `axes`.
+        ///
+        /// # Panics
+        ///
+        /// Panics if any element of `axes` is `>= shape.len()`, or if `input.len()` or
+        /// `output.len()` does not equal `shape.iter().product()`.
         pub fn par_forward_multilevel_nd(
             &self,
             input: &[T],
@@ -1769,6 +2001,10 @@ pub mod parallel {
         }
 
         /// Multi-level parallel periodic inverse DWT along the given `axes`.
+        ///
+        /// # Panics
+        ///
+        /// Same conditions as [`par_forward_multilevel_nd`](WaveletTransformPer::par_forward_multilevel_nd).
         pub fn par_inverse_multilevel_nd(
             &self,
             input: &[T],
@@ -1796,6 +2032,10 @@ pub mod parallel {
         }
 
         /// Multi-level parallel periodic adjoint forward DWT along the given `axes`.
+        ///
+        /// # Panics
+        ///
+        /// Same conditions as [`par_forward_multilevel_nd`](WaveletTransformPer::par_forward_multilevel_nd).
         pub fn par_adj_forward_multilevel_nd(
             &self,
             input: &[T],
@@ -1822,6 +2062,10 @@ pub mod parallel {
         }
 
         /// Multi-level parallel periodic adjoint inverse DWT along the given `axes`.
+        ///
+        /// # Panics
+        ///
+        /// Same conditions as [`par_forward_multilevel_nd`](WaveletTransformPer::par_forward_multilevel_nd).
         pub fn par_adj_inverse_multilevel_nd(
             &self,
             input: &[T],
@@ -1854,6 +2098,11 @@ pub mod parallel {
         T: Transformable + Zero + ChunkWidth<T, N> + Sync + Send,
     {
         /// Forward periodic DWT applied to an ndarray (parallel, multi-level).
+        ///
+        /// # Panics
+        ///
+        /// Panics if `input.shape() != output.shape()`, or if any element of `axes` is
+        /// `>= input.ndim()`.
         pub fn par_forward_ndarray_multilevel<D: Dimension>(
             &self,
             input: &ArrayRef<T, D>,
@@ -1879,6 +2128,10 @@ pub mod parallel {
         }
 
         /// Inverse periodic DWT applied to an ndarray (parallel, multi-level).
+        ///
+        /// # Panics
+        ///
+        /// Same conditions as [`par_forward_ndarray_multilevel`](WaveletTransformPer::par_forward_ndarray_multilevel).
         pub fn par_inverse_ndarray_multilevel<D: Dimension>(
             &self,
             input: &ArrayRef<T, D>,
@@ -1903,7 +2156,11 @@ pub mod parallel {
             );
         }
 
-        /// Adjoint forward periodic DWT applied to an ndarray (parallel, multi-level).
+        /// Adjoint of the forward periodic DWT applied to an ndarray (parallel, multi-level).
+        ///
+        /// # Panics
+        ///
+        /// Same conditions as [`par_forward_ndarray_multilevel`](WaveletTransformPer::par_forward_ndarray_multilevel).
         pub fn par_adj_forward_ndarray_multilevel<D: Dimension>(
             &self,
             input: &ArrayRef<T, D>,
@@ -1919,7 +2176,7 @@ pub mod parallel {
             );
 
             general_nd_per_inverse_multilevel(
-                |s, d, x| (self.dwt_inverse)(s, d, x),
+                |s, d, x| (self.dwt_adj_forward)(s, d, x),
                 input,
                 output,
                 shape,
@@ -1929,6 +2186,10 @@ pub mod parallel {
         }
 
         /// Adjoint inverse periodic DWT applied to an ndarray (parallel, multi-level).
+        ///
+        /// # Panics
+        ///
+        /// Same conditions as [`par_forward_ndarray_multilevel`](WaveletTransformPer::par_forward_ndarray_multilevel).
         pub fn par_adj_inverse_ndarray_multilevel<D: Dimension>(
             &self,
             input: &ArrayRef<T, D>,

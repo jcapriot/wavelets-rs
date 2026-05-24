@@ -273,9 +273,18 @@ pub trait LanesIterator {
     type Item;
 
     /// Iterate over all lanes along `axis` of an array with the given `shape`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `axis >= shape.len()`, if the slice is empty, or if the slice length
+    /// does not equal `shape.iter().product()`.
     fn iter_lanes<'a>(&'a self, shape: &[usize], axis: usize) -> IterLanes<'a, Self::Item>;
 
     /// Mutably iterate over all lanes along `axis`.
+    ///
+    /// # Panics
+    ///
+    /// Same conditions as [`iter_lanes`](Self::iter_lanes).
     fn iter_lanes_mut<'a>(
         &'a mut self,
         shape: &[usize],
@@ -285,6 +294,10 @@ pub trait LanesIterator {
     /// Iterate over SIMD-width chunks of lanes along `axis`.
     ///
     /// Each item is a group of `N` consecutive elements within a lane.
+    ///
+    /// # Panics
+    ///
+    /// Same conditions as [`iter_lanes`](Self::iter_lanes).
     fn iter_lane_chunks<'a, const N: usize>(
         &'a self,
         shape: &[usize],
@@ -292,6 +305,10 @@ pub trait LanesIterator {
     ) -> IterLaneChunks<'a, Self::Item, N>;
 
     /// Mutably iterate over SIMD-width chunks of lanes along `axis`.
+    ///
+    /// # Panics
+    ///
+    /// Same conditions as [`iter_lanes`](Self::iter_lanes).
     fn iter_lane_chunks_mut<'a, const N: usize>(
         &'a mut self,
         shape: &[usize],
@@ -302,6 +319,12 @@ pub trait LanesIterator {
     ///
     /// Lanes are taken from the first `sub_shape[axis]` elements along `axis`,
     /// with the outer shape given by `shape`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `axis >= shape.len()`, if `shape.len() != sub_shape.len()`, if any
+    /// `sub_shape[i] > shape[i]`, if the slice is empty, or if the slice length does
+    /// not equal `shape.iter().product()`.
     fn iter_lanes_sub<'a>(
         &'a self,
         shape: &[usize],
@@ -310,6 +333,10 @@ pub trait LanesIterator {
     ) -> IterLanes<'a, Self::Item>;
 
     /// Mutably iterate over lanes of a sub-region.
+    ///
+    /// # Panics
+    ///
+    /// Same conditions as [`iter_lanes_sub`](Self::iter_lanes_sub).
     fn iter_lanes_sub_mut<'a>(
         &'a mut self,
         shape: &[usize],
@@ -318,6 +345,10 @@ pub trait LanesIterator {
     ) -> IterLanesMut<'a, Self::Item>;
 
     /// Iterate over SIMD-width chunks of lanes within a sub-region.
+    ///
+    /// # Panics
+    ///
+    /// Same conditions as [`iter_lanes_sub`](Self::iter_lanes_sub).
     fn iter_lane_chunks_sub<'a, const N: usize>(
         &'a self,
         shape: &[usize],
@@ -326,6 +357,10 @@ pub trait LanesIterator {
     ) -> IterLaneChunks<'a, Self::Item, N>;
 
     /// Mutably iterate over SIMD-width chunks of lanes within a sub-region.
+    ///
+    /// # Panics
+    ///
+    /// Same conditions as [`iter_lanes_sub`](Self::iter_lanes_sub).
     fn iter_lane_chunks_sub_mut<'a, const N: usize>(
         &'a mut self,
         shape: &[usize],
@@ -524,6 +559,11 @@ pub mod parallel {
     /// and, when the `ndarray` feature is enabled, for `ndarray::ArrayRef<T, D>`.
     pub trait LanesParallelIterator: LanesIterator {
         /// Iterate over all lanes along `axis` of an array with the given `shape`.
+        ///
+        /// # Panics
+        ///
+        /// Panics if `axis >= shape.len()`, if the slice is empty, or if the slice length
+        /// does not equal `shape.iter().product()`.
         fn par_iter_lanes<'a>(
             &'a self,
             shape: &[usize],
@@ -531,6 +571,10 @@ pub mod parallel {
         ) -> ParIterLanes<'a, Self::Item>;
 
         /// Mutably iterate over all lanes along `axis`.
+        ///
+        /// # Panics
+        ///
+        /// Same conditions as [`par_iter_lanes`](Self::par_iter_lanes).
         fn par_iter_lanes_mut<'a>(
             &'a mut self,
             shape: &[usize],
@@ -540,6 +584,10 @@ pub mod parallel {
         /// Iterate over SIMD-width chunks of lanes along `axis`.
         ///
         /// Each item is a group of `N` consecutive elements within a lane.
+        ///
+        /// # Panics
+        ///
+        /// Same conditions as [`par_iter_lanes`](Self::par_iter_lanes).
         fn par_iter_lane_chunks<'a, const N: usize>(
             &'a self,
             shape: &[usize],
@@ -547,6 +595,10 @@ pub mod parallel {
         ) -> ParIterLaneChunks<'a, Self::Item, N>;
 
         /// Mutably iterate over SIMD-width chunks of lanes along `axis`.
+        ///
+        /// # Panics
+        ///
+        /// Same conditions as [`par_iter_lanes`](Self::par_iter_lanes).
         fn par_iter_lane_chunks_mut<'a, const N: usize>(
             &'a mut self,
             shape: &[usize],
@@ -557,6 +609,12 @@ pub mod parallel {
         ///
         /// Lanes are taken from the first `sub_shape[axis]` elements along `axis`,
         /// with the outer shape given by `shape`.
+        ///
+        /// # Panics
+        ///
+        /// Panics if `axis >= shape.len()`, if `shape.len() != sub_shape.len()`, if any
+        /// `sub_shape[i] > shape[i]`, if the slice is empty, or if the slice length does
+        /// not equal `shape.iter().product()`.
         fn par_iter_lanes_sub<'a>(
             &'a self,
             shape: &[usize],
@@ -565,6 +623,10 @@ pub mod parallel {
         ) -> ParIterLanes<'a, Self::Item>;
 
         /// Mutably iterate over lanes of a sub-region.
+        ///
+        /// # Panics
+        ///
+        /// Same conditions as [`par_iter_lanes_sub`](Self::par_iter_lanes_sub).
         fn par_iter_lanes_sub_mut<'a>(
             &'a mut self,
             shape: &[usize],
@@ -573,6 +635,10 @@ pub mod parallel {
         ) -> ParIterLanesMut<'a, Self::Item>;
 
         /// Iterate over SIMD-width chunks of lanes within a sub-region.
+        ///
+        /// # Panics
+        ///
+        /// Same conditions as [`par_iter_lanes_sub`](Self::par_iter_lanes_sub).
         fn par_iter_lane_chunks_sub<'a, const N: usize>(
             &'a self,
             shape: &[usize],
@@ -581,6 +647,10 @@ pub mod parallel {
         ) -> ParIterLaneChunks<'a, Self::Item, N>;
 
         /// Mutably iterate over SIMD-width chunks of lanes within a sub-region.
+        ///
+        /// # Panics
+        ///
+        /// Same conditions as [`par_iter_lanes_sub`](Self::par_iter_lanes_sub).
         fn par_iter_lane_chunks_sub_mut<'a, const N: usize>(
             &'a mut self,
             shape: &[usize],

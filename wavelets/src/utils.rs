@@ -23,6 +23,10 @@ pub fn stride_from_shape(shape: &[usize]) -> Vec<usize> {
 /// `evens[i] = x[2*i]` and `odds[i] = x[2*i + 1]`.  For odd-length `x` the extra
 /// element goes into `evens`, so `evens.len() == (x.len() + 1) / 2` and
 /// `odds.len() == x.len() / 2`.
+///
+/// # Panics
+///
+/// Panics if `odds.len() != x.len() / 2` or `evens.len() != (x.len() + 1) / 2`.
 #[inline]
 pub fn deinterleave<T: Clone>(x: &[T], evens: &mut [T], odds: &mut [T]) {
     let nx = x.len();
@@ -60,6 +64,10 @@ pub fn deinterleave<T: Clone>(x: &[T], evens: &mut [T], odds: &mut [T]) {
 ///
 /// `shape` is `[rows, cols]`.  `output` receives the same total number of elements rearranged
 /// so that approximation coefficients precede detail coefficients along each axis.
+///
+/// # Panics
+///
+/// Panics if `input.len()` or `output.len()` is not equal to `shape[0] * shape[1]`.
 #[inline]
 pub fn deinterleave_2d<T: Clone>(input: &[T], output: &mut [T], shape: &[usize; 2]) {
     let n_total: usize = shape.iter().product();
@@ -96,6 +104,11 @@ pub fn deinterleave_2d<T: Clone>(input: &[T], output: &mut [T], shape: &[usize; 
 ///
 /// Dispatches to [`deinterleave`], [`deinterleave_2d`], or a recursive N-D implementation
 /// based on `shape.len()`.
+///
+/// # Panics
+///
+/// Panics if `input.len()` is not equal to `shape.iter().product()` (for N ≥ 3),
+/// or with the same constraints as [`deinterleave`] for 1-D or [`deinterleave_2d`] for 2-D.
 #[inline]
 pub fn deinterleave_nd<T: Clone>(input: &[T], output: &mut [T], shape: &[usize]) {
     match shape.len() {
@@ -164,6 +177,10 @@ fn deinterleave_nd_unchecked<T: Clone>(input: &[T], output: &mut [T], shape: &[u
 /// Interleave even- and odd-indexed elements back into a single flat slice.
 ///
 /// Inverse of [`deinterleave`]: `x[2*i] = evens[i]`, `x[2*i+1] = odds[i]`.
+///
+/// # Panics
+///
+/// Panics if `odds.len() != x.len() / 2` or `evens.len() != (x.len() + 1) / 2`.
 #[inline]
 pub fn interleave<T: Clone>(evens: &[T], odds: &[T], x: &mut [T]) {
     let nx = x.len();
@@ -186,10 +203,11 @@ pub fn interleave<T: Clone>(evens: &[T], odds: &[T], x: &mut [T]) {
     }
 }
 
-/// In-place interleave of a slice: rearranges so that the even-half and odd-half are merged.
+/// In-place interleave of a split slice: rearranges elements without extra allocation.
 ///
-/// The first half of `x` is treated as even elements and the second half as odd elements;
-/// after the call `x[2*i] == old_x[i]` and `x[2*i+1] == old_x[n/2 + i]`.
+/// The first `ceil(n/2)` elements are treated as even-indexed and the remainder as
+/// odd-indexed.  After the call `x[2*i] == old_x[i]` and `x[2*i+1] == old_x[ceil(n/2) + i]`.
+/// Inverse of [`deinterleave`] applied in-place.
 #[inline]
 pub fn interleave_inplace<T: Clone>(x: &mut [T]) {
     let n = x.len();

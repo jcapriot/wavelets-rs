@@ -92,6 +92,11 @@ pub trait DiscreteTransform<const N: usize, const NH: usize> {
     }
 
     /// Adjoint (transpose) of the inverse DWT.
+    ///
+    /// Applies the time-reversed synthesis filters `GI` and `HI` to `x` via
+    /// [`dwt_forward`] with [`ZeroBoundary`], writing the result into the sub-bands
+    /// `s` and `d`.  This is always the exact adjoint of [`inverse`](Self::inverse),
+    /// regardless of the boundary condition used for the forward transform.
     #[inline]
     fn adjoint_inverse<T: Transformable + Zero>(x: &[T], s: &mut [T], d: &mut [T]) {
         let ga: [_; N] = Self::GI.into_iter().rev().collect_array().unwrap();
@@ -157,7 +162,7 @@ impl<const N: usize> CheckCoefLen<N> {
 
 struct CheckHalfCoefLen<const N: usize, const NH: usize>();
 impl<const N: usize, const NH: usize> CheckHalfCoefLen<N, NH> {
-    /// Asserts at compile time that `N >= 2` and `N % 2 == 0`.
+    /// Asserts at compile time that `N >= 2` and `NH * 2 == N`.
     const VALID: () = {
         assert!(N >= 2, "Coefficient length must be 2 or more.");
         assert!(
@@ -385,7 +390,8 @@ pub fn dwt_inverse<T: Transformable + Zero, const N: usize, const NH: usize>(
 ///
 /// # Panics
 ///
-/// Same length constraints as [`dwt_forward`].
+/// Panics if `s.len() != d.len()` or if either length is inconsistent with
+/// `get_outlen(N, x.len())`.
 pub fn dwt_adjoint_forward<T: Transformable + Zero, const N: usize, BC: BoundaryExtension>(
     g: &[f64; N],
     h: &[f64; N],
@@ -606,7 +612,8 @@ pub fn dwt_per_forward<T: Transformable + Zero, const N: usize>(
 ///
 /// # Panics
 ///
-/// Same length constraints as [`dwt_per_forward`].
+/// Panics if `s.len() + d.len() != x.len()` or if the relative lengths of `s` and
+/// `d` are inconsistent (they must satisfy `s.len() == d.len()` or `s.len() == d.len() + 1`).
 pub fn dwt_per_inverse<T: Transformable + Zero, const N: usize, const NH: usize>(
     gi: &[f64; N],
     hi: &[f64; N],
