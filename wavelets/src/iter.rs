@@ -21,6 +21,7 @@ pub use chunk_strided_slice::ChunkStridedSliceRef;
 pub use strided_slice::StridedSliceRef;
 
 #[inline]
+#[track_caller]
 pub(crate) fn unravel(flat_index: usize, shape: &[usize]) -> Vec<usize> {
     let n_max: usize = shape.iter().product();
     assert!(
@@ -291,7 +292,7 @@ pub trait LanesIterator {
         axis: usize,
     ) -> IterLanesMut<'a, Self::Item>;
 
-    /// Iterate over SIMD-width chunks of lanes along `axis`.
+    /// Iterate over fixed-width chunks of lanes along `axis`.
     ///
     /// Each item is a group of `N` consecutive elements within a lane.
     ///
@@ -304,7 +305,7 @@ pub trait LanesIterator {
         axis: usize,
     ) -> IterLaneChunks<'a, Self::Item, N>;
 
-    /// Mutably iterate over SIMD-width chunks of lanes along `axis`.
+    /// Mutably iterate over fixed-width chunks of lanes along `axis`.
     ///
     /// # Panics
     ///
@@ -344,7 +345,7 @@ pub trait LanesIterator {
         axis: usize,
     ) -> IterLanesMut<'a, Self::Item>;
 
-    /// Iterate over SIMD-width chunks of lanes within a sub-region.
+    /// Iterate over fixed-width chunks of lanes within a sub-region.
     ///
     /// # Panics
     ///
@@ -356,7 +357,7 @@ pub trait LanesIterator {
         axis: usize,
     ) -> IterLaneChunks<'a, Self::Item, N>;
 
-    /// Mutably iterate over SIMD-width chunks of lanes within a sub-region.
+    /// Mutably iterate over fixed-width chunks of lanes within a sub-region.
     ///
     /// # Panics
     ///
@@ -371,6 +372,9 @@ pub trait LanesIterator {
     /// Return the axis index with the smallest stride (most cache-friendly to
     /// iterate over for the given `shape`).
     fn min_stride_axis(&self, shape: &[usize]) -> usize;
+
+    /// Return whether a lane along the request axis will be contiguous.
+    fn is_ax_contiguous(&self, ax: usize, shape: &[usize]) -> bool;
 }
 
 impl<T> LanesIterator for [T] {
@@ -451,6 +455,11 @@ impl<T> LanesIterator for [T] {
         } else {
             0
         }
+    }
+
+    #[inline]
+    fn is_ax_contiguous(&self, ax: usize, shape: &[usize]) -> bool {
+        ax + 1 == shape.len()
     }
 }
 
@@ -539,6 +548,11 @@ impl<T, D: ::ndarray::Dimension> LanesIterator for ArrayRef<T, D> {
             .unwrap_or((0, 0));
 
         min_axis
+    }
+
+    #[inline]
+    fn is_ax_contiguous(&self, ax: usize, _shape: &[usize]) -> bool {
+        self.strides().get(ax).map(|v| *v == 1).unwrap_or(false)
     }
 }
 

@@ -107,11 +107,13 @@ impl<T> StridedSliceRef<T> {
         unsafe { &mut *self.as_mut_ptr().offset(index as isize * self.0.stride) }
     }
 
-    #[inline]
-    /// Split the strided slice into two parts at the specified location
+    /// Split the strided slice into two parts at `mid`.
     ///
     /// # Panics
-    /// If mid > len.
+    ///
+    /// Panics if `mid > self.len()`.
+    #[inline]
+    #[track_caller]
     pub fn split_at(&self, mid: usize) -> (StridedSlice<'_, T>, StridedSlice<'_, T>) {
         assert!(mid <= self.len(), "mid > len");
         (
@@ -138,11 +140,13 @@ impl<T> StridedSliceRef<T> {
         )
     }
 
-    #[inline]
-    /// Split the mutable strided slice into two parts at the specified location
+    /// Split the mutable strided slice into two parts at `mid`.
     ///
     /// # Panics
-    /// If mid > len.
+    ///
+    /// Panics if `mid > self.len()`.
+    #[inline]
+    #[track_caller]
     pub fn split_at_mut(&mut self, mid: usize) -> (StridedSliceMut<'_, T>, StridedSliceMut<'_, T>) {
         assert!(mid <= self.len(), "mid > len");
         (
@@ -215,6 +219,10 @@ impl<T: Clone> StridedSliceRef<T> {
     ///
     /// Equivalent to [`crate::utils::deinterleave`] but reads from a [`StridedSliceRef`] instead of a plain
     /// slice; takes a fast path when the view happens to be contiguous.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `odds.len() != self.len() / 2` or `evens.len() != (self.len() + 1) / 2`.
     #[inline(always)]
     #[track_caller]
     pub fn deinterleave(&self, evens: &mut [T], odds: &mut [T]) {
@@ -263,7 +271,13 @@ impl<T: Clone> StridedSliceRef<T> {
         }
     }
 
-    /// Strided variant of [`crate::utils::interleave`]: write interleaved values into a [`StridedSliceRef`].
+    /// Write even- and odd-indexed flat buffers interleaved into `self`.
+    ///
+    /// Strided variant of [`crate::utils::interleave`]; takes a fast path when the view is contiguous.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `odds.len() != self.len() / 2` or `evens.len() != (self.len() + 1) / 2`.
     #[inline(always)]
     #[track_caller]
     pub fn interleave(&mut self, evens: &[T], odds: &[T]) {
@@ -310,6 +324,10 @@ impl<T: Clone> StridedSliceRef<T> {
     ///
     /// `second` is taken from the tail of `self`, not from immediately after `first`.  This is the
     /// inverse of [`StridedSliceRef::stack`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if `first.len() + second.len() > self.len()`.
     #[inline(always)]
     #[track_caller]
     pub fn split(&self, first: &mut [T], second: &mut [T]) {
@@ -343,6 +361,10 @@ impl<T: Clone> StridedSliceRef<T> {
     }
 
     /// Fill the slice `sink` with cloned elements of `self`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `sink.len() > self.len()`.
     #[inline(always)]
     #[track_caller]
     pub fn pour_into(&self, sink: &mut [T]) {
@@ -368,10 +390,13 @@ impl<T: Clone + Zero> StridedSliceRef<T> {
     ///
     /// Unlike a simple concatenation, the second half is placed at the tail of `out` rather than
     /// immediately after `first`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `first.len() + second.len() > self.len()`.
     #[inline(always)]
     #[track_caller]
     pub fn stack(&mut self, first: &[T], second: &[T]) {
-        // stacks first and second into self, but with the second half at the very end of out, instead of immediately after the first half.
         let nf = first.len();
         let ns = second.len();
         let n = self.len();
@@ -404,6 +429,10 @@ impl<T: Clone + Zero> StridedSliceRef<T> {
     }
 
     /// Fill `self` with cloned elements from slice `source`, filling the leftover with zero values.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `source.len() > self.len()`.
     #[inline(always)]
     #[track_caller]
     pub fn fill_from(&mut self, source: &[T]) {
@@ -491,6 +520,11 @@ pub type StridedSliceMut<'a, T> = StridedSliceBase<SliceLifetime<&'a mut T>, T>;
 
 impl<'a, T> StridedSlice<'a, T> {
     /// Create a strided view over `slice` sampling every `stride` elements.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `slice` is empty.
+    #[track_caller]
     pub fn from_slice(slice: &'a [T], stride: usize) -> Self {
         assert_ne!(slice.len(), 0);
         Self {
@@ -509,6 +543,11 @@ impl<'a, T> StridedSlice<'a, T> {
 
 impl<'a, T> StridedSliceMut<'a, T> {
     /// Create a mutable strided view over `slice` sampling every `stride` elements.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `slice` is empty.
+    #[track_caller]
     pub fn from_mut_slice(slice: &'a mut [T], stride: usize) -> Self {
         assert_ne!(slice.len(), 0);
 
@@ -972,12 +1011,24 @@ pub mod parallel {
 
             impl<'a, T> $par_name<'a, T> {
                 /// Construct from a flat slice with the given `shape`, iterating lanes along `axis`.
+                ///
+                /// # Panics
+                ///
+                /// Panics if `arr` is empty, `axis >= shape.len()`, or `arr.len()` does not equal
+                /// `shape.iter().product()`.
+                #[track_caller]
                 pub fn from_slice(arr: &'a $( $mut_ )? [T], shape: &[usize], axis: usize) -> Self {
                     let (ptr, arr_info) = lane_parts_from_slice(arr, shape, axis);
                     Self::new(ptr, arr_info)
                 }
 
                 /// Construct from a sub-region of a flat slice.
+                ///
+                /// # Panics
+                ///
+                /// Panics if `arr` is empty, `axis >= shape.len()`, `shape.len() != sub_shape.len()`,
+                /// any `sub_shape[i] > shape[i]`, or `arr.len()` does not equal `shape.iter().product()`.
+                #[track_caller]
                 pub fn from_sub_slice(
                     arr: &'a $( $mut_ )? [T],
                     shape: &[usize],
@@ -989,7 +1040,12 @@ pub mod parallel {
                 }
 
                 /// Construct from an ndarray.
+                ///
+                /// # Panics
+                ///
+                /// Panics if `axis >= shape.len()` or `arr.len()` does not equal `shape.iter().product()`.
                 #[cfg(feature="ndarray")]
+                #[track_caller]
                 pub fn from_ndarray<D: Dimension>(
                     arr: &'a $( $mut_ )? ArrayRef<T, D>,
                     shape: &[usize],

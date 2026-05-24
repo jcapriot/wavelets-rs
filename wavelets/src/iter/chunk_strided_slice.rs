@@ -1,7 +1,7 @@
 //! Chunked Strided slice views and lane iterators over flat multi-dimensional arrays.
 //!
 //! This module provides [`ChunkStridedSliceRef`] — a lightweight non-owning view into a
-//! a fixed number of strided regions of memory — and the concrete chunked iterator types returned by
+//! fixed number of strided regions of memory — and the concrete chunked iterator types returned by
 //! [`super::LanesIterator`] and [`super::parallel::LanesParallelIterator`].
 
 use num_traits::Zero;
@@ -41,6 +41,11 @@ pub type ChunkStridedSliceMut<'a, T, const N: usize> =
 
 impl<'a, T, const N: usize> ChunkStridedSlice<'a, T, N> {
     /// Create an `N`-lane strided view for the `ind`-th group of lanes along axis `ax`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `slice` is empty, `shape.iter().product() != slice.len()`, `ax >= shape.len()`,
+    /// or `ind + N > shape.iter().product::<usize>() / shape[ax]` (insufficient lanes remaining).
     pub fn from_slice(slice: &'a [T], shape: &[usize], ax: usize, ind: usize) -> Self {
         assert_ne!(slice.len(), 0);
         assert_eq!(shape.iter().product::<usize>(), slice.len());
@@ -79,6 +84,11 @@ impl<'a, T, const N: usize> ChunkStridedSlice<'a, T, N> {
 
 impl<'a, T, const N: usize> ChunkStridedSliceMut<'a, T, N> {
     /// Create a mutable `N`-lane strided view for the `ind`-th group of lanes along axis `ax`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `slice` is empty, `shape.iter().product() != slice.len()`, `ax >= shape.len()`,
+    /// or `ind + N > shape.iter().product::<usize>() / shape[ax]` (insufficient lanes remaining).
     pub fn from_mut_slice(slice: &'a mut [T], shape: &[usize], ax: usize, ind: usize) -> Self {
         assert_ne!(slice.len(), 0);
         assert_eq!(shape.iter().cloned().product::<usize>(), slice.len());
@@ -230,7 +240,8 @@ impl<T, const N: usize> ChunkStridedSliceRef<T, N> {
         }
     }
 
-    /// Return an iterator over contiguous `&[T; N]` slices when the chunk is contiguous on success.
+    /// Return an iterator over `&[T; N]` slices if the `N` elements at each position are contiguous,
+    /// or an error if they are not.
     #[inline]
     pub fn try_array_chunks(&self) -> Result<ArrayChunks<'_, T, N>, &'static str> {
         if self.is_chunk_contiguous() {
@@ -269,7 +280,8 @@ impl<T, const N: usize> ChunkStridedSliceRef<T, N> {
         }
     }
 
-    /// Return a mutable iterator over contiguous `&mut [T; N]` slices when contiguous on success.
+    /// Return a mutable iterator over `&mut [T; N]` slices if the `N` elements at each position are
+    /// contiguous, or an error if they are not.
     #[inline]
     pub fn try_array_chunks_mut(&mut self) -> Result<ArrayChunksMut<'_, T, N>, &'static str> {
         if self.is_chunk_contiguous() {
@@ -296,6 +308,10 @@ impl<T: Clone, const N: usize> ChunkStridedSliceRef<T, N> {
     ///
     /// `self` presents `N` interleaved lanes; `evens[j]` and `odds[j]` receive the even- and
     /// odd-indexed elements of lane `j`, respectively.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any `evens[j].len() != (self.len() + 1) / 2` or `odds[j].len() != self.len() / 2`.
     #[inline(always)]
     #[track_caller]
     pub fn deinterleave<V>(&self, evens: &mut [V; N], odds: &mut [V; N])
@@ -351,6 +367,10 @@ impl<T: Clone, const N: usize> ChunkStridedSliceRef<T, N> {
     }
 
     /// Deinterleave into a slice of arrays.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `evens.len() != (self.len() + 1) / 2` or `odds.len() != self.len() / 2`.
     #[inline(always)]
     #[track_caller]
     pub fn deinterleave_arrays(&self, evens: &mut [[T; N]], odds: &mut [[T; N]]) {
@@ -397,6 +417,10 @@ impl<T: Clone, const N: usize> ChunkStridedSliceRef<T, N> {
     ///
     /// `self` presents `N` lanes; `evens[j]` and `odds[j]` are the source of the even- and
     /// odd-indexed elements of lane `j`, respectively.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any `evens[j].len() != (self.len() + 1) / 2` or `odds[j].len() != self.len() / 2`.
     #[inline(always)]
     #[track_caller]
     pub fn interleave<V>(&mut self, evens: &[V; N], odds: &[V; N])
@@ -456,6 +480,10 @@ impl<T: Clone, const N: usize> ChunkStridedSliceRef<T, N> {
     }
 
     /// `N` slices are interleaved into `N` strided slices.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `evens.len() != (self.len() + 1) / 2` or `odds.len() != self.len() / 2`.
     #[inline(always)]
     #[track_caller]
     pub fn interleave_arrays(&mut self, evens: &[[T; N]], odds: &[[T; N]]) {
@@ -500,6 +528,11 @@ impl<T: Clone, const N: usize> ChunkStridedSliceRef<T, N> {
     /// Chunk-strided variant of [`StridedSliceRef::split`]: read `N` lanes from a [`ChunkStridedSliceRef`].
     ///
     /// Fills `first` and `second` with the head and tail ends, respectively, of the `N` strided lanes.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `first[0].len() + second[0].len() > self.len()`, or if not all slices in `first`
+    /// have the same length, or if not all slices in `second` have the same length.
     #[inline(always)]
     #[track_caller]
     pub fn split<V>(&self, first: &mut [V; N], second: &mut [V; N])
@@ -553,6 +586,10 @@ impl<T: Clone, const N: usize> ChunkStridedSliceRef<T, N> {
     }
 
     /// Chunk-strided variant of [`StridedSliceRef::split`]: read `N` interleaved lanes from a [`ChunkStridedSliceRef`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if `first.len() + second.len() > self.len()`.
     #[inline(always)]
     #[track_caller]
     pub fn split_arrays(&self, first: &mut [[T; N]], second: &mut [[T; N]]) {
@@ -595,6 +632,10 @@ impl<T: Clone, const N: usize> ChunkStridedSliceRef<T, N> {
     }
 
     /// Fill the `N` slices `sink` with cloned elements of `self`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `sink[0].len() > self.len()` or if not all slices in `sink` have the same length.
     #[inline(always)]
     #[track_caller]
     pub fn pour_into<V>(&self, sink: &mut [V; N])
@@ -636,7 +677,13 @@ impl<T: Clone + Zero, const N: usize> ChunkStridedSliceRef<T, N> {
     /// Stack `N` slices into `N` strided slices
     ///
     /// This is the chunked version of [`StridedSliceRef::stack`]
+    ///
+    /// # Panics
+    ///
+    /// Panics if `first[0].len() + second[0].len() > self.len()`, or if not all slices in `first`
+    /// have the same length, or if not all slices in `second` have the same length.
     #[inline(always)]
+    #[track_caller]
     pub fn stack<V>(&mut self, first: &[V; N], second: &[V; N])
     where
         V: Deref<Target = [T]>,
@@ -696,7 +743,12 @@ impl<T: Clone + Zero, const N: usize> ChunkStridedSliceRef<T, N> {
     }
 
     /// Stack arrays of N elements into the strided slice.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `first.len() + second.len() > self.len()`.
     #[inline(always)]
+    #[track_caller]
     pub fn stack_arrays(&mut self, first: &[[T; N]], second: &[[T; N]]) {
         if const { N == 0 } {
             return;
@@ -737,6 +789,10 @@ impl<T: Clone + Zero, const N: usize> ChunkStridedSliceRef<T, N> {
     }
 
     /// Fill the `N` lanes of `self` with cloned elements from the `N` `source` slices, filling the leftover with zero values.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `source[0].len() > self.len()` or if not all slices in `source` have the same length.
     #[inline(always)]
     #[track_caller]
     pub fn fill_from<V>(&mut self, source: &[V; N])
@@ -1234,6 +1290,12 @@ macro_rules! implement_lane_chunk_iter {
 
         impl<'a, T, const N: usize> $name<'a, T, N> {
             /// Construct from a flat slice with the given `shape`, iterating chunks along `axis`.
+            ///
+            /// # Panics
+            ///
+            /// Panics if `arr` is empty, `axis >= shape.len()`, or `arr.len()` does not equal
+            /// `shape.iter().product()`.
+            #[track_caller]
             pub fn from_slice(arr: &'a $( $mut_ )? [T], shape: &[usize], axis: usize) -> Self {
                 let (ptr, arr_info) = lane_parts_from_slice(arr,  shape, axis);
                 Self::new(ptr, arr_info)
@@ -1241,6 +1303,12 @@ macro_rules! implement_lane_chunk_iter {
 
             /// Construct from a sub-region of a flat slice: the outer layout is `shape`, but
             /// only the first `sub_shape[axis]` elements along `axis` are iterated.
+            ///
+            /// # Panics
+            ///
+            /// Panics if `arr` is empty, `axis >= shape.len()`, `shape.len() != sub_shape.len()`,
+            /// any `sub_shape[i] > shape[i]`, or `arr.len()` does not equal `shape.iter().product()`.
+            #[track_caller]
             pub fn from_sub_slice(
                 arr: &'a $( $mut_ )? [T],
                 shape: &[usize],
@@ -1252,7 +1320,12 @@ macro_rules! implement_lane_chunk_iter {
             }
 
             /// Construct from an ndarray, iterating lane chunks along `axis`.
+            ///
+            /// # Panics
+            ///
+            /// Panics if `axis >= shape.len()` or `arr.len()` does not equal `shape.iter().product()`.
             #[cfg(feature="ndarray")]
+            #[track_caller]
             pub fn from_ndarray<D: Dimension>(
                 arr: &'a $( $mut_ )? ArrayRef<T, D>,
                 shape: &[usize],
@@ -1492,12 +1565,24 @@ pub mod parallel {
 
             impl<'a, T, const N: usize> $par_name<'a, T, N> {
                 /// Construct from a flat slice with the given `shape`, chunking lanes along `axis`.
+                ///
+                /// # Panics
+                ///
+                /// Panics if `arr` is empty, `axis >= shape.len()`, or `arr.len()` does not equal
+                /// `shape.iter().product()`.
+                #[track_caller]
                 pub fn from_slice(arr: &'a $( $mut_ )? [T], shape: &[usize], axis: usize) -> Self {
                     let (ptr, arr_info) = lane_parts_from_slice(arr, shape, axis);
                     Self::new(ptr, arr_info)
                 }
 
                 /// Construct from a sub-region of a flat slice.
+                ///
+                /// # Panics
+                ///
+                /// Panics if `arr` is empty, `axis >= shape.len()`, `shape.len() != sub_shape.len()`,
+                /// any `sub_shape[i] > shape[i]`, or `arr.len()` does not equal `shape.iter().product()`.
+                #[track_caller]
                 pub fn from_sub_slice(
                     arr: &'a $( $mut_ )? [T],
                     shape: &[usize],
@@ -1509,7 +1594,12 @@ pub mod parallel {
                 }
 
                 /// Construct from an ndarray.
+                ///
+                /// # Panics
+                ///
+                /// Panics if `axis >= shape.len()` or `arr.len()` does not equal `shape.iter().product()`.
                 #[cfg(feature="ndarray")]
+                #[track_caller]
                 pub fn from_ndarray<D: Dimension>(
                     arr: &'a $( $mut_ )? ArrayRef<T, D>,
                     shape: &[usize],
