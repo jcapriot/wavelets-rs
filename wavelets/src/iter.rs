@@ -303,7 +303,7 @@ pub trait LanesIterator {
         &'a self,
         shape: &[usize],
         axis: usize,
-    ) -> IterLaneChunks<'a, Self::Item, N>;
+    ) -> (IterLaneChunks<'a, Self::Item, N>, IterLanes<'a, Self::Item>);
 
     /// Mutably iterate over fixed-width chunks of lanes along `axis`.
     ///
@@ -314,7 +314,10 @@ pub trait LanesIterator {
         &'a mut self,
         shape: &[usize],
         axis: usize,
-    ) -> IterLaneChunksMut<'a, Self::Item, N>;
+    ) -> (
+        IterLaneChunksMut<'a, Self::Item, N>,
+        IterLanesMut<'a, Self::Item>,
+    );
 
     /// Iterate over lanes of a sub-region defined by `sub_shape`.
     ///
@@ -355,7 +358,7 @@ pub trait LanesIterator {
         shape: &[usize],
         sub_shape: &[usize],
         axis: usize,
-    ) -> IterLaneChunks<'a, Self::Item, N>;
+    ) -> (IterLaneChunks<'a, Self::Item, N>, IterLanes<'a, Self::Item>);
 
     /// Mutably iterate over fixed-width chunks of lanes within a sub-region.
     ///
@@ -367,7 +370,10 @@ pub trait LanesIterator {
         shape: &[usize],
         sub_shape: &[usize],
         axis: usize,
-    ) -> IterLaneChunksMut<'a, Self::Item, N>;
+    ) -> (
+        IterLaneChunksMut<'a, Self::Item, N>,
+        IterLanesMut<'a, Self::Item>,
+    );
 
     /// Return the axis index with the smallest stride (most cache-friendly to
     /// iterate over for the given `shape`).
@@ -397,7 +403,7 @@ impl<T> LanesIterator for [T] {
         &'a self,
         shape: &[usize],
         axis: usize,
-    ) -> IterLaneChunks<'a, Self::Item, N> {
+    ) -> (IterLaneChunks<'a, Self::Item, N>, IterLanes<'a, Self::Item>) {
         IterLaneChunks::from_slice(self, shape, axis)
     }
 
@@ -406,7 +412,10 @@ impl<T> LanesIterator for [T] {
         &'a mut self,
         shape: &[usize],
         axis: usize,
-    ) -> IterLaneChunksMut<'a, Self::Item, N> {
+    ) -> (
+        IterLaneChunksMut<'a, Self::Item, N>,
+        IterLanesMut<'a, Self::Item>,
+    ) {
         IterLaneChunksMut::from_slice(self, shape, axis)
     }
 
@@ -435,7 +444,7 @@ impl<T> LanesIterator for [T] {
         shape: &[usize],
         sub_shape: &[usize],
         axis: usize,
-    ) -> IterLaneChunks<'a, Self::Item, N> {
+    ) -> (IterLaneChunks<'a, Self::Item, N>, IterLanes<'a, Self::Item>) {
         IterLaneChunks::from_sub_slice(self, shape, sub_shape, axis)
     }
 
@@ -445,7 +454,10 @@ impl<T> LanesIterator for [T] {
         shape: &[usize],
         sub_shape: &[usize],
         axis: usize,
-    ) -> IterLaneChunksMut<'a, Self::Item, N> {
+    ) -> (
+        IterLaneChunksMut<'a, Self::Item, N>,
+        IterLanesMut<'a, Self::Item>,
+    ) {
         IterLaneChunksMut::from_sub_slice(self, shape, sub_shape, axis)
     }
 
@@ -484,7 +496,7 @@ impl<T, D: ::ndarray::Dimension> LanesIterator for ArrayRef<T, D> {
         &'a self,
         shape: &[usize],
         axis: usize,
-    ) -> IterLaneChunks<'a, Self::Item, N> {
+    ) -> (IterLaneChunks<'a, Self::Item, N>, IterLanes<'a, Self::Item>) {
         IterLaneChunks::from_ndarray(self, shape, axis)
     }
 
@@ -493,7 +505,10 @@ impl<T, D: ::ndarray::Dimension> LanesIterator for ArrayRef<T, D> {
         &'a mut self,
         shape: &[usize],
         axis: usize,
-    ) -> IterLaneChunksMut<'a, Self::Item, N> {
+    ) -> (
+        IterLaneChunksMut<'a, Self::Item, N>,
+        IterLanesMut<'a, Self::Item>,
+    ) {
         IterLaneChunksMut::from_ndarray(self, shape, axis)
     }
 
@@ -523,7 +538,7 @@ impl<T, D: ::ndarray::Dimension> LanesIterator for ArrayRef<T, D> {
         _shape: &[usize],
         sub_shape: &[usize],
         axis: usize,
-    ) -> IterLaneChunks<'a, Self::Item, N> {
+    ) -> (IterLaneChunks<'a, Self::Item, N>, IterLanes<'a, Self::Item>) {
         IterLaneChunks::from_ndarray(self, sub_shape, axis)
     }
 
@@ -533,7 +548,10 @@ impl<T, D: ::ndarray::Dimension> LanesIterator for ArrayRef<T, D> {
         _shape: &[usize],
         sub_shape: &[usize],
         axis: usize,
-    ) -> IterLaneChunksMut<'a, Self::Item, N> {
+    ) -> (
+        IterLaneChunksMut<'a, Self::Item, N>,
+        IterLanesMut<'a, Self::Item>,
+    ) {
         IterLaneChunksMut::from_ndarray(self, sub_shape, axis)
     }
 
@@ -606,7 +624,10 @@ pub mod parallel {
             &'a self,
             shape: &[usize],
             axis: usize,
-        ) -> ParIterLaneChunks<'a, Self::Item, N>;
+        ) -> (
+            ParIterLaneChunks<'a, Self::Item, N>,
+            ParIterLanes<'a, Self::Item>,
+        );
 
         /// Mutably iterate over SIMD-width chunks of lanes along `axis`.
         ///
@@ -617,7 +638,10 @@ pub mod parallel {
             &'a mut self,
             shape: &[usize],
             axis: usize,
-        ) -> ParIterLaneChunksMut<'a, Self::Item, N>;
+        ) -> (
+            ParIterLaneChunksMut<'a, Self::Item, N>,
+            ParIterLanesMut<'a, Self::Item>,
+        );
 
         /// Iterate over lanes of a sub-region defined by `sub_shape`.
         ///
@@ -658,7 +682,10 @@ pub mod parallel {
             shape: &[usize],
             sub_shape: &[usize],
             axis: usize,
-        ) -> ParIterLaneChunks<'a, Self::Item, N>;
+        ) -> (
+            ParIterLaneChunks<'a, Self::Item, N>,
+            ParIterLanes<'a, Self::Item>,
+        );
 
         /// Mutably iterate over SIMD-width chunks of lanes within a sub-region.
         ///
@@ -670,7 +697,10 @@ pub mod parallel {
             shape: &[usize],
             sub_shape: &[usize],
             axis: usize,
-        ) -> ParIterLaneChunksMut<'a, Self::Item, N>;
+        ) -> (
+            ParIterLaneChunksMut<'a, Self::Item, N>,
+            ParIterLanesMut<'a, Self::Item>,
+        );
     }
 
     impl<T> LanesParallelIterator for [T] {
@@ -696,7 +726,10 @@ pub mod parallel {
             &'a self,
             shape: &[usize],
             axis: usize,
-        ) -> ParIterLaneChunks<'a, Self::Item, N> {
+        ) -> (
+            ParIterLaneChunks<'a, Self::Item, N>,
+            ParIterLanes<'a, Self::Item>,
+        ) {
             ParIterLaneChunks::from_slice(self, shape, axis)
         }
 
@@ -705,7 +738,10 @@ pub mod parallel {
             &'a mut self,
             shape: &[usize],
             axis: usize,
-        ) -> ParIterLaneChunksMut<'a, Self::Item, N> {
+        ) -> (
+            ParIterLaneChunksMut<'a, Self::Item, N>,
+            ParIterLanesMut<'a, Self::Item>,
+        ) {
             ParIterLaneChunksMut::from_slice(self, shape, axis)
         }
 
@@ -734,7 +770,10 @@ pub mod parallel {
             shape: &[usize],
             sub_shape: &[usize],
             axis: usize,
-        ) -> ParIterLaneChunks<'a, Self::Item, N> {
+        ) -> (
+            ParIterLaneChunks<'a, Self::Item, N>,
+            ParIterLanes<'a, Self::Item>,
+        ) {
             ParIterLaneChunks::from_sub_slice(self, shape, sub_shape, axis)
         }
 
@@ -744,7 +783,10 @@ pub mod parallel {
             shape: &[usize],
             sub_shape: &[usize],
             axis: usize,
-        ) -> ParIterLaneChunksMut<'a, Self::Item, N> {
+        ) -> (
+            ParIterLaneChunksMut<'a, Self::Item, N>,
+            ParIterLanesMut<'a, Self::Item>,
+        ) {
             ParIterLaneChunksMut::from_sub_slice(self, shape, sub_shape, axis)
         }
     }
@@ -773,7 +815,10 @@ pub mod parallel {
             &'a self,
             shape: &[usize],
             axis: usize,
-        ) -> ParIterLaneChunks<'a, Self::Item, N> {
+        ) -> (
+            ParIterLaneChunks<'a, Self::Item, N>,
+            ParIterLanes<'a, Self::Item>,
+        ) {
             ParIterLaneChunks::from_ndarray(self, shape, axis)
         }
 
@@ -782,7 +827,10 @@ pub mod parallel {
             &'a mut self,
             shape: &[usize],
             axis: usize,
-        ) -> ParIterLaneChunksMut<'a, Self::Item, N> {
+        ) -> (
+            ParIterLaneChunksMut<'a, Self::Item, N>,
+            ParIterLanesMut<'a, Self::Item>,
+        ) {
             ParIterLaneChunksMut::from_ndarray(self, shape, axis)
         }
 
@@ -811,7 +859,10 @@ pub mod parallel {
             _shape: &[usize],
             sub_shape: &[usize],
             axis: usize,
-        ) -> ParIterLaneChunks<'a, Self::Item, N> {
+        ) -> (
+            ParIterLaneChunks<'a, Self::Item, N>,
+            ParIterLanes<'a, Self::Item>,
+        ) {
             ParIterLaneChunks::from_ndarray(self, sub_shape, axis)
         }
 
@@ -821,7 +872,10 @@ pub mod parallel {
             _shape: &[usize],
             sub_shape: &[usize],
             axis: usize,
-        ) -> ParIterLaneChunksMut<'a, Self::Item, N> {
+        ) -> (
+            ParIterLaneChunksMut<'a, Self::Item, N>,
+            ParIterLanesMut<'a, Self::Item>,
+        ) {
             ParIterLaneChunksMut::from_ndarray(self, sub_shape, axis)
         }
     }

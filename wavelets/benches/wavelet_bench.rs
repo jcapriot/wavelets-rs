@@ -313,10 +313,8 @@ fn interleave_strided_benchmark(c: &mut Criterion) {
     group.bench_function("chunks/across", |b| {
         let ax = 0;
         b.iter(|| {
-            let in_chunk = x1.iter_lane_chunks::<N>(&shape, ax);
-            let in_rem = in_chunk.remainder();
-            let out_chunk = x2.iter_lane_chunks_mut::<N>(&shape, ax);
-            let out_rem = out_chunk.remainder();
+            let (in_chunk, in_rem) = x1.iter_lane_chunks::<N>(&shape, ax);
+            let (out_chunk, out_rem) = x2.iter_lane_chunks_mut::<N>(&shape, ax);
 
             for (in_chunk, mut out_chunk) in in_chunk.zip(out_chunk) {
                 in_chunk.split(&mut work_f, &mut work_s);
@@ -332,10 +330,8 @@ fn interleave_strided_benchmark(c: &mut Criterion) {
     group.bench_function("chunks/along", |b| {
         let ax = 1;
         b.iter(|| {
-            let in_chunk = x1.iter_lane_chunks::<N>(&shape, ax);
-            let in_rem = in_chunk.remainder();
-            let out_chunk = x2.iter_lane_chunks_mut::<N>(&shape, ax);
-            let out_rem = out_chunk.remainder();
+            let (in_chunk, in_rem) = x1.iter_lane_chunks::<N>(&shape, ax);
+            let (out_chunk, out_rem) = x2.iter_lane_chunks_mut::<N>(&shape, ax);
 
             for (in_chunk, mut out_chunk) in in_chunk.zip(out_chunk) {
                 in_chunk.split(&mut work_f, &mut work_s);
@@ -451,10 +447,8 @@ fn deinterleave_benchmark(c: &mut Criterion) {
         let mut work_o2 = avec![0; n_o];
 
         b.iter(|| {
-            let in_chunk = x1.iter_lane_chunks::<N>(&shape, ax);
-            let in_rem = in_chunk.remainder();
-            let out_chunk = x2.iter_lane_chunks_mut::<N>(&shape, ax);
-            let out_rem = out_chunk.remainder();
+            let (in_chunk, in_rem) = x1.iter_lane_chunks::<N>(&shape, ax);
+            let (out_chunk, out_rem) = x2.iter_lane_chunks_mut::<N>(&shape, ax);
 
             for (in_chunk, mut out_chunk) in in_chunk.zip(out_chunk) {
                 in_chunk.deinterleave(&mut work_e, &mut work_o);
@@ -480,10 +474,8 @@ fn deinterleave_benchmark(c: &mut Criterion) {
         let mut work_o2 = avec![0; n_o];
 
         b.iter(|| {
-            let in_chunk = x1.iter_lane_chunks::<N>(&shape, ax);
-            let in_rem = in_chunk.remainder();
-            let out_chunk = x2.iter_lane_chunks_mut::<N>(&shape, ax);
-            let out_rem = out_chunk.remainder();
+            let (in_chunk, in_rem) = x1.iter_lane_chunks::<N>(&shape, ax);
+            let (out_chunk, out_rem) = x2.iter_lane_chunks_mut::<N>(&shape, ax);
 
             for (in_chunk, mut out_chunk) in in_chunk.zip(out_chunk) {
                 in_chunk.deinterleave(&mut work_e, &mut work_o);
@@ -509,10 +501,8 @@ fn deinterleave_benchmark(c: &mut Criterion) {
         let mut work_o2 = avec![0; n_o];
 
         b.iter(|| {
-            let in_chunk = x1.iter_lane_chunks::<N>(&shape, ax);
-            let in_rem = in_chunk.remainder();
-            let out_chunk = x2.iter_lane_chunks_mut::<N>(&shape, ax);
-            let out_rem = out_chunk.remainder();
+            let (in_chunk, in_rem) = x1.iter_lane_chunks::<N>(&shape, ax);
+            let (out_chunk, out_rem) = x2.iter_lane_chunks_mut::<N>(&shape, ax);
 
             for (in_chunk, mut out_chunk) in in_chunk.zip(out_chunk) {
                 in_chunk.deinterleave_arrays(&mut work_e, &mut work_o);
@@ -538,10 +528,8 @@ fn deinterleave_benchmark(c: &mut Criterion) {
         let mut work_o2 = avec![0; n_o];
 
         b.iter(|| {
-            let in_chunk = x1.iter_lane_chunks::<N>(&shape, ax);
-            let in_rem = in_chunk.remainder();
-            let out_chunk = x2.iter_lane_chunks_mut::<N>(&shape, ax);
-            let out_rem = out_chunk.remainder();
+            let (in_chunk, in_rem) = x1.iter_lane_chunks::<N>(&shape, ax);
+            let (out_chunk, out_rem) = x2.iter_lane_chunks_mut::<N>(&shape, ax);
 
             for (in_chunk, mut out_chunk) in in_chunk.zip(out_chunk) {
                 in_chunk.deinterleave_arrays(&mut work_e, &mut work_o);
@@ -603,10 +591,8 @@ fn driver_vs_array_db2(c: &mut Criterion) {
     macro_rules! impl_arm {
         ($N:tt, $ax:ident, $ns:ident, $nd:ident) => {
             const N: usize = $N;
-            let in_chunks = x1.iter_lane_chunks::<N>(&shape, $ax);
-            let in_rem = in_chunks.remainder();
-            let out_chunks = out.iter_lane_chunks_mut::<N>(&shape, $ax);
-            let out_rem = out_chunks.remainder();
+            let (in_chunks, in_rem) = x1.iter_lane_chunks::<N>(&shape, $ax);
+            let (out_chunks, out_rem) = out.iter_lane_chunks_mut::<N>(&shape, $ax);
 
 
             let mut s = avec![[0.0;N]; $ns];

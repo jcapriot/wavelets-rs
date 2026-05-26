@@ -32,8 +32,7 @@ fn ref_deinterleave_chunk_nd<T: Clone + num_traits::Zero>(x: &[T], shape: &[usiz
         let ne = (n + 1) / 2;
         let no = n / 2;
 
-        let chunks = out.iter_lane_chunks_mut::<4>(shape, ax);
-        let rem = chunks.remainder();
+        let (chunks, rem) = out.iter_lane_chunks_mut::<4>(shape, ax);
 
         let mut work_e: [AVec<T>; N] = core::array::from_fn(|_| avec![T::zero(); ne]);
         let mut work_o: [AVec<T>; N] = core::array::from_fn(|_| avec![T::zero(); no]);

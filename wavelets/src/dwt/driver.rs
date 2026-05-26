@@ -1086,71 +1086,85 @@ fn general_nd_forward_multilevel<F, T, L, const N: usize>(
             if n_sd > 1 {
                 match first {
                     true => {
-                        let in_chunks = input.iter_lane_chunks::<N>(in_shape, ax);
-                        let in_rem = in_chunks.remainder();
-                        let out_chunks =
-                            output.iter_lane_chunks_sub_mut::<N>(out_shape, &sub_shape, ax);
-                        let out_rem = out_chunks.remainder();
+                        let (in_lanes, out_lanes) = if input.is_ax_contiguous(ax, in_shape)
+                            || output.is_ax_contiguous(ax, out_shape)
+                        {
+                            (
+                                input.iter_lanes(in_shape, ax),
+                                output.iter_lanes_sub_mut(out_shape, &sub_shape, ax),
+                            )
+                        } else {
+                            let (in_chunks, in_rem) = input.iter_lane_chunks::<N>(in_shape, ax);
+                            let (out_chunks, out_rem) =
+                                output.iter_lane_chunks_sub_mut::<N>(out_shape, &sub_shape, ax);
 
-                        if in_chunks.len() > 0 {
-                            let mut x = core::array::from_fn(|_| avec![T::zero(); n_ax]);
-                            let mut s = core::array::from_fn(|_| avec![T::zero(); n_sd]);
-                            let mut d = core::array::from_fn(|_| avec![T::zero(); n_sd]);
-                            in_chunks
-                                .zip(out_chunks)
-                                .for_each(|(in_chunk, mut out_chunk)| {
-                                    // copy strided chunks into the local storage
-                                    in_chunk.pour_into(&mut x);
+                            if in_chunks.len() > 0 {
+                                let mut x = core::array::from_fn(|_| avec![T::zero(); n_ax]);
+                                let mut s = core::array::from_fn(|_| avec![T::zero(); n_sd]);
+                                let mut d = core::array::from_fn(|_| avec![T::zero(); n_sd]);
+                                in_chunks
+                                    .zip(out_chunks)
+                                    .for_each(|(in_chunk, mut out_chunk)| {
+                                        // copy strided chunks into the local storage
+                                        in_chunk.pour_into(&mut x);
+                                        x.iter().zip(s.iter_mut().zip(d.iter_mut())).for_each(
+                                            |(x, (s, d))| {
+                                                func(x, s, d);
+                                            },
+                                        );
+                                        // clone local storage to the output
+                                        out_chunk.stack(&s, &d);
+                                    });
+                            }
+                            (in_rem, out_rem)
+                        };
+                        if in_lanes.len() > 0 {
+                            let mut x = avec![T::zero(); n_ax];
+                            let mut s = avec![T::zero(); n_sd];
+                            let mut d = avec![T::zero(); n_sd];
+                            in_lanes
+                                .zip(out_lanes)
+                                .for_each(|(in_slice, mut out_slice)| {
+                                    // copy strided slice into local dimension storage
+                                    in_slice.pour_into(&mut x);
+                                    func(&x, &mut s, &mut d);
+                                    // copy local back to output strided slice
+                                    out_slice.stack(&s, &d);
+                                });
+                        }
+
+                        first = false;
+                    }
+                    false => {
+                        let lanes = if output.is_ax_contiguous(ax, out_shape) {
+                            output.iter_lanes_sub_mut(out_shape, &sub_shape, ax)
+                        } else {
+                            let (chunks, rem) =
+                                output.iter_lane_chunks_sub_mut::<N>(out_shape, &sub_shape, ax);
+
+                            if chunks.len() > 0 {
+                                let mut x = core::array::from_fn(|_| avec![T::zero(); n_ax]);
+                                let mut s = core::array::from_fn(|_| avec![T::zero(); n_sd]);
+                                let mut d = core::array::from_fn(|_| avec![T::zero(); n_sd]);
+                                chunks.for_each(|mut chunk| {
+                                    // copy (and deinterleave) strided chunks into the local storage
+                                    chunk.pour_into(&mut x);
                                     x.iter().zip(s.iter_mut().zip(d.iter_mut())).for_each(
                                         |(x, (s, d))| {
                                             func(x, s, d);
                                         },
                                     );
                                     // clone local storage to the output
-                                    out_chunk.stack(&s, &d);
+                                    chunk.stack(&s, &d);
                                 });
-                        }
-                        if in_rem.len() > 0 {
+                            }
+                            rem
+                        };
+                        if lanes.len() > 0 {
                             let mut x = avec![T::zero(); n_ax];
                             let mut s = avec![T::zero(); n_sd];
                             let mut d = avec![T::zero(); n_sd];
-                            in_rem.zip(out_rem).for_each(|(in_slice, mut out_slice)| {
-                                // copy strided slice into local dimension storage
-                                in_slice.pour_into(&mut x);
-                                func(&x, &mut s, &mut d);
-                                // copy local back to output strided slice
-                                out_slice.stack(&s, &d);
-                            });
-                        }
-
-                        first = false;
-                    }
-                    false => {
-                        let chunks =
-                            output.iter_lane_chunks_sub_mut::<N>(out_shape, &sub_shape, ax);
-                        let rem = chunks.remainder();
-
-                        if chunks.len() > 0 {
-                            let mut x = core::array::from_fn(|_| avec![T::zero(); n_ax]);
-                            let mut s = core::array::from_fn(|_| avec![T::zero(); n_sd]);
-                            let mut d = core::array::from_fn(|_| avec![T::zero(); n_sd]);
-                            chunks.for_each(|mut chunk| {
-                                // copy (and deinterleave) strided chunks into the local storage
-                                chunk.pour_into(&mut x);
-                                x.iter().zip(s.iter_mut().zip(d.iter_mut())).for_each(
-                                    |(x, (s, d))| {
-                                        func(x, s, d);
-                                    },
-                                );
-                                // clone local storage to the output
-                                chunk.stack(&s, &d);
-                            });
-                        }
-                        if rem.len() > 0 {
-                            let mut x = avec![T::zero(); n_ax];
-                            let mut s = avec![T::zero(); n_sd];
-                            let mut d = avec![T::zero(); n_sd];
-                            rem.for_each(|mut slc| {
+                            lanes.for_each(|mut slc| {
                                 // copy strided slice into local dimension storage
                                 slc.pour_into(&mut x);
                                 func(&x, &mut s, &mut d);
@@ -1234,30 +1248,35 @@ fn general_nd_inverse_multilevel<F, T, L, const N: usize>(
             // Note that everything does work for n_s == 1 (or 0 for that matter),
             // just that there really isn't anything useful to do.
             if n_sd > 1 {
-                let chunks = inwork.iter_lane_chunks_sub_mut::<N>(in_shape, &sub_shape, ax);
-                let rem = chunks.remainder();
+                let lanes = if inwork.is_ax_contiguous(ax, in_shape) {
+                    inwork.iter_lanes_sub_mut(in_shape, &sub_shape, ax)
+                } else {
+                    let (chunks, rem) =
+                        inwork.iter_lane_chunks_sub_mut::<N>(in_shape, &sub_shape, ax);
 
-                if chunks.len() > 0 {
-                    let mut x = core::array::from_fn(|_| avec![T::zero(); n_ax]);
-                    let mut s = core::array::from_fn(|_| avec![T::zero(); n_sd]);
-                    let mut d = core::array::from_fn(|_| avec![T::zero(); n_sd]);
-                    chunks.for_each(|mut chunk| {
-                        // split the chunk into the approximation and detail coefficients.
-                        chunk.split(&mut s, &mut d);
-                        x.iter_mut()
-                            .zip(s.iter().zip(d.iter()))
-                            .for_each(|(x, (s, d))| {
-                                func(s, d, x);
-                            });
-                        // clone local storage to the output
-                        chunk.fill_from(&x);
-                    });
-                }
-                if rem.len() > 0 {
+                    if chunks.len() > 0 {
+                        let mut x = core::array::from_fn(|_| avec![T::zero(); n_ax]);
+                        let mut s = core::array::from_fn(|_| avec![T::zero(); n_sd]);
+                        let mut d = core::array::from_fn(|_| avec![T::zero(); n_sd]);
+                        chunks.for_each(|mut chunk| {
+                            // split the chunk into the approximation and detail coefficients.
+                            chunk.split(&mut s, &mut d);
+                            x.iter_mut()
+                                .zip(s.iter().zip(d.iter()))
+                                .for_each(|(x, (s, d))| {
+                                    func(s, d, x);
+                                });
+                            // clone local storage to the output
+                            chunk.fill_from(&x);
+                        });
+                    }
+                    rem
+                };
+                if lanes.len() > 0 {
                     let mut x = avec![T::zero(); n_ax];
                     let mut s = avec![T::zero(); n_sd];
                     let mut d = avec![T::zero(); n_sd];
-                    rem.for_each(|mut slc| {
+                    lanes.for_each(|mut slc| {
                         // split the slice into the approximation and detail coefficients.
                         slc.split(&mut s, &mut d);
                         func(&s, &d, &mut x);
@@ -1273,21 +1292,29 @@ fn general_nd_inverse_multilevel<F, T, L, const N: usize>(
 
     // copy input into output
     let min_axis = output.min_stride_axis(out_shape);
-    let in_chunks = inwork.iter_lane_chunks_sub::<N>(in_shape, out_shape, min_axis);
-    let in_rem = in_chunks.remainder();
-    let out_chunks = output.iter_lane_chunks_mut::<N>(out_shape, min_axis);
-    let out_rem = out_chunks.remainder();
+    let (in_lanes, out_lanes) = if inwork.is_ax_contiguous(min_axis, in_shape)
+        || output.is_ax_contiguous(min_axis, out_shape)
+    {
+        (
+            inwork.iter_lanes_sub(in_shape, out_shape, min_axis),
+            output.iter_lanes_mut(out_shape, min_axis),
+        )
+    } else {
+        let (in_chunks, in_rem) = inwork.iter_lane_chunks_sub::<N>(in_shape, out_shape, min_axis);
+        let (out_chunks, out_rem) = output.iter_lane_chunks_mut::<N>(out_shape, min_axis);
 
-    out_chunks.zip(in_chunks).for_each(|(mut o, i)| {
-        o.iter_mut().zip(i.iter()).for_each(|(o, i)| {
-            o.into_iter()
-                .zip(i.into_iter().cloned())
-                .for_each(|(o, i)| {
-                    *o = i;
-                });
+        out_chunks.zip(in_chunks).for_each(|(mut o, i)| {
+            o.iter_mut().zip(i.iter()).for_each(|(o, i)| {
+                o.into_iter()
+                    .zip(i.into_iter().cloned())
+                    .for_each(|(o, i)| {
+                        *o = i;
+                    });
+            });
         });
-    });
-    out_rem.zip(in_rem).for_each(|(mut o, i)| {
+        (in_rem, out_rem)
+    };
+    out_lanes.zip(in_lanes).for_each(|(mut o, i)| {
         o.iter_mut()
             .zip(i.iter().cloned())
             .for_each(|(o, i)| *o = i);
@@ -1330,70 +1357,85 @@ fn general_nd_per_forward_multilevel<F, T, L, const N: usize>(
             if n_s > 1 {
                 match first {
                     true => {
-                        let in_chunks = input.iter_lane_chunks::<N>(shape, ax);
-                        let in_rem = in_chunks.remainder();
-                        let out_chunks =
-                            output.iter_lane_chunks_sub_mut::<N>(shape, &sub_shape, ax);
-                        let out_rem = out_chunks.remainder();
+                        let (in_lanes, out_lanes) = if input.is_ax_contiguous(ax, shape)
+                            || output.is_ax_contiguous(ax, shape)
+                        {
+                            (
+                                input.iter_lanes(shape, ax),
+                                output.iter_lanes_sub_mut(shape, &sub_shape, ax),
+                            )
+                        } else {
+                            let (in_chunks, in_rem) = input.iter_lane_chunks::<N>(shape, ax);
+                            let (out_chunks, out_rem) =
+                                output.iter_lane_chunks_sub_mut::<N>(shape, &sub_shape, ax);
 
-                        if in_chunks.len() > 0 {
-                            let mut x = core::array::from_fn(|_| avec![T::zero(); n_ax]);
-                            let mut s = core::array::from_fn(|_| avec![T::zero(); n_s]);
-                            let mut d = core::array::from_fn(|_| avec![T::zero(); n_d]);
-                            in_chunks
-                                .zip(out_chunks)
-                                .for_each(|(in_chunk, mut out_chunk)| {
-                                    // copy strided chunks into the local storage
-                                    in_chunk.pour_into(&mut x);
+                            if in_chunks.len() > 0 {
+                                let mut x = core::array::from_fn(|_| avec![T::zero(); n_ax]);
+                                let mut s = core::array::from_fn(|_| avec![T::zero(); n_s]);
+                                let mut d = core::array::from_fn(|_| avec![T::zero(); n_d]);
+                                in_chunks
+                                    .zip(out_chunks)
+                                    .for_each(|(in_chunk, mut out_chunk)| {
+                                        // copy strided chunks into the local storage
+                                        in_chunk.pour_into(&mut x);
+                                        x.iter().zip(s.iter_mut().zip(d.iter_mut())).for_each(
+                                            |(x, (s, d))| {
+                                                func(x, s, d);
+                                            },
+                                        );
+                                        // clone local storage to the output
+                                        out_chunk.stack(&s, &d);
+                                    });
+                            }
+                            (in_rem, out_rem)
+                        };
+                        if in_lanes.len() > 0 {
+                            let mut x = avec![T::zero(); n_ax];
+                            let mut s = avec![T::zero(); n_s];
+                            let mut d = avec![T::zero(); n_d];
+                            in_lanes
+                                .zip(out_lanes)
+                                .for_each(|(in_slice, mut out_slice)| {
+                                    // copy strided slice into local dimension storage
+                                    in_slice.pour_into(&mut x);
+                                    func(&x, &mut s, &mut d);
+                                    // copy local back to output strided slice
+                                    out_slice.stack(&s, &d);
+                                });
+                        }
+
+                        first = false;
+                    }
+                    false => {
+                        let lanes = if output.is_ax_contiguous(ax, shape) {
+                            output.iter_lanes_sub_mut(shape, &sub_shape, ax)
+                        } else {
+                            let (chunks, rem) =
+                                output.iter_lane_chunks_sub_mut::<N>(shape, &sub_shape, ax);
+
+                            if chunks.len() > 0 {
+                                let mut x = core::array::from_fn(|_| avec![T::zero(); n_ax]);
+                                let mut s = core::array::from_fn(|_| avec![T::zero(); n_s]);
+                                let mut d = core::array::from_fn(|_| avec![T::zero(); n_d]);
+                                chunks.for_each(|mut chunk| {
+                                    // copy (and deinterleave) strided chunks into the local storage
+                                    chunk.pour_into(&mut x);
                                     x.iter().zip(s.iter_mut().zip(d.iter_mut())).for_each(
                                         |(x, (s, d))| {
                                             func(x, s, d);
                                         },
                                     );
                                     // clone local storage to the output
-                                    out_chunk.stack(&s, &d);
+                                    chunk.stack(&s, &d);
                                 });
-                        }
-                        if in_rem.len() > 0 {
+                            }
+                            rem
+                        };
+                        if lanes.len() > 0 {
                             let mut x = avec![T::zero(); n_ax];
                             let mut s = avec![T::zero(); n_s];
                             let mut d = avec![T::zero(); n_d];
-                            in_rem.zip(out_rem).for_each(|(in_slice, mut out_slice)| {
-                                // copy strided slice into local dimension storage
-                                in_slice.pour_into(&mut x);
-                                func(&x, &mut s, &mut d);
-                                // copy local back to output strided slice
-                                out_slice.stack(&s, &d);
-                            });
-                        }
-
-                        first = false;
-                    }
-                    false => {
-                        let chunks = output.iter_lane_chunks_sub_mut::<N>(shape, &sub_shape, ax);
-                        let rem = chunks.remainder();
-
-                        if chunks.len() > 0 {
-                            let mut x = core::array::from_fn(|_| avec![T::zero(); n_ax]);
-                            let mut s = core::array::from_fn(|_| avec![T::zero(); n_s]);
-                            let mut d = core::array::from_fn(|_| avec![T::zero(); n_d]);
-                            chunks.for_each(|mut chunk| {
-                                // copy (and deinterleave) strided chunks into the local storage
-                                chunk.pour_into(&mut x);
-                                x.iter().zip(s.iter_mut().zip(d.iter_mut())).for_each(
-                                    |(x, (s, d))| {
-                                        func(x, s, d);
-                                    },
-                                );
-                                // clone local storage to the output
-                                chunk.stack(&s, &d);
-                            });
-                        }
-                        if rem.len() > 0 {
-                            let mut x = avec![T::zero(); n_ax];
-                            let mut s = avec![T::zero(); n_s];
-                            let mut d = avec![T::zero(); n_d];
-                            rem.for_each(|mut slc| {
+                            lanes.for_each(|mut slc| {
                                 // copy strided slice into local dimension storage
                                 slc.pour_into(&mut x);
                                 func(&x, &mut s, &mut d);
@@ -1471,21 +1513,28 @@ fn general_nd_per_inverse_multilevel<F, T, L, const N: usize>(
 
     // In per mode we can copy the input to the output right away and not modify the input array.
     let min_axis = output.min_stride_axis(shape);
-    let in_chunks = input.iter_lane_chunks::<N>(shape, min_axis);
-    let in_rem = in_chunks.remainder();
-    let out_chunks = output.iter_lane_chunks_mut::<N>(shape, min_axis);
-    let out_rem = out_chunks.remainder();
+    let (in_lanes, out_lanes) =
+        if input.is_ax_contiguous(min_axis, shape) || output.is_ax_contiguous(min_axis, shape) {
+            (
+                input.iter_lanes(shape, min_axis),
+                output.iter_lanes_mut(shape, min_axis),
+            )
+        } else {
+            let (in_chunks, in_rem) = input.iter_lane_chunks::<N>(shape, min_axis);
+            let (out_chunks, out_rem) = output.iter_lane_chunks_mut::<N>(shape, min_axis);
 
-    out_chunks.zip(in_chunks).for_each(|(mut o, i)| {
-        o.iter_mut().zip(i.iter()).for_each(|(o, i)| {
-            o.into_iter()
-                .zip(i.into_iter().cloned())
-                .for_each(|(o, i)| {
-                    *o = i;
+            out_chunks.zip(in_chunks).for_each(|(mut o, i)| {
+                o.iter_mut().zip(i.iter()).for_each(|(o, i)| {
+                    o.into_iter()
+                        .zip(i.into_iter().cloned())
+                        .for_each(|(o, i)| {
+                            *o = i;
+                        });
                 });
-        });
-    });
-    out_rem.zip(in_rem).for_each(|(mut o, i)| {
+            });
+            (in_rem, out_rem)
+        };
+    out_lanes.zip(in_lanes).for_each(|(mut o, i)| {
         o.iter_mut()
             .zip(i.iter().cloned())
             .for_each(|(o, i)| *o = i);
@@ -1501,30 +1550,34 @@ fn general_nd_per_inverse_multilevel<F, T, L, const N: usize>(
             // Note that everything does work for n_s == 1 (or 0 for that matter),
             // just that there really isn't anything useful to do.
             if n_s > 1 {
-                let chunks = output.iter_lane_chunks_sub_mut::<N>(shape, &sub_shape, ax);
-                let rem = chunks.remainder();
+                let lanes = if output.is_ax_contiguous(ax, shape) {
+                    output.iter_lanes_sub_mut(shape, &sub_shape, ax)
+                } else {
+                    let (chunks, rem) = output.iter_lane_chunks_sub_mut::<N>(shape, &sub_shape, ax);
 
-                if chunks.len() > 0 {
-                    let mut x = core::array::from_fn(|_| avec![T::zero(); n_ax]);
-                    let mut s = core::array::from_fn(|_| avec![T::zero(); n_s]);
-                    let mut d = core::array::from_fn(|_| avec![T::zero(); n_d]);
-                    chunks.for_each(|mut chunk| {
-                        // split the chunk into the approximation and detail coefficients.
-                        chunk.split(&mut s, &mut d);
-                        x.iter_mut()
-                            .zip(s.iter().zip(d.iter()))
-                            .for_each(|(x, (s, d))| {
-                                func(s, d, x);
-                            });
-                        // clone local storage to the output
-                        chunk.fill_from(&x);
-                    });
-                }
-                if rem.len() > 0 {
+                    if chunks.len() > 0 {
+                        let mut x = core::array::from_fn(|_| avec![T::zero(); n_ax]);
+                        let mut s = core::array::from_fn(|_| avec![T::zero(); n_s]);
+                        let mut d = core::array::from_fn(|_| avec![T::zero(); n_d]);
+                        chunks.for_each(|mut chunk| {
+                            // split the chunk into the approximation and detail coefficients.
+                            chunk.split(&mut s, &mut d);
+                            x.iter_mut()
+                                .zip(s.iter().zip(d.iter()))
+                                .for_each(|(x, (s, d))| {
+                                    func(s, d, x);
+                                });
+                            // clone local storage to the output
+                            chunk.fill_from(&x);
+                        });
+                    }
+                    rem
+                };
+                if lanes.len() > 0 {
                     let mut x = avec![T::zero(); n_ax];
                     let mut s = avec![T::zero(); n_s];
                     let mut d = avec![T::zero(); n_d];
-                    rem.for_each(|mut slc| {
+                    lanes.for_each(|mut slc| {
                         // split the slice into the approximation and detail coefficients.
                         slc.split(&mut s, &mut d);
                         func(&s, &d, &mut x);
@@ -2337,11 +2390,9 @@ pub mod parallel {
                 if n_sd > 1 {
                     match first {
                         true => {
-                            let in_chunks = input.par_iter_lane_chunks::<N>(in_shape, ax);
-                            let in_rem = in_chunks.remainder();
-                            let out_chunks =
+                            let (in_chunks, in_rem) = input.par_iter_lane_chunks::<N>(in_shape, ax);
+                            let (out_chunks, out_rem) =
                                 output.par_iter_lane_chunks_sub_mut::<N>(out_shape, &sub_shape, ax);
-                            let out_rem = out_chunks.remainder();
 
                             in_chunks.zip(out_chunks).for_each_init(
                                 || {
@@ -2382,9 +2433,8 @@ pub mod parallel {
                             first = false;
                         }
                         false => {
-                            let chunks =
+                            let (chunks, rem) =
                                 output.par_iter_lane_chunks_sub_mut::<N>(out_shape, &sub_shape, ax);
-                            let rem = chunks.remainder();
 
                             if chunks.len() > 0 {
                                 chunks.for_each_init(
@@ -2499,8 +2549,8 @@ pub mod parallel {
                 // Note that everything does work for n_s == 1 (or 0 for that matter),
                 // just that there really isn't anything useful to do.
                 if n_sd > 1 {
-                    let chunks = inwork.par_iter_lane_chunks_sub_mut::<N>(in_shape, &sub_shape, ax);
-                    let rem = chunks.remainder();
+                    let (chunks, rem) =
+                        inwork.par_iter_lane_chunks_sub_mut::<N>(in_shape, &sub_shape, ax);
 
                     if chunks.len() > 0 {
                         chunks.for_each_init(
@@ -2548,10 +2598,9 @@ pub mod parallel {
 
         // copy input into output
         let min_axis = output.min_stride_axis(out_shape);
-        let in_chunks = inwork.par_iter_lane_chunks_sub::<N>(in_shape, out_shape, min_axis);
-        let in_rem = in_chunks.remainder();
-        let out_chunks = output.par_iter_lane_chunks_mut::<N>(out_shape, min_axis);
-        let out_rem = out_chunks.remainder();
+        let (in_chunks, in_rem) =
+            inwork.par_iter_lane_chunks_sub::<N>(in_shape, out_shape, min_axis);
+        let (out_chunks, out_rem) = output.par_iter_lane_chunks_mut::<N>(out_shape, min_axis);
 
         out_chunks.zip(in_chunks).for_each(|(mut o, i)| {
             o.iter_mut().zip(i.iter()).for_each(|(o, i)| {
@@ -2605,11 +2654,9 @@ pub mod parallel {
                 if n_s > 1 {
                     match first {
                         true => {
-                            let in_chunks = input.par_iter_lane_chunks::<N>(shape, ax);
-                            let in_rem = in_chunks.remainder();
-                            let out_chunks =
+                            let (in_chunks, in_rem) = input.par_iter_lane_chunks::<N>(shape, ax);
+                            let (out_chunks, out_rem) =
                                 output.par_iter_lane_chunks_sub_mut::<N>(shape, &sub_shape, ax);
-                            let out_rem = out_chunks.remainder();
 
                             in_chunks.zip(out_chunks).for_each_init(
                                 || {
@@ -2648,9 +2695,8 @@ pub mod parallel {
                             first = false;
                         }
                         false => {
-                            let chunks =
+                            let (chunks, rem) =
                                 output.par_iter_lane_chunks_sub_mut::<N>(shape, &sub_shape, ax);
-                            let rem = chunks.remainder();
 
                             if chunks.len() > 0 {
                                 chunks.for_each_init(
@@ -2761,10 +2807,8 @@ pub mod parallel {
 
         // In per mode we can copy the input to the output right away and not modify the input array.
         let min_axis = output.min_stride_axis(shape);
-        let in_chunks = input.par_iter_lane_chunks::<N>(shape, min_axis);
-        let in_rem = in_chunks.remainder();
-        let out_chunks = output.par_iter_lane_chunks_mut::<N>(shape, min_axis);
-        let out_rem = out_chunks.remainder();
+        let (in_chunks, in_rem) = input.par_iter_lane_chunks::<N>(shape, min_axis);
+        let (out_chunks, out_rem) = output.par_iter_lane_chunks_mut::<N>(shape, min_axis);
 
         out_chunks.zip(in_chunks).for_each(|(mut o, i)| {
             o.iter_mut().zip(i.iter()).for_each(|(o, i)| {
@@ -2791,8 +2835,8 @@ pub mod parallel {
                 // Note that everything does work for n_s == 1 (or 0 for that matter),
                 // just that there really isn't anything useful to do.
                 if n_s > 1 {
-                    let chunks = output.par_iter_lane_chunks_sub_mut::<N>(shape, &sub_shape, ax);
-                    let rem = chunks.remainder();
+                    let (chunks, rem) =
+                        output.par_iter_lane_chunks_sub_mut::<N>(shape, &sub_shape, ax);
 
                     chunks.for_each_init(
                         || {

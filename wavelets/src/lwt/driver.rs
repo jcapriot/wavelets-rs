@@ -525,11 +525,10 @@ fn general_nd_forward_multilevel<F, T, L, const N: usize>(
                                 output.iter_lanes_sub_mut(shape, &sub_shape, ax),
                             )
                         } else {
-                            let in_chunks = input.iter_lane_chunks_sub::<N>(shape, &sub_shape, ax);
-                            let in_rem = in_chunks.remainder();
-                            let out_chunks =
+                            let (in_chunks, in_rem) =
+                                input.iter_lane_chunks_sub::<N>(shape, &sub_shape, ax);
+                            let (out_chunks, out_rem) =
                                 output.iter_lane_chunks_sub_mut::<N>(shape, &sub_shape, ax);
-                            let out_rem = out_chunks.remainder();
 
                             if in_chunks.len() > 0 {
                                 let mut s = core::array::from_fn(|_| avec![T::zero(); n_s]);
@@ -571,9 +570,8 @@ fn general_nd_forward_multilevel<F, T, L, const N: usize>(
                         let lanes = if output.is_ax_contiguous(ax, shape) {
                             output.iter_lanes_sub_mut(shape, &sub_shape, ax)
                         } else {
-                            let chunks =
+                            let (chunks, rem) =
                                 output.iter_lane_chunks_sub_mut::<N>(shape, &sub_shape, ax);
-                            let rem = chunks.remainder();
 
                             if chunks.len() > 0 {
                                 let mut s = core::array::from_fn(|_| avec![T::zero(); n_s]);
@@ -643,10 +641,8 @@ fn general_nd_inverse_multilevel<F, T, L, const N: usize>(
                 output.iter_lanes_mut(shape, min_axis),
             )
         } else {
-            let in_chunks = input.iter_lane_chunks::<N>(shape, min_axis);
-            let in_rem = in_chunks.remainder();
-            let out_chunks = output.iter_lane_chunks_mut::<N>(shape, min_axis);
-            let out_rem = out_chunks.remainder();
+            let (in_chunks, in_rem) = input.iter_lane_chunks::<N>(shape, min_axis);
+            let (out_chunks, out_rem) = output.iter_lane_chunks_mut::<N>(shape, min_axis);
 
             out_chunks.zip(in_chunks).for_each(|(mut o, i)| {
                 o.iter_mut().zip(i.iter()).for_each(|(o, i)| {
@@ -686,8 +682,7 @@ fn general_nd_inverse_multilevel<F, T, L, const N: usize>(
                 let lanes = if output.is_ax_contiguous(ax, shape) {
                     output.iter_lanes_sub_mut(shape, sub_shape, ax)
                 } else {
-                    let chunks = output.iter_lane_chunks_sub_mut::<N>(shape, sub_shape, ax);
-                    let rem = chunks.remainder();
+                    let (chunks, rem) = output.iter_lane_chunks_sub_mut::<N>(shape, sub_shape, ax);
 
                     if chunks.len() > 0 {
                         let mut s = core::array::from_fn(|_| avec![T::zero(); n_s]);
@@ -1094,12 +1089,10 @@ pub mod parallel {
                 if n_s > 1 {
                     match first {
                         true => {
-                            let in_chunks =
+                            let (in_chunks, in_rem) =
                                 input.par_iter_lane_chunks_sub::<N>(shape, &sub_shape, ax);
-                            let in_rem = in_chunks.remainder();
-                            let out_chunks =
+                            let (out_chunks, out_rem) =
                                 output.par_iter_lane_chunks_sub_mut::<N>(shape, &sub_shape, ax);
-                            let out_rem = out_chunks.remainder();
 
                             in_chunks.zip(out_chunks).for_each_init(
                                 || {
@@ -1134,9 +1127,8 @@ pub mod parallel {
                             first = false;
                         }
                         false => {
-                            let chunks =
+                            let (chunks, rem) =
                                 output.par_iter_lane_chunks_sub_mut::<N>(shape, &sub_shape, ax);
-                            let rem = chunks.remainder();
 
                             chunks.for_each_init(
                                 || {
@@ -1201,10 +1193,8 @@ pub mod parallel {
         // copy input into the output
         let min_axis = output.min_stride_axis(shape);
 
-        let in_chunks = input.par_iter_lane_chunks::<N>(shape, min_axis);
-        let in_rem = in_chunks.remainder();
-        let out_chunks = output.par_iter_lane_chunks_mut::<N>(shape, min_axis);
-        let out_rem = out_chunks.remainder();
+        let (in_chunks, in_rem) = input.par_iter_lane_chunks::<N>(shape, min_axis);
+        let (out_chunks, out_rem) = output.par_iter_lane_chunks_mut::<N>(shape, min_axis);
 
         out_chunks.zip(in_chunks).for_each(|(mut o, i)| {
             o.iter_mut().zip(i.iter()).for_each(|(o, i)| {
@@ -1240,8 +1230,8 @@ pub mod parallel {
                 let n_s = n_ax - n_d;
 
                 if n_s > 1 {
-                    let chunks = output.par_iter_lane_chunks_sub_mut::<N>(shape, sub_shape, ax);
-                    let rem = chunks.remainder();
+                    let (chunks, rem) =
+                        output.par_iter_lane_chunks_sub_mut::<N>(shape, sub_shape, ax);
                     if chunks.len() > 0 {
                         chunks.for_each_init(
                             || {

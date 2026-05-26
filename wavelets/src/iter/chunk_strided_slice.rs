@@ -1298,7 +1298,7 @@ macro_rules! implement_lane_chunk_iter {
             /// Panics if `arr` is empty, `axis >= shape.len()`, or `arr.len()` does not equal
             /// `shape.iter().product()`.
             #[track_caller]
-            pub fn from_slice(arr: &'a $( $mut_ )? [T], shape: &[usize], axis: usize) -> Self {
+            pub fn from_slice(arr: &'a $( $mut_ )? [T], shape: &[usize], axis: usize) -> (Self, $rem<'a, T>) {
                 let (ptr, arr_info) = lane_parts_from_slice(arr,  shape, axis);
                 Self::new(ptr, arr_info)
             }
@@ -1316,7 +1316,7 @@ macro_rules! implement_lane_chunk_iter {
                 shape: &[usize],
                 sub_shape: &[usize],
                 axis: usize,
-            ) ->  Self {
+            ) ->  (Self, $rem<'a, T>) {
                 let (ptr, arr_info) = lane_parts_from_sub_slice(arr, shape, sub_shape, axis);
                 Self::new(ptr, arr_info)
             }
@@ -1332,13 +1332,13 @@ macro_rules! implement_lane_chunk_iter {
                 arr: &'a $( $mut_ )? ArrayRef<T, D>,
                 shape: &[usize],
                 axis: usize,
-            ) -> Self
+            ) -> (Self, $rem<'a, T>)
             {
                 let (ptr, arr_info) = lane_parts_from_ndarray(arr, shape, axis);
                 Self::new(ptr, arr_info)
             }
 
-            fn new(base: NonNull<T>, arr_info: ArrayInfo) -> Self {
+            fn new(base: NonNull<T>, arr_info: ArrayInfo) -> (Self, $rem<'a, T>) {
                 let n_lanes = arr_info.n_lanes();
                 let n_remainder = n_lanes % N;
                 let n_chunkable = n_lanes - n_remainder;
@@ -1349,16 +1349,33 @@ macro_rules! implement_lane_chunk_iter {
                 let rear_pos = arr_info.get_position_at(n_chunkable);
                 let rear_offset = arr_info.get_offset_at(&rear_pos);
 
-                Self {
+                let rem_rear_pos = arr_info.get_position_at(n_lanes);
+                let rem_rear_offset = arr_info.get_offset_at(&rem_rear_pos);
+
+
+                (Self {
                     base,
                     arr_info:arr_info.clone(),
                     front_offset,
                     front_pos,
                     rear_offset,
-                    rear_pos,
+                    rear_pos: rear_pos.clone(),
                     remaining:n_chunkable,
                     _member: PhantomData,
-                }
+                },
+
+                    $rem
+                    {
+                        base,
+                        arr_info,
+                        front_offset: rear_offset,
+                        front_pos: rear_pos,
+                        rear_offset: rem_rear_offset,
+                        rear_pos: rem_rear_pos,
+                        remaining: n_remainder,
+                        _member: PhantomData,
+                    }
+                )
             }
 
             #[inline(always)]
@@ -1573,7 +1590,7 @@ pub mod parallel {
                 /// Panics if `arr` is empty, `axis >= shape.len()`, or `arr.len()` does not equal
                 /// `shape.iter().product()`.
                 #[track_caller]
-                pub fn from_slice(arr: &'a $( $mut_ )? [T], shape: &[usize], axis: usize) -> Self {
+                pub fn from_slice(arr: &'a $( $mut_ )? [T], shape: &[usize], axis: usize) -> (Self, $rem_iter<'a, T>) {
                     let (ptr, arr_info) = lane_parts_from_slice(arr, shape, axis);
                     Self::new(ptr, arr_info)
                 }
@@ -1590,7 +1607,7 @@ pub mod parallel {
                     shape: &[usize],
                     sub_shape: &[usize], // this excepts only usize for use safety (i.e. it's difficult to get negative strides correct.)
                     axis: usize,
-                ) -> Self {
+                ) -> (Self, $rem_iter<'a, T>) {
                     let (ptr, arr_info) = lane_parts_from_sub_slice(arr, shape, sub_shape, axis);
                     Self::new(ptr, arr_info)
                 }
@@ -1606,18 +1623,31 @@ pub mod parallel {
                     arr: &'a $( $mut_ )? ArrayRef<T, D>,
                     shape: &[usize],
                     axis: usize,
-                ) -> Self
+                ) -> (Self, $rem_iter<'a, T>)
                 {
                     let (ptr, arr_info) = lane_parts_from_ndarray(arr, shape, axis);
                     Self::new(ptr, arr_info)
                 }
 
-                pub(super) fn new(base: NonNull<T>, arr_info: ArrayInfo) -> Self {
-                    Self {
-                        base,
-                        arr_info,
-                        _member: PhantomData,
-                    }
+                pub(super) fn new(base: NonNull<T>, arr_info: ArrayInfo) -> (Self, $rem_iter<'a, T>) {
+
+                    let n_lanes = arr_info.n_lanes();
+                    let n_remainder = n_lanes % N;
+
+                    (
+                        Self {
+                            base,
+                            arr_info: arr_info.clone(),
+                            _member: PhantomData,
+                        },
+                        $rem_iter{
+                            base,
+                            arr_info: arr_info,
+                            start: n_lanes - n_remainder,
+                            end: n_lanes,
+                            _member: PhantomData
+                        }
+                    )
                 }
 
                 /// Return a parallel iterator over the leftover lanes that do not fill a chunk of `N`.
@@ -2206,8 +2236,7 @@ mod tests {
         let n_chunks_expected = n_lanes_expected / N;
         let n_rem_expected = n_lanes_expected % N;
 
-        let chunks = IterLaneChunks::<_, N>::from_slice(&arr, &shape, axis);
-        let rem = chunks.remainder();
+        let (chunks, rem) = IterLaneChunks::<_, N>::from_slice(&arr, &shape, axis);
         assert_eq!(chunks.len(), n_chunks_expected);
         assert_eq!(rem.len(), n_rem_expected);
 
@@ -2286,8 +2315,7 @@ mod tests {
 
         const N: usize = 4;
 
-        let chunks = IterLaneChunksMut::<_, N>::from_slice(&mut arr, &shape, axis);
-        let rem = chunks.remainder();
+        let (chunks, rem) = IterLaneChunksMut::<_, N>::from_slice(&mut arr, &shape, axis);
         assert_eq!(chunks.len(), n_chunks_expected);
         assert_eq!(rem.len(), n_rem_expected);
 
@@ -2356,8 +2384,7 @@ mod tests {
             let n_chunks_expected = n_lanes_expected / N;
             let n_rem_expected = n_lanes_expected % N;
 
-            let chunks = ParIterLaneChunks::<_, N>::from_slice(&arr, &shape, axis);
-            let rem = chunks.remainder();
+            let (chunks, rem) = ParIterLaneChunks::<_, N>::from_slice(&arr, &shape, axis);
             assert_eq!(chunks.len(), n_chunks_expected);
             assert_eq!(rem.len(), n_rem_expected);
 
@@ -2426,8 +2453,7 @@ mod tests {
         let mut out = (0..n_total).collect_vec();
         let mut out2 = (0..n_total).collect_vec();
 
-        let chunks = out.iter_lane_chunks_mut::<N>(&shape, ax);
-        let lanes = chunks.remainder();
+        let (chunks, lanes) = out.iter_lane_chunks_mut::<N>(&shape, ax);
 
         let mut work_e = core::array::from_fn(|_| vec![0; ns]);
         let mut work_o = core::array::from_fn(|_| vec![0; nd]);
@@ -2470,8 +2496,7 @@ mod tests {
         let mut out = (0..n_total).collect_vec();
         let mut out2 = (0..n_total).collect_vec();
 
-        let chunks = out.iter_lane_chunks_mut::<N>(&shape, ax);
-        let lanes = chunks.remainder();
+        let (chunks, lanes) = out.iter_lane_chunks_mut::<N>(&shape, ax);
 
         let mut work_e = core::array::from_fn(|_| vec![0; ns]);
         let mut work_o = core::array::from_fn(|_| vec![0; nd]);
@@ -2515,9 +2540,9 @@ mod tests {
 
         let mut out = vec![0; m_total];
 
-        let mut chunks = out.iter_lane_chunks_mut::<N>(&m_shape, ax);
+        let (chunks, rem) = out.iter_lane_chunks_mut::<N>(&m_shape, ax);
         let n_c = chunks.len() * N;
-        chunks.by_ref().enumerate().for_each(|(i, mut chunk)| {
+        chunks.enumerate().for_each(|(i, mut chunk)| {
             let vecs = core::array::from_fn(|j| {
                 let start = i * N + j + 1;
                 let end = start + n_ax;
@@ -2525,7 +2550,7 @@ mod tests {
             });
             chunk.fill_from(&vecs);
         });
-        chunks.remainder().enumerate().for_each(|(i, mut slice)| {
+        rem.enumerate().for_each(|(i, mut slice)| {
             let start = n_c + i + 1;
             let end = start + n_ax;
             let vec = (start..end).collect_vec();
@@ -2572,8 +2597,7 @@ mod tests {
 
         let n_ax = n_shape[ax].min(m_shape[ax]);
 
-        let chunks = inp.iter_lane_chunks::<N>(&m_shape, ax);
-        let rem = chunks.remainder();
+        let (chunks, rem) = inp.iter_lane_chunks::<N>(&m_shape, ax);
         let n_c = chunks.len();
 
         chunks.enumerate().for_each(|(i, chunk)| {
@@ -2629,8 +2653,7 @@ mod tests {
                 });
             });
 
-        let chunks = inp.iter_lane_chunks::<N>(&m_shape, ax);
-        let rem = chunks.remainder();
+        let (chunks, rem) = inp.iter_lane_chunks::<N>(&m_shape, ax);
 
         let n_lanes = if ax == 0 { m_shape[1] } else { m_shape[0] };
         let n_c = chunks.len();
@@ -2699,9 +2722,9 @@ mod tests {
 
         let mut out = vec![0; m_total];
 
-        let mut chunks = out.iter_lane_chunks_mut::<N>(&m_shape, ax);
+        let (chunks, rem) = out.iter_lane_chunks_mut::<N>(&m_shape, ax);
         let n_c = chunks.len() * N;
-        chunks.by_ref().enumerate().for_each(|(i, mut chunk)| {
+        chunks.enumerate().for_each(|(i, mut chunk)| {
             let vecs_f = core::array::from_fn(|j| {
                 let start = i * N + j + 1;
                 let end = start + nf;
@@ -2715,7 +2738,7 @@ mod tests {
             chunk.stack(&vecs_f, &vecs_s);
             //stack_to_strided_chunk(&vecs_f, &vecs_s, &mut chunk);
         });
-        chunks.remainder().enumerate().for_each(|(i, mut slice)| {
+        rem.enumerate().for_each(|(i, mut slice)| {
             let start = n_c + i + 1;
             let end = start + n_ax;
             let vec = (start..end).collect_vec();
