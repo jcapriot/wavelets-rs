@@ -32,7 +32,7 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - name: Clippy
-        run: cargo clippy --workspace --exclude ndwt-python -- -D warnings
+        run: cargo clippy -- -D warnings
 
   test:
     name: Test (${{ matrix.os }})
@@ -46,9 +46,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Build
-        run: cargo build --workspace --exclude ndwt-python
+        run: cargo build
       - name: Test
-        run: cargo test --workspace --exclude ndwt-python
+        run: cargo test
       - name: Test (no default features)
         if: matrix.os == 'ubuntu-latest'
         run: cargo test -p ndwt --no-default-features
@@ -76,6 +76,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Build docs
-        run: cargo doc --workspace --exclude ndwt-python --no-deps
+        run: cargo doc --no-deps
         env:
           RUSTDOCFLAGS: -D warnings
