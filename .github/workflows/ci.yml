@@ -32,7 +32,7 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - name: Clippy
-        run: cargo clippy --workspace --exclude wavelets-python -- -D warnings
+        run: cargo clippy --workspace --exclude ndwt-python -- -D warnings
 
   test:
     name: Test (${{ matrix.os }})
@@ -46,12 +46,36 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Build
-        run: cargo build --workspace --exclude wavelets-python
+        run: cargo build --workspace --exclude ndwt-python
       - name: Test
-        run: cargo test --workspace --exclude wavelets-python
+        run: cargo test --workspace --exclude ndwt-python
       - name: Test (no default features)
         if: matrix.os == 'ubuntu-latest'
-        run: cargo test -p wavelets --no-default-features
+        run: cargo test -p ndwt --no-default-features
       - name: Build (x86-v4)
         if: matrix.os == 'ubuntu-latest'
-        run: cargo build -p wavelets --features x86-v4
+        run: cargo build -p ndwt --features x86-v4
+
+  build_wasm:
+    name: Build (wasm32-unknown-unknown)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: Build ndwt for WASM
+        run: cargo build -p ndwt --target wasm32-unknown-unknown --no-default-features
+
+  docs:
+    name: Docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build docs
+        run: cargo doc --workspace --exclude ndwt-python --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
