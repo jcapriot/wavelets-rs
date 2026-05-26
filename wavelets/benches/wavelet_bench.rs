@@ -594,7 +594,7 @@ fn driver_vs_array_db2(c: &mut Criterion) {
     });
 
     group.bench_function("driver/across", |b| {
-        let ax = 1;
+        let ax = 0;
         b.iter(|| {
             trans.forward_nd(&x1, &mut out, &shape, &[ax]);
         });
