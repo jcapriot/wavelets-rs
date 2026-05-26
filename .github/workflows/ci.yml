@@ -67,3 +67,15 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Build wavelets for WASM
         run: cargo build -p wavelets --target wasm32-unknown-unknown --no-default-features
+
+  docs:
+    name: Docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build docs
+        run: cargo doc --workspace --exclude wavelets-python --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
