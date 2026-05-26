@@ -47,8 +47,8 @@ impl BoundaryCondition {
 
 #[pymodule]
 mod _ndwt_ext {
-    use pyo3::prelude::{pyfunction, PyErr, PyResult, Python};
     use ndwt::lwt::driver;
+    use pyo3::prelude::{pyfunction, PyErr, PyResult, Python};
 
     use numpy::{PyReadonlyArrayDyn, PyReadwriteArrayDyn};
 

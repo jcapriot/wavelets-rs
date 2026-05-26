@@ -1,4 +1,4 @@
-﻿#![deny(missing_docs)]
+#![deny(missing_docs)]
 //! Wavelet transforms for real and complex signals.
 //!
 //! This crate provides two families of wavelet transform:
@@ -51,9 +51,9 @@ pub mod lwt;
 pub mod simd;
 pub mod utils;
 
+use ndwt_macros::{generate_wavelet_enum, generate_wavelet_match_arms};
 use num_traits::{FromPrimitive, MulAdd, Num, NumAssignOps, NumOps};
 use std::{fmt::Debug, ops::Neg};
-use ndwt_macros::{generate_wavelet_enum, generate_wavelet_match_arms};
 
 macro_rules! gen_wavelet_struct {
     (
