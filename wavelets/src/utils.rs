@@ -4,7 +4,7 @@
 //! merging (interleave/stack) that the lifting transform requires, as well as strided
 //! variants used for N-D axis traversal.
 
-use itertools::izip;
+use num_traits::Zero;
 
 /// Compute the C-order (row-major) strides for a given shape.
 ///
@@ -44,19 +44,20 @@ pub fn deinterleave<T: Clone>(x: &[T], evens: &mut [T], odds: &mut [T]) {
         n_e,
         "incorrect even length, {n_e}, for slice deinterleave"
     );
+    deinterleave_unchecked(x, evens, odds);
+}
 
-    let (chunks, rem) = x.as_chunks::<2>();
-    chunks
-        .iter()
-        .zip(evens.iter_mut().zip(odds.iter_mut()))
-        .for_each(|(x, (e, o))| {
-            *e = x[0].clone();
-            *o = x[1].clone();
+#[inline(always)]
+pub(crate) fn deinterleave_unchecked<T: Clone>(x: &[T], evens: &mut [T], odds: &mut [T]) {
+    let (xc, rem) = x.as_chunks();
+    xc.iter()
+        .zip(evens.iter_mut().zip(odds))
+        .for_each(|([xe, xo], (e, o))| {
+            *e = xe.clone();
+            *o = xo.clone();
         });
-    if let Some(x) = rem.last()
-        && let Some(e) = evens.last_mut()
-    {
-        *e = x.clone();
+    if !rem.is_empty() {
+        *evens.last_mut().unwrap() = rem.first().unwrap().clone();
     }
 }
 
@@ -177,6 +178,111 @@ fn deinterleave_nd_unchecked<T: Clone>(input: &[T], output: &mut [T], shape: &[u
     }
 }
 
+/// Stack two slices into another, filling inbetween with zeros.
+///
+/// `first` is cloned into the begining of `out` and `second` is cloned into
+/// the end of `out` with zeros inserted inbetween.
+///
+/// # Panics
+///
+/// Panics if `first.len() + second.len() > self.len()`.
+#[inline]
+#[track_caller]
+pub fn stack<T: Clone + Zero>(first: &[T], second: &[T], out: &mut [T]) {
+    let nf = first.len();
+    let ns = second.len();
+    let n = out.len();
+    assert!(
+        nf + ns <= n,
+        "invalid lengths for slice stack, first: {nf}, second: {ns}, third: {n}",
+    );
+    stack_unchecked(first, second, out);
+}
+
+#[inline(always)]
+pub(crate) fn stack_unchecked<T: Clone + Zero>(first: &[T], second: &[T], out: &mut [T]) {
+    let (xf, xe) = out.split_at_mut(first.len());
+    let (xm, xs) = xe.split_at_mut(xe.len() - second.len());
+    first.iter().cloned().zip(xf).for_each(|(i, o)| *o = i);
+    xm.iter_mut().for_each(|o| *o = T::zero());
+    second.iter().cloned().zip(xs).for_each(|(i, o)| *o = i);
+}
+
+/// Split `x` into a leading `first` segment and a trailing `second` segment, skipping the gap.
+///
+/// `second` is taken from the tail of `x`, not from immediately after `first`.  This is the
+/// inverse of [`stack`].
+///
+/// # Panics
+///
+/// Panics if `first.len() + second.len() > x.len()`.
+#[inline]
+#[track_caller]
+pub fn split<T: Clone>(x: &[T], first: &mut [T], second: &mut [T]) {
+    let nf = first.len();
+    let ns = second.len();
+    let nx = x.len();
+    assert!(
+        nf + ns <= nx,
+        "invalid lengths for slice stack, first: {nf}, second: {ns}, third: {nx}"
+    );
+    split_unchecked(x, first, second);
+}
+
+#[inline(always)]
+pub(crate) fn split_unchecked<T: Clone>(x: &[T], first: &mut [T], second: &mut [T]) {
+    let (xf, xe) = x.split_at(first.len());
+    let (_, xs) = xe.split_at(xe.len() - second.len());
+    xf.iter().cloned().zip(first).for_each(|(i, o)| *o = i);
+    xs.iter().cloned().zip(second).for_each(|(i, o)| *o = i);
+}
+
+/// Fill the slice `sink` with cloned elements of `source`.
+///
+/// # Panics
+///
+/// Panics if `sink.len() > source.len()`.
+#[inline]
+#[track_caller]
+pub fn pour_into<T: Clone>(source: &[T], sink: &mut [T]) {
+    let n = source.len();
+    let no = sink.len();
+    assert!(
+        no <= n,
+        "Output slice with length {no} too long for strided slice with length {n}."
+    );
+    pour_into_unchecked(source, sink);
+}
+
+#[inline(always)]
+pub(crate) fn pour_into_unchecked<T: Clone>(source: &[T], sink: &mut [T]) {
+    source.iter().cloned().zip(sink).for_each(|(i, o)| *o = i);
+}
+
+/// Fill the slice `sink` with cloned elements from `source`, filling the leftover with zero values.
+///
+/// # Panics
+///
+/// Panics if `source.len() > sink.len()`.
+#[inline]
+#[track_caller]
+pub fn fill_from<T: Clone + Zero>(x: &[T], sink: &mut [T]) {
+    let n = x.len();
+    let no = sink.len();
+    assert!(
+        no <= n,
+        "Output slice with length {no} too long for strided slice with length {n}."
+    );
+    fill_from_unchecked(x, sink);
+}
+
+#[inline(always)]
+pub(crate) fn fill_from_unchecked<T: Clone + Zero>(source: &[T], sink: &mut [T]) {
+    let (head, tail) = sink.split_at_mut(source.len());
+    source.iter().cloned().zip(head).for_each(|(i, o)| *o = i);
+    tail.iter_mut().for_each(|o| *o = T::zero());
+}
+
 /// Interleave even- and odd-indexed elements back into a single flat slice.
 ///
 /// Inverse of [`deinterleave`]: `x[2*i] = evens[i]`, `x[2*i+1] = odds[i]`.
@@ -194,16 +300,20 @@ pub fn interleave<T: Clone>(evens: &[T], odds: &[T], x: &mut [T]) {
     assert_eq!(nx / 2, n_o);
     assert_eq!(nx.div_ceil(2), n_e);
 
-    let (chunks, rem) = x.as_chunks_mut::<2>();
-    let mut ev_iter = evens.iter();
-    izip!(chunks.iter_mut(), ev_iter.by_ref(), odds.iter()).for_each(|([xe, xo], even, odd)| {
-        *xe = even.clone();
-        *xo = odd.clone();
-    });
-    if let Some(x) = rem.last_mut()
-        && let Some(e) = evens.last()
-    {
-        *x = e.clone();
+    interleave_unchecked(evens, odds, x);
+}
+
+#[inline(always)]
+pub(crate) fn interleave_unchecked<T: Clone>(evens: &[T], odds: &[T], x: &mut [T]) {
+    let (xc, rem) = x.as_chunks_mut();
+    xc.iter_mut()
+        .zip(evens.iter().cloned().zip(odds.iter().cloned()))
+        .for_each(|([xe, xo], (e, o))| {
+            *xe = e;
+            *xo = o;
+        });
+    if !rem.is_empty() {
+        *rem.first_mut().unwrap() = evens.last().unwrap().clone();
     }
 }
 

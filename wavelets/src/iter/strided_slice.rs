@@ -107,76 +107,39 @@ impl<T> StridedSliceRef<T> {
         unsafe { &mut *self.as_mut_ptr().offset(index as isize * self.0.stride) }
     }
 
-    /// Split the strided slice into two parts at `mid`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `mid > self.len()`.
-    #[inline]
-    #[track_caller]
-    pub fn split_at(&self, mid: usize) -> (StridedSlice<'_, T>, StridedSlice<'_, T>) {
-        assert!(mid <= self.len(), "mid > len");
-        (
-            StridedSlice {
-                parts: StrideParts {
-                    base: self.0.base,
-                    length: mid,
-                    stride: self.0.stride,
-                },
-                _member: SliceLifetime {
-                    _member: PhantomData,
-                },
-            },
-            StridedSlice {
-                parts: StrideParts {
-                    base: unsafe { self.0.base.offset(mid as isize * self.0.stride) },
-                    length: self.0.length - mid,
-                    stride: self.0.stride,
-                },
-                _member: SliceLifetime {
-                    _member: PhantomData,
-                },
-            },
-        )
-    }
-
-    /// Split the mutable strided slice into two parts at `mid`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `mid > self.len()`.
-    #[inline]
-    #[track_caller]
-    pub fn split_at_mut(&mut self, mid: usize) -> (StridedSliceMut<'_, T>, StridedSliceMut<'_, T>) {
-        assert!(mid <= self.len(), "mid > len");
-        (
-            StridedSliceMut {
-                parts: StrideParts {
-                    base: self.0.base,
-                    length: mid,
-                    stride: self.0.stride,
-                },
-                _member: SliceLifetime {
-                    _member: PhantomData,
-                },
-            },
-            StridedSliceMut {
-                parts: StrideParts {
-                    base: unsafe { self.0.base.offset(mid as isize * self.0.stride) },
-                    length: self.0.length - mid,
-                    stride: self.0.stride,
-                },
-                _member: SliceLifetime {
-                    _member: PhantomData,
-                },
-            },
-        )
-    }
-
     /// Return `true` if the elements in this strided view are contiguous in memory (i.e. stride is 1).
     #[inline(always)]
     pub fn is_contiguous(&self) -> bool {
         self.0.stride == 1
+    }
+
+    /// Return the strided slices’s data as a slice, if it is contiguous. Return None otherwise.
+    #[inline]
+    pub fn as_slice(&self) -> Option<&[T]> {
+        if self.is_contiguous() {
+            // SAFETY: The construction guarantees that the data is valid for `length` elements
+            // and we checked that the stride is 1, so this is a valid slice.
+            unsafe { Some(std::slice::from_raw_parts(self.as_ptr(), self.len())) }
+        } else {
+            None
+        }
+    }
+
+    /// Return the mutable strided slices’s data as a mutable slice, if it is contiguous. Return None otherwise.
+    #[inline]
+    pub fn as_mut_slice(&mut self) -> Option<&mut [T]> {
+        if self.is_contiguous() {
+            // SAFETY: The construction guarantees that the data is valid for `length` elements
+            // and we checked that the stride is 1, so this is a valid slice.
+            unsafe {
+                Some(std::slice::from_raw_parts_mut(
+                    self.as_mut_ptr(),
+                    self.len(),
+                ))
+            }
+        } else {
+            None
+        }
     }
 
     /// Iterate over elements in this strided view (read-only).
@@ -241,27 +204,18 @@ impl<T: Clone> StridedSliceRef<T> {
             "incorrect even length, {n_e}, for slice deinterleave"
         );
 
-        match TryInto::<&[T]>::try_into(self) {
-            Ok(x) => {
-                let (xc, rem) = x.as_chunks();
-                xc.iter()
-                    .zip(evens.iter_mut().zip(odds))
-                    .for_each(|([xe, xo], (e, o))| {
-                        *e = xe.clone();
-                        *o = xo.clone();
-                    });
-                if !rem.is_empty() {
-                    *evens.last_mut().unwrap() = rem.first().unwrap().clone();
-                }
+        match self.as_slice() {
+            Some(x) => {
+                crate::utils::deinterleave_unchecked(x, evens, odds);
             }
-            Err(x) => {
+            None => {
                 (0..nx)
                     .step_by(2)
                     .zip(evens.iter_mut().zip(odds))
                     .for_each(|(i, (e, o))| {
                         // SAFETY: Lengths checked above to be valid.
-                        *e = unsafe { x.get_unchecked(i) }.clone();
-                        *o = unsafe { x.get_unchecked(i + 1) }.clone();
+                        *e = unsafe { self.get_unchecked(i) }.clone();
+                        *o = unsafe { self.get_unchecked(i + 1) }.clone();
                     });
                 if n_e > n_o {
                     // SAFETY: Lengths checked above to be valid.
@@ -288,33 +242,24 @@ impl<T: Clone> StridedSliceRef<T> {
         assert_eq!(n / 2, n_o);
         assert_eq!(n.div_ceil(2), n_e);
 
-        match TryInto::<&mut [T]>::try_into(self) {
-            Ok(x) => {
-                let (xc, rem) = x.as_chunks_mut();
-                xc.iter_mut()
-                    .zip(evens.iter().cloned().zip(odds.iter().cloned()))
-                    .for_each(|([xe, xo], (e, o))| {
-                        *xe = e;
-                        *xo = o;
-                    });
-                if !rem.is_empty() {
-                    *rem.first_mut().unwrap() = evens.last().unwrap().clone();
-                }
+        match self.as_mut_slice() {
+            Some(x) => {
+                crate::utils::interleave_unchecked(evens, odds, x);
             }
-            Err(x) => {
+            None => {
                 (0..n)
                     .step_by(2)
                     .zip(evens.iter().cloned().zip(odds.iter().cloned()))
                     .for_each(|(i, (e, o))| {
                         // SAFETY: Lengths checked above to be valid.
                         unsafe {
-                            *x.get_unchecked_mut(i) = e;
-                            *x.get_unchecked_mut(i + 1) = o;
+                            *self.get_unchecked_mut(i) = e;
+                            *self.get_unchecked_mut(i + 1) = o;
                         }
                     });
                 if n_e > n_o {
                     // SAFETY: Lengths checked above to be valid.
-                    unsafe { *x.get_unchecked_mut(n - 1) = evens.last().unwrap().clone() }
+                    unsafe { *self.get_unchecked_mut(n - 1) = evens.last().unwrap().clone() }
                 }
             }
         }
@@ -340,21 +285,18 @@ impl<T: Clone> StridedSliceRef<T> {
         );
         let n_mid = nx - (nf + ns);
 
-        match TryInto::<&[T]>::try_into(self) {
-            Ok(x) => {
-                let (xf, xe) = x.split_at(nf);
-                let (_, xs) = xe.split_at(n_mid);
-                xf.iter().cloned().zip(first).for_each(|(x, v)| *v = x);
-                xs.iter().cloned().zip(second).for_each(|(x, v)| *v = x);
+        match self.as_slice() {
+            Some(x) => {
+                crate::utils::split_unchecked(x, first, second);
             }
-            Err(x) => {
+            None => {
                 first.iter_mut().enumerate().for_each(|(i, v)| {
                     // SAFETY: Lengths verified above to be valid
-                    *v = unsafe { x.get_unchecked(i) }.clone();
+                    *v = unsafe { self.get_unchecked(i) }.clone();
                 });
                 second.iter_mut().enumerate().for_each(|(i, v)| {
                     // SAFETY: Lengths verified above to be valid
-                    *v = unsafe { x.get_unchecked(i + nf + n_mid) }.clone();
+                    *v = unsafe { self.get_unchecked(i + nf + n_mid) }.clone();
                 });
             }
         }
@@ -374,12 +316,12 @@ impl<T: Clone> StridedSliceRef<T> {
             no <= n,
             "Output slice with length {no} too long for strided slice with length {n}."
         );
-        match TryInto::<&[T]>::try_into(self) {
-            Ok(source) => {
-                source.iter().cloned().zip(sink).for_each(|(a, b)| *b = a);
+        match self.as_slice() {
+            Some(source) => {
+                crate::utils::pour_into_unchecked(source, sink);
             }
-            Err(source) => {
-                source.iter().cloned().zip(sink).for_each(|(a, b)| *b = a);
+            None => {
+                self.iter().cloned().zip(sink).for_each(|(a, b)| *b = a);
             }
         }
     }
@@ -406,16 +348,12 @@ impl<T: Clone + Zero> StridedSliceRef<T> {
         );
         let n_mid = n - (nf + ns);
 
-        match TryInto::<&mut [T]>::try_into(self) {
-            Ok(x) => {
-                let (xf, xe) = x.split_at_mut(nf);
-                let (xm, xs) = xe.split_at_mut(n_mid);
-                xf.iter_mut().zip(first).for_each(|(x, v)| *x = v.clone());
-                xm.iter_mut().for_each(|v| *v = T::zero());
-                xs.iter_mut().zip(second).for_each(|(x, v)| *x = v.clone());
+        match self.as_mut_slice() {
+            Some(x) => {
+                crate::utils::stack_unchecked(first, second, x);
             }
-            Err(x) => {
-                x.iter_mut()
+            None => {
+                self.iter_mut()
                     .zip(
                         first
                             .iter()
@@ -443,14 +381,12 @@ impl<T: Clone + Zero> StridedSliceRef<T> {
             "Output slice with length {no} too long for strided slice with length {n}."
         );
 
-        match TryInto::<&mut [T]>::try_into(self) {
-            Ok(sink) => {
-                let (sink, tail) = sink.split_at_mut(no);
-                source.iter().cloned().zip(sink).for_each(|(a, b)| *b = a);
-                tail.fill(T::zero());
+        match self.as_mut_slice() {
+            Some(sink) => {
+                crate::utils::fill_from_unchecked(source, sink);
             }
-            Err(sink) => {
-                let mut sink = sink.into_iter();
+            None => {
+                let mut sink = self.into_iter();
                 source
                     .iter()
                     .cloned()
@@ -458,39 +394,6 @@ impl<T: Clone + Zero> StridedSliceRef<T> {
                     .for_each(|(a, b)| *b = a);
                 sink.for_each(|v| *v = T::zero());
             }
-        }
-    }
-}
-
-impl<'a, T> TryFrom<&'a StridedSliceRef<T>> for &[T] {
-    type Error = &'a StridedSliceRef<T>;
-
-    #[inline]
-    fn try_from(value: &'a StridedSliceRef<T>) -> Result<Self, Self::Error> {
-        if value.is_contiguous() {
-            unsafe { Ok(std::slice::from_raw_parts(value.as_ptr(), value.len())) }
-        } else {
-            Err(value)
-        }
-    }
-}
-
-impl<'a, T> TryFrom<&'a mut StridedSliceRef<T>> for &'a mut [T] {
-    type Error = &'a mut StridedSliceRef<T>;
-
-    #[inline]
-    fn try_from(value: &'a mut StridedSliceRef<T>) -> Result<Self, Self::Error> {
-        if value.is_contiguous() {
-            // SAFETY: The construction guarantees that the data is valid for `length` elements
-            // and we checked that the stride is 1, so this is a valid slice.
-            unsafe {
-                Ok(std::slice::from_raw_parts_mut(
-                    value.as_mut_ptr(),
-                    value.len(),
-                ))
-            }
-        } else {
-            Err(value)
         }
     }
 }
@@ -1259,12 +1162,9 @@ mod tests {
 
         let expected = data.iter().sum::<usize>();
 
-        fn sum_slice(slice: &StridedSliceRef<usize>) -> usize {
-            let slice: &[_] = slice.try_into().unwrap(); // step size in this test is 1
-            slice.iter().sum()
-        }
+        let slice = slice.as_slice().unwrap(); // step size in this test is 1
 
-        assert_eq!(sum_slice(&slice), expected);
+        assert_eq!(slice.iter().sum::<usize>(), expected);
     }
 
     #[test]
@@ -1275,12 +1175,8 @@ mod tests {
 
         let mut slice = StridedSliceBase::from_mut_slice(&mut data, step);
 
-        fn double_slice(slice: &mut StridedSliceRef<usize>) {
-            let slice: &mut [_] = slice.try_into().unwrap();
-            slice.iter_mut().for_each(|v| *v *= 2);
-        }
-
-        double_slice(&mut slice);
+        let slice = slice.as_mut_slice().unwrap();
+        slice.iter_mut().for_each(|v| *v *= 2);
         let expected = (0..n).map(|v| v * 2).collect::<Vec<_>>();
         assert_eq!(data, expected);
     }

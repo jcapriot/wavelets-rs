@@ -692,6 +692,12 @@ fn broadcasted_vs_strided_db2(c: &mut Criterion) {
 
     group.bench_function("using driver", |b| {
         b.iter(|| {
+            trans.forward_nd(&x, &mut sd, &shape, &axes);
+        })
+    });
+
+    group.bench_function("using parallel driver", |b| {
+        b.iter(|| {
             trans.par_forward_nd(&x, &mut sd, &shape, &axes);
         })
     });
@@ -737,6 +743,12 @@ fn broadcasted_vs_strided_db4(c: &mut Criterion) {
     let mut group = c.benchmark_group("broadcasted_vs_lanes/db4");
 
     group.bench_function("using driver", |b| {
+        b.iter(|| {
+            trans.forward_nd(&x, &mut sd, &shape, &axes);
+        })
+    });
+
+    group.bench_function("using parallel driver", |b| {
         b.iter(|| {
             trans.par_forward_nd(&x, &mut sd, &shape, &axes);
         })
@@ -785,6 +797,12 @@ fn broadcasted_vs_strided_db6(c: &mut Criterion) {
 
     group.bench_function("using driver", |b| {
         b.iter(|| {
+            trans.forward_nd(&x, &mut sd, &shape, &axes);
+        })
+    });
+
+    group.bench_function("using parallel driver", |b| {
+        b.iter(|| {
             trans.par_forward_nd(&x, &mut sd, &shape, &axes);
         })
     });
@@ -809,6 +827,134 @@ fn broadcasted_vs_strided_db6(c: &mut Criterion) {
     group.finish();
 }
 
+#[cfg(feature = "ndarray")]
+fn ndarray_lanes_vs_wvlt_lanes(c: &mut Criterion) {
+    use ndarray::{Array2, Axis};
+    use wavelets::iter::LanesIterator;
+
+    let n: usize = 1000;
+
+    let mut group = c.benchmark_group("ndarray");
+
+    let shape = [n, n];
+    let n_total: usize = shape.iter().product();
+    let inp = Array2::from_shape_vec(shape, (0..n_total).collect()).unwrap();
+    let mut out = inp.clone();
+
+    group.bench_function("wvlt_lanes/along", |b| {
+        let ax = 1;
+        b.iter(|| {
+            inp.iter_lanes(&shape, ax)
+                .zip(out.iter_lanes_mut(&shape, ax))
+                .for_each(|(i, mut o)| {
+                    let i = i.as_slice().unwrap();
+                    let o = o.as_mut_slice().unwrap();
+                    i.iter().zip(o.iter_mut()).for_each(|(i, o)| *o = 2 * i)
+                })
+        })
+    });
+
+    group.bench_function("wvlt_lanes/across", |b| {
+        let ax = 0;
+        b.iter(|| {
+            inp.iter_lanes(&shape, ax)
+                .zip(out.iter_lanes_mut(&shape, ax))
+                .for_each(|(i, mut o)| i.iter().zip(o.iter_mut()).for_each(|(i, o)| *o = 2 * i))
+        })
+    });
+
+    group.bench_function("ndarray_lanes/along", |b| {
+        let ax = 1;
+        b.iter(|| {
+            inp.lanes(Axis(ax))
+                .into_iter()
+                .zip(out.lanes_mut(Axis(ax)))
+                .for_each(|(i, mut o)| {
+                    let i = i.as_slice().unwrap();
+                    let o = o.as_slice_mut().unwrap();
+                    i.iter().zip(o.iter_mut()).for_each(|(i, o)| *o = 2 * i)
+                })
+        })
+    });
+
+    group.bench_function("ndarray_lanes/across", |b| {
+        let ax = 0;
+        b.iter(|| {
+            inp.lanes(Axis(ax))
+                .into_iter()
+                .zip(out.lanes_mut(Axis(ax)))
+                .for_each(|(i, mut o)| i.iter().zip(o.iter_mut()).for_each(|(i, o)| *o = 2 * i))
+        })
+    });
+
+    const N: usize = 4;
+    group.bench_function("wvlt_chunks/along", |b| {
+        let ax = 1;
+        b.iter(|| {
+            let (in_chunks, _) = inp.iter_lane_chunks::<N>(&shape, ax);
+            let (out_chunks, _) = out.iter_lane_chunks_mut::<N>(&shape, ax);
+            in_chunks.zip(out_chunks).for_each(|(in_c, mut out_c)| {
+                in_c.iter().zip(out_c.iter_mut()).for_each(|(i, o)| {
+                    o.into_iter().zip(i).for_each(|(o, i)| *o = 2 * i);
+                })
+            });
+        })
+    });
+
+    group.bench_function("wvlt_chunks/across", |b| {
+        let ax = 0;
+        b.iter(|| {
+            let (in_chunks, _) = inp.iter_lane_chunks::<N>(&shape, ax);
+            let (out_chunks, _) = out.iter_lane_chunks_mut::<N>(&shape, ax);
+            in_chunks.zip(out_chunks).for_each(|(in_c, mut out_c)| {
+                in_c.iter().zip(out_c.iter_mut()).for_each(|(i, o)| {
+                    o.into_iter().zip(i).for_each(|(o, i)| *o = 2 * i);
+                })
+            });
+        })
+    });
+
+    group.bench_function("ndarray_chunks/along", |b| {
+        let ax = 1;
+        b.iter(|| {
+            let in_lanes = inp.lanes(Axis(ax));
+            let out_lanes = out.lanes_mut(Axis(ax));
+
+            in_lanes
+                .into_iter()
+                .zip(out_lanes.into_iter())
+                .tuples()
+                .for_each(|((i0, mut o0), (i1, mut o1), (i2, mut o2), (i3, mut o3))| {
+                    i0.iter().zip(o0.iter_mut()).for_each(|(i, o)| *o = 2 * i);
+                    i1.iter().zip(o1.iter_mut()).for_each(|(i, o)| *o = 2 * i);
+                    i2.iter().zip(o2.iter_mut()).for_each(|(i, o)| *o = 2 * i);
+                    i3.iter().zip(o3.iter_mut()).for_each(|(i, o)| *o = 2 * i);
+                });
+        })
+    });
+
+    group.bench_function("ndarray_chunks/across", |b| {
+        let ax = 0;
+        b.iter(|| {
+            let in_lanes = inp.lanes(Axis(ax));
+            let out_lanes = out.lanes_mut(Axis(ax));
+
+            in_lanes
+                .into_iter()
+                .zip(out_lanes.into_iter())
+                .tuples()
+                .for_each(|((i0, mut o0), (i1, mut o1), (i2, mut o2), (i3, mut o3))| {
+                    i0.iter().zip(o0.iter_mut()).for_each(|(i, o)| *o = 2 * i);
+                    i1.iter().zip(o1.iter_mut()).for_each(|(i, o)| *o = 2 * i);
+                    i2.iter().zip(o2.iter_mut()).for_each(|(i, o)| *o = 2 * i);
+                    i3.iter().zip(o3.iter_mut()).for_each(|(i, o)| *o = 2 * i);
+                });
+        })
+    });
+
+    group.finish();
+}
+
 criterion_group!(
     interleave_deinterleave,
     interleave_slice_benchmark,
@@ -823,6 +969,18 @@ criterion_group!(
     broadcasted_vs_strided_db6,
     driver_vs_array_db2,
 );
+
+#[cfg(feature = "ndarray")]
+criterion_group!(ndarray_bench, ndarray_lanes_vs_wvlt_lanes);
+
+#[cfg(feature = "ndarray")]
+criterion_main!(
+    interleave_deinterleave,
+    lifted_vs_filtered,
+    broadcasted_vs_lanes,
+    ndarray_bench
+);
+#[cfg(not(feature = "ndarray"))]
 criterion_main!(
     interleave_deinterleave,
     lifted_vs_filtered,
