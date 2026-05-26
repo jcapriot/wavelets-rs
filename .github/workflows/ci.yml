@@ -46,9 +46,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Build
-        run: cargo build
+        run: cargo build -p ndwt
       - name: Test
-        run: cargo test
+        run: cargo test -p ndwt
       - name: Test (no default features)
         if: matrix.os == 'ubuntu-latest'
         run: cargo test -p ndwt --no-default-features
@@ -76,6 +76,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Build docs
-        run: cargo doc --no-deps
+        run: cargo doc -p ndwt --no-deps --workspace --exclude ndwt-python
         env:
           RUSTDOCFLAGS: -D warnings

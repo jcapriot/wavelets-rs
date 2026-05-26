@@ -1,6 +1,5 @@
 use pyo3::prelude::{pyclass, pymodule};
 
-use ndwt;
 use ndwt::boundarys;
 use ndwt_macros::generate_wavelet_enum;
 use ndwt_macros::generate_wavelet_match_arms;
@@ -12,7 +11,7 @@ generate_wavelet_enum! {
 }
 
 impl Wavelets {
-    fn to_enum(&self) -> ndwt::Wavelets {
+    fn as_ndwt_wavelet(&self) -> ndwt::Wavelets {
         generate_wavelet_match_arms! {Self, self, {ndwt::Wavelets::#wvlt,}}
     }
 }
@@ -31,7 +30,7 @@ pub enum BoundaryCondition {
 }
 
 impl BoundaryCondition {
-    fn to_enum(&self) -> boundarys::BoundaryCondition {
+    fn as_ndwt_boundary_condition(&self) -> boundarys::BoundaryCondition {
         match self {
             Self::Zero => boundarys::BoundaryCondition::Zero,
             Self::Periodic => boundarys::BoundaryCondition::Periodic,
@@ -48,7 +47,8 @@ impl BoundaryCondition {
 #[pymodule]
 mod _ndwt_ext {
     use ndwt::lwt::driver;
-    use pyo3::prelude::{pyfunction, PyErr, PyResult, Python};
+    use num_complex::{Complex32 as c32, Complex64 as c64};
+    use pyo3::prelude::{PyErr, PyResult, Python, pyfunction};
 
     use numpy::{PyReadonlyArrayDyn, PyReadwriteArrayDyn};
 
@@ -91,17 +91,14 @@ mod _ndwt_ext {
                 ));
             }
             $py.detach(|| {
-                let bc = $bc.unwrap_or(BoundaryCondition::Symmetric).to_enum();
-                let wvlt = $wavelet.to_enum();
-
-                let level = $level.unwrap_or_else(|| {
-                    let min_n = axes.iter().map(|ax| x.shape()[*ax]).min().unwrap_or(0);
-                    wvlt.max_level(min_n)
-                });
+                let bc = $bc
+                    .unwrap_or(BoundaryCondition::Symmetric)
+                    .as_ndwt_boundary_condition();
+                let wvlt = $wavelet.as_ndwt_wavelet();
 
                 let trans = driver::WaveletTransform::new(wvlt, bc);
 
-                trans.$trans_func(&x, &mut y, &axes, level);
+                trans.$trans_func(&x, &mut y, &axes, $level);
             });
 
             Ok(())
@@ -116,7 +113,7 @@ mod _ndwt_ext {
         mut y: PyReadwriteArrayDyn<f64>,
         bc: Option<BoundaryCondition>,
         axes: Option<Vec<isize>>,
-        level: Option<usize>,
+        level: usize,
     ) -> PyResult<()> {
         implement_transform! {par_forward_ndarray_multilevel, py, wavelet, x, y, bc, axes, level}
     }
@@ -129,7 +126,7 @@ mod _ndwt_ext {
         mut y: PyReadwriteArrayDyn<f64>,
         bc: Option<BoundaryCondition>,
         axes: Option<Vec<isize>>,
-        level: Option<usize>,
+        level: usize,
     ) -> PyResult<()> {
         implement_transform! {par_inverse_ndarray_multilevel, py, wavelet, x, y, bc, axes, level}
     }
@@ -142,7 +139,7 @@ mod _ndwt_ext {
         mut y: PyReadwriteArrayDyn<f64>,
         bc: Option<BoundaryCondition>,
         axes: Option<Vec<isize>>,
-        level: Option<usize>,
+        level: usize,
     ) -> PyResult<()> {
         implement_transform! {par_adj_forward_ndarray_multilevel, py, wavelet, x, y, bc, axes, level}
     }
@@ -155,7 +152,7 @@ mod _ndwt_ext {
         mut y: PyReadwriteArrayDyn<f64>,
         bc: Option<BoundaryCondition>,
         axes: Option<Vec<isize>>,
-        level: Option<usize>,
+        level: usize,
     ) -> PyResult<()> {
         implement_transform! {par_adj_inverse_ndarray_multilevel, py, wavelet, x, y, bc, axes, level}
     }
@@ -168,7 +165,7 @@ mod _ndwt_ext {
         mut y: PyReadwriteArrayDyn<f32>,
         bc: Option<BoundaryCondition>,
         axes: Option<Vec<isize>>,
-        level: Option<usize>,
+        level: usize,
     ) -> PyResult<()> {
         implement_transform! {par_forward_ndarray_multilevel, py, wavelet, x, y, bc, axes, level}
     }
@@ -181,7 +178,7 @@ mod _ndwt_ext {
         mut y: PyReadwriteArrayDyn<f32>,
         bc: Option<BoundaryCondition>,
         axes: Option<Vec<isize>>,
-        level: Option<usize>,
+        level: usize,
     ) -> PyResult<()> {
         implement_transform! {par_inverse_ndarray_multilevel, py, wavelet, x, y, bc, axes, level}
     }
@@ -194,7 +191,7 @@ mod _ndwt_ext {
         mut y: PyReadwriteArrayDyn<f32>,
         bc: Option<BoundaryCondition>,
         axes: Option<Vec<isize>>,
-        level: Option<usize>,
+        level: usize,
     ) -> PyResult<()> {
         implement_transform! {par_adj_forward_ndarray_multilevel, py, wavelet, x, y, bc, axes, level}
     }
@@ -207,7 +204,111 @@ mod _ndwt_ext {
         mut y: PyReadwriteArrayDyn<f32>,
         bc: Option<BoundaryCondition>,
         axes: Option<Vec<isize>>,
-        level: Option<usize>,
+        level: usize,
+    ) -> PyResult<()> {
+        implement_transform! {par_adj_inverse_ndarray_multilevel, py, wavelet, x, y, bc, axes, level}
+    }
+
+    #[pyfunction]
+    fn forward_transform_c32<'py>(
+        py: Python<'py>,
+        wavelet: Wavelets,
+        x: PyReadonlyArrayDyn<c32>,
+        mut y: PyReadwriteArrayDyn<c32>,
+        bc: Option<BoundaryCondition>,
+        axes: Option<Vec<isize>>,
+        level: usize,
+    ) -> PyResult<()> {
+        implement_transform! {par_forward_ndarray_multilevel, py, wavelet, x, y, bc, axes, level}
+    }
+
+    #[pyfunction]
+    fn inverse_transform_c32<'py>(
+        py: Python<'py>,
+        wavelet: Wavelets,
+        x: PyReadonlyArrayDyn<c32>,
+        mut y: PyReadwriteArrayDyn<c32>,
+        bc: Option<BoundaryCondition>,
+        axes: Option<Vec<isize>>,
+        level: usize,
+    ) -> PyResult<()> {
+        implement_transform! {par_inverse_ndarray_multilevel, py, wavelet, x, y, bc, axes, level}
+    }
+
+    #[pyfunction]
+    fn adj_forward_transform_c32<'py>(
+        py: Python<'py>,
+        wavelet: Wavelets,
+        x: PyReadonlyArrayDyn<c32>,
+        mut y: PyReadwriteArrayDyn<c32>,
+        bc: Option<BoundaryCondition>,
+        axes: Option<Vec<isize>>,
+        level: usize,
+    ) -> PyResult<()> {
+        implement_transform! {par_adj_forward_ndarray_multilevel, py, wavelet, x, y, bc, axes, level}
+    }
+
+    #[pyfunction]
+    fn adj_inverse_transform_c32<'py>(
+        py: Python<'py>,
+        wavelet: Wavelets,
+        x: PyReadonlyArrayDyn<c32>,
+        mut y: PyReadwriteArrayDyn<c32>,
+        bc: Option<BoundaryCondition>,
+        axes: Option<Vec<isize>>,
+        level: usize,
+    ) -> PyResult<()> {
+        implement_transform! {par_adj_inverse_ndarray_multilevel, py, wavelet, x, y, bc, axes, level}
+    }
+
+    #[pyfunction]
+    fn forward_transform_c64<'py>(
+        py: Python<'py>,
+        wavelet: Wavelets,
+        x: PyReadonlyArrayDyn<c64>,
+        mut y: PyReadwriteArrayDyn<c64>,
+        bc: Option<BoundaryCondition>,
+        axes: Option<Vec<isize>>,
+        level: usize,
+    ) -> PyResult<()> {
+        implement_transform! {par_forward_ndarray_multilevel, py, wavelet, x, y, bc, axes, level}
+    }
+
+    #[pyfunction]
+    fn inverse_transform_c64<'py>(
+        py: Python<'py>,
+        wavelet: Wavelets,
+        x: PyReadonlyArrayDyn<c64>,
+        mut y: PyReadwriteArrayDyn<c64>,
+        bc: Option<BoundaryCondition>,
+        axes: Option<Vec<isize>>,
+        level: usize,
+    ) -> PyResult<()> {
+        implement_transform! {par_inverse_ndarray_multilevel, py, wavelet, x, y, bc, axes, level}
+    }
+
+    #[pyfunction]
+    fn adj_forward_transform_c64<'py>(
+        py: Python<'py>,
+        wavelet: Wavelets,
+        x: PyReadonlyArrayDyn<c64>,
+        mut y: PyReadwriteArrayDyn<c64>,
+        bc: Option<BoundaryCondition>,
+        axes: Option<Vec<isize>>,
+        level: usize,
+    ) -> PyResult<()> {
+        implement_transform! {par_adj_forward_ndarray_multilevel, py, wavelet, x, y, bc, axes, level}
+    }
+
+    #[pyfunction]
+    fn adj_inverse_transform_c64<'py>(
+        py: Python<'py>,
+        wavelet: Wavelets,
+        x: PyReadonlyArrayDyn<c64>,
+        mut y: PyReadwriteArrayDyn<c64>,
+        bc: Option<BoundaryCondition>,
+        axes: Option<Vec<isize>>,
+        level: usize,
     ) -> PyResult<()> {
         implement_transform! {par_adj_inverse_ndarray_multilevel, py, wavelet, x, y, bc, axes, level}
     }

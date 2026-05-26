@@ -12,6 +12,7 @@ crate-type = ["cdylib"]
 numpy = "0.27.1"
 ndwt = { path = "../ndwt" }
 ndwt-macros = { path = "../ndwt-macros" }
+num-complex = "0.4.6"
 
 [dependencies.pyo3]
 version = "0.27.0"
