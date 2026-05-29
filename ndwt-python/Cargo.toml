@@ -2,6 +2,12 @@
 name = "ndwt-python"
 version = "0.1.1"
 edition = "2021"
+description = "High-performance discrete and lifting wavelet transforms for 1-D and N-D signals, with SIMD acceleration, adjoint operations, and 8 boundary conditions."
+license = "MIT"
+repository = "https://github.com/jcapriot/wavelets-rs"
+documentation = "https://docs.rs/ndwt"
+readme = "../README.md"
+keywords = ["wavelet", "signal-processing", "dwt", "lwt"]
 
 [lib]
 name = "ndwt"

@@ -4,10 +4,16 @@ build-backend = "maturin"
 
 [project]
 name = "ndwt"
+requires-python = ">= 3.8"
 classifiers = [
     "Development Status :: 1 - Planning",
-    "Programming Language :: Python",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
     "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering",
+    "Operating System :: OS Independent",
 ]
 dependencies = ["numpy"]
 dynamic = [
@@ -33,5 +39,4 @@ editable-profile = "release"
 
 [tool.cibuildwheel]
 build = "cp312-*"
-skip = "*_ppc64le *_i686 *_s390x *_armv7l *_riscv64"
 build-verbosity = 3
