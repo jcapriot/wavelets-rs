@@ -87,9 +87,6 @@ macro_rules! implement_contract_transform {
             let ndim = x.ndim();
             let axes = normalize_axes!(axes, ndim);
             check_axes!(axes, ndim);
-            let level = if level > 0  {level} else {
-                ndwt::max_level_nd(wavelet.width(), x.shape(), &axes)
-            };
 
             let mut out = match y{
                 ShapeOrOutArray::Shape(out_shape) => {
@@ -101,6 +98,10 @@ macro_rules! implement_contract_transform {
             };
 
             let mut y = out.as_array_mut();
+
+            let level = if level > 0  {level} else {
+                ndwt::max_level_nd(wavelet.width(), y.shape(), &axes)
+            };
 
             let expected_input_shape = driver::get_transform_shape(y.shape(), &axes, level, wavelet.width(), false);
 
