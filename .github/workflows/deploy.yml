@@ -32,6 +32,7 @@ jobs:
               env:
                   CIBW_BUILD: "cp311* cp312* cp313* cp314*"
                   CIBW_SKIP: "cp38* cp39* cp310* *musllinux* *i686 *ppc64le *s390x *armv7l *riscv64 *win32"
+                  MACOSX_DEPLOYMENT_TARGET: ${{ matrix.os == 'macos-15-intel' && '10.12' || '' }}
               with:
                   package-dir: ndwt-python
 
