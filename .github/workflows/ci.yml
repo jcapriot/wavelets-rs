@@ -79,3 +79,23 @@ jobs:
         run: cargo doc -p ndwt --no-deps --workspace --exclude ndwt-python
         env:
           RUSTDOCFLAGS: -D warnings
+
+  python_testing:
+    name: Test Python ${{python-version}} Bindings
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12"] #["3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ python-version }}
+          pip-install: numpy pytest
+          cache: "pip" # caching pip dependencies
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: maturin
+      - name: build package
+        run: maturin develop

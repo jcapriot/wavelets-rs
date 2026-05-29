@@ -1,17 +1,16 @@
 from __future__ import annotations
 
-from typing import Sequence, overload, TypeVar, Annotated
+from typing import Sequence, TypeVar, Annotated
 
 UnsignedInt = Annotated[int, "Value must be >= 0"]
 
 import numpy as np
 import numpy.typing as npt
 
-# ── Supported scalar types ────────────────────────────────────────────────────
+# Supported scalar types
+T = TypeVar("Inexact", np.float32, np.float64, np.complex64, np.complex128)
 
-_SCT = TypeVar("_SCT", np.float32, np.float64, np.complex64, np.complex128)
-
-# ── Enumerations ──────────────────────────────────────────────────────────────
+# Enumerations
 
 class Wavelets:
 
@@ -68,7 +67,7 @@ class BoundaryCondition:
     Smooth: BoundaryCondition
     Antireflect: BoundaryCondition
 
-# ── Utilities ─────────────────────────────────────────────────────────────────
+# Utilities
 
 def max_level(wavelet: Wavelets, n: int) -> int:
     ...
@@ -89,136 +88,136 @@ def get_dwt_shape(
 ) -> tuple[int, ...]:
     ...
 
-# ── LWT ───────────────────────────────────────────────────────────────────────
+# LWT
 
 def lwt(
     wavelet: Wavelets,
-    x: npt.NDArray[_SCT],
+    x: npt.NDArray[T],
     *,
     bc: BoundaryCondition = BoundaryCondition.Symmetric,
     axes: int | Sequence[int]  | None = None,
     level: UnsignedInt = 0,
-    out: npt.NDArray[_SCT] | None = None,
-) -> npt.NDArray[_SCT]:
+    out: npt.NDArray[T] | None = None,
+) -> npt.NDArray[T]:
     ...
 
 def ilwt(
     wavelet: Wavelets,
-    x: npt.NDArray[_SCT],
+    x: npt.NDArray[T],
     *,
     bc: BoundaryCondition = BoundaryCondition.Symmetric,
     axes: int | Sequence[int] | None = None,
     level: UnsignedInt = 0,
-    out: npt.NDArray[_SCT] | None = None,
-) -> npt.NDArray[_SCT]:
+    out: npt.NDArray[T] | None = None,
+) -> npt.NDArray[T]:
     ...
 
 def lwt_adj(
     wavelet: Wavelets,
-    x: npt.NDArray[_SCT],
+    x: npt.NDArray[T],
     *,
     bc: BoundaryCondition = BoundaryCondition.Symmetric,
     axes: int | Sequence[int] | None = None,
     level: UnsignedInt = 0,
-    out: npt.NDArray[_SCT] | None = None,
-) -> npt.NDArray[_SCT]:
+    out: npt.NDArray[T] | None = None,
+) -> npt.NDArray[T]:
     ...
 
 def ilwt_adj(
     wavelet: Wavelets,
-    x: npt.NDArray[_SCT],
+    x: npt.NDArray[T],
     *,
     bc: BoundaryCondition = BoundaryCondition.Symmetric,
     axes: int | Sequence[int] | None = None,
     level: UnsignedInt = 0,
-    out: npt.NDArray[_SCT] | None = None,
-) -> npt.NDArray[_SCT]:
+    out: npt.NDArray[T] | None = None,
+) -> npt.NDArray[T]:
     ...
 
-# ── DWT (general boundary condition) ─────────────────────────────────────────
+# DWT
 
 def dwt(
     wavelet: Wavelets,
-    x: npt.NDArray[_SCT],
+    x: npt.NDArray[T],
     *,
     bc: BoundaryCondition = BoundaryCondition.Symmetric,
     axes: int | Sequence[int] | None = None,
     level: UnsignedInt = 0,
-    out: npt.NDArray[_SCT] | None = None,
-) -> npt.NDArray[_SCT]:
+    out: npt.NDArray[T] | None = None,
+) -> npt.NDArray[T]:
     ...
 
 def idwt(
     wavelet: Wavelets,
-    x: npt.NDArray[_SCT],
-    out: npt.NDArray[_SCT] | Sequence[int],
+    x: npt.NDArray[T],
+    out: npt.NDArray[T] | Sequence[int],
     *,
     bc: BoundaryCondition = BoundaryCondition.Symmetric,
     axes: int | Sequence[int] | None = None,
     level: UnsignedInt = 0,
-) -> npt.NDArray[_SCT]:
+) -> npt.NDArray[T]:
     ...
 
 def dwt_adj(
     wavelet: Wavelets,
-    x: npt.NDArray[_SCT],
-    out: npt.NDArray[_SCT] | Sequence[int],
+    x: npt.NDArray[T],
+    out: npt.NDArray[T] | Sequence[int],
     *,
     bc: BoundaryCondition = BoundaryCondition.Symmetric,
     axes: int | Sequence[int] | None = None,
     level: UnsignedInt = 0,
-) -> npt.NDArray[_SCT]:
+) -> npt.NDArray[T]:
     ...
 
 def idwt_adj(
     wavelet: Wavelets,
-    x: npt.NDArray[_SCT],
+    x: npt.NDArray[T],
     *,
     bc: BoundaryCondition = BoundaryCondition.Symmetric,
     axes: int | Sequence[int] | None = None,
     level: UnsignedInt = 0,
-    out: npt.NDArray[_SCT] | None = None,
-) -> npt.NDArray[_SCT]:
+    out: npt.NDArray[T] | None = None,
+) -> npt.NDArray[T]:
     ...
 
-# ── DWT (periodic boundary condition) ────────────────────────────────────────
+# DWT (periodic boundary condition)
 
 def dwt_per(
     wavelet: Wavelets,
-    x: npt.NDArray[_SCT],
+    x: npt.NDArray[T],
     *,
     axes: int | Sequence[int] | None = None,
     level: UnsignedInt = 0,
-    out: npt.NDArray[_SCT] | None = None,
-) -> npt.NDArray[_SCT]:
+    out: npt.NDArray[T] | None = None,
+) -> npt.NDArray[T]:
     ...
 
 def idwt_per(
     wavelet: Wavelets,
-    x: npt.NDArray[_SCT],
+    x: npt.NDArray[T],
     *,
     axes: int | Sequence[int] | None = None,
     level: UnsignedInt = 0,
-    out: npt.NDArray[_SCT] | None = None,
-) -> npt.NDArray[_SCT]:
+    out: npt.NDArray[T] | None = None,
+) -> npt.NDArray[T]:
     ...
 
 def dwt_per_adj(
     wavelet: Wavelets,
-    x: npt.NDArray[_SCT],
+    x: npt.NDArray[T],
     *,
     axes: int | Sequence[int] | None = None,
     level: UnsignedInt = 0,
-    out: npt.NDArray[_SCT] | None = None,
-) -> npt.NDArray[_SCT]:
+    out: npt.NDArray[T] | None = None,
+) -> npt.NDArray[T]:
     ...
 
 def idwt_per_adj(
     wavelet: Wavelets,
-    x: npt.NDArray[_SCT],
+    x: npt.NDArray[T],
     *,
     axes: int | Sequence[int] | None = None,
     level: UnsignedInt = 0,
-    out: npt.NDArray[_SCT] | None = None,
-) -> npt.NDArray[_SCT]:
+    out: npt.NDArray[T] | None = None,
+) -> npt.NDArray[T]:
     ...
