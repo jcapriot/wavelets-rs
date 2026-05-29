@@ -92,7 +92,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Set up Python Environment
-        uses: astral-sh/setup-uv@v8
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           python-version: ${{ matrix.python-version }}
 
