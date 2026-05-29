@@ -5,7 +5,7 @@ use std::collections::HashSet;
 
 use crate::Wavelets;
 use crate::boundarys::BoundaryExtension;
-use crate::iter::LanesIterator;
+use crate::iter::{LanesIterator, copy_over};
 
 use aligned_vec::avec;
 
@@ -497,6 +497,10 @@ fn general_nd_forward_multilevel<F, T, L, const N: usize>(
     L: LanesIterator<Item = T> + ?Sized,
     T: Clone + Zero + ChunkWidth<T, N>,
 {
+    if level == 0 {
+        copy_over(input, output, shape, shape);
+        return;
+    }
     let ndim = shape.len();
     let axes = HashSet::<_>::from_iter(axes.iter().cloned());
     debug_assert!(axes.iter().all(|i| *i < ndim));
@@ -632,30 +636,7 @@ fn general_nd_inverse_multilevel<F, T, L, const N: usize>(
     // note that axes is a HashSet, so they are gauranteed to be different axes.
 
     // copy input into the output
-    let min_axis = output.min_stride_axis(shape);
-
-    let (in_lanes, out_lanes) =
-        if input.is_ax_contiguous(min_axis, shape) || output.is_ax_contiguous(min_axis, shape) {
-            (
-                input.iter_lanes(shape, min_axis),
-                output.iter_lanes_mut(shape, min_axis),
-            )
-        } else {
-            let (in_chunks, in_rem) = input.iter_lane_chunks::<N>(shape, min_axis);
-            let (out_chunks, out_rem) = output.iter_lane_chunks_mut::<N>(shape, min_axis);
-
-            out_chunks.zip(in_chunks).for_each(|(mut o, i)| {
-                o.iter_mut().zip(i.iter()).for_each(|(o, i)| {
-                    o.into_iter().zip(i).for_each(|(o, i)| {
-                        *o = i.clone();
-                    });
-                });
-            });
-            (in_rem, out_rem)
-        };
-    in_lanes.zip(out_lanes).for_each(|(i, mut o)| {
-        o.iter_mut().zip(i.iter()).for_each(|(o, i)| *o = i.clone());
-    });
+    copy_over(input, output, shape, shape);
 
     let mut sub_shape = shape.to_owned();
 
@@ -719,7 +700,7 @@ fn general_nd_inverse_multilevel<F, T, L, const N: usize>(
 pub mod parallel {
     use super::*;
 
-    use crate::iter::parallel::LanesParallelIterator;
+    use crate::iter::parallel::{LanesParallelIterator, copy_over};
     use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 
     impl<T, BC, const N: usize> WaveletTransform<T, BC, N>
@@ -1076,6 +1057,10 @@ pub mod parallel {
         L: LanesParallelIterator<Item = T> + ?Sized,
         T: Clone + Zero + ChunkWidth<T, N> + Send + Sync,
     {
+        if level == 0 {
+            copy_over(input, output, shape, shape);
+            return;
+        }
         let ndim = shape.len();
         let axes = HashSet::<_>::from_iter(axes.iter().cloned());
         debug_assert!(axes.iter().all(|i| *i < ndim));
@@ -1196,21 +1181,7 @@ pub mod parallel {
         // note that axes is a HashSet, so they are gauranteed to be different axes.
 
         // copy input into the output
-        let min_axis = output.min_stride_axis(shape);
-
-        let (in_chunks, in_rem) = input.par_iter_lane_chunks::<N>(shape, min_axis);
-        let (out_chunks, out_rem) = output.par_iter_lane_chunks_mut::<N>(shape, min_axis);
-
-        out_chunks.zip(in_chunks).for_each(|(mut o, i)| {
-            o.iter_mut().zip(i.iter()).for_each(|(o, i)| {
-                o.into_iter().zip(i).for_each(|(o, i)| {
-                    *o = i.clone();
-                });
-            });
-        });
-        out_rem.zip(in_rem).for_each(|(mut o, i)| {
-            o.iter_mut().zip(i.iter()).for_each(|(o, i)| *o = i.clone());
-        });
+        copy_over(input, output, shape, shape);
 
         let mut sub_shape = shape.to_owned();
 

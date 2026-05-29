@@ -20,6 +20,12 @@ dynamic = [
     "keywords",
 ]
 
+[project.optional-dependencies]
+test = ["pytest", "numpy"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
 [tool.maturin]
 module-name = "ndwt._ndwt_ext"
 profile = "release"

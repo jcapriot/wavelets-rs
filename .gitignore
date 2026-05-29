@@ -10,5 +10,5 @@ Cargo.lock
 **/*.rs.bk
 
 ndwt-python/ndwt/_ndwt_ext.pyd
-
-ndwt-python/ndwt/__pycache__/
+*.pyc
+__pycache__/

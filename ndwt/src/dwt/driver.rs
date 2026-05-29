@@ -7,7 +7,7 @@ use aligned_vec::avec;
 
 use crate::boundarys::BoundaryExtension;
 use crate::dwt::{DiscreteTransform, get_outlen};
-use crate::iter::LanesIterator;
+use crate::iter::{LanesIterator, copy_over};
 use crate::{Wavelets, max_level_nd};
 
 use crate::{ChunkWidth, Transformable};
@@ -61,6 +61,9 @@ pub fn get_transform_shape<'a, IT: IntoIterator<Item = &'a usize>>(
     }
     // initialize as shape of input array to copy un-transformed axes
     let mut out_shape = in_shape.to_owned();
+    if level == 0 {
+        return out_shape;
+    }
     // transformed axes will be replaced by approximation and detail coefficients, so we initialize them to 0 and add the lengths of the coefficients in the loop below.
     for &ax in axes.iter() {
         out_shape[ax] = 0;
@@ -1058,6 +1061,10 @@ fn general_nd_forward_multilevel<F, T, L, const N: usize>(
     T: Clone + Zero + ChunkWidth<T, N>,
 {
     let TransformParams { axes, level, width } = params;
+    if level == 0 {
+        copy_over(input, output, in_shape, out_shape);
+        return;
+    }
     let ndim = in_shape.len();
     let axes = HashSet::<_>::from_iter(axes.iter().cloned());
     debug_assert_eq!(
@@ -1290,35 +1297,7 @@ fn general_nd_inverse_multilevel<F, T, L, const N: usize>(
         }
     }
 
-    // copy input into output
-    let min_axis = output.min_stride_axis(out_shape);
-    let (in_lanes, out_lanes) = if inwork.is_ax_contiguous(min_axis, in_shape)
-        || output.is_ax_contiguous(min_axis, out_shape)
-    {
-        (
-            inwork.iter_lanes_sub(in_shape, out_shape, min_axis),
-            output.iter_lanes_mut(out_shape, min_axis),
-        )
-    } else {
-        let (in_chunks, in_rem) = inwork.iter_lane_chunks_sub::<N>(in_shape, out_shape, min_axis);
-        let (out_chunks, out_rem) = output.iter_lane_chunks_mut::<N>(out_shape, min_axis);
-
-        out_chunks.zip(in_chunks).for_each(|(mut o, i)| {
-            o.iter_mut().zip(i.iter()).for_each(|(o, i)| {
-                o.into_iter()
-                    .zip(i.into_iter().cloned())
-                    .for_each(|(o, i)| {
-                        *o = i;
-                    });
-            });
-        });
-        (in_rem, out_rem)
-    };
-    out_lanes.zip(in_lanes).for_each(|(mut o, i)| {
-        o.iter_mut()
-            .zip(i.iter().cloned())
-            .for_each(|(o, i)| *o = i);
-    });
+    copy_over(inwork, output, in_shape, out_shape);
 }
 
 fn general_nd_per_forward_multilevel<F, T, L, const N: usize>(
@@ -1333,6 +1312,10 @@ fn general_nd_per_forward_multilevel<F, T, L, const N: usize>(
     L: LanesIterator<Item = T> + ?Sized,
     T: Clone + Zero + ChunkWidth<T, N>,
 {
+    if level == 0 {
+        copy_over(input, output, shape, shape);
+        return;
+    }
     let ndim = shape.len();
     let axes = HashSet::<_>::from_iter(axes.iter().cloned());
     debug_assert!(axes.iter().all(|i| *i < ndim));
@@ -1512,33 +1495,7 @@ fn general_nd_per_inverse_multilevel<F, T, L, const N: usize>(
     }
 
     // In per mode we can copy the input to the output right away and not modify the input array.
-    let min_axis = output.min_stride_axis(shape);
-    let (in_lanes, out_lanes) =
-        if input.is_ax_contiguous(min_axis, shape) || output.is_ax_contiguous(min_axis, shape) {
-            (
-                input.iter_lanes(shape, min_axis),
-                output.iter_lanes_mut(shape, min_axis),
-            )
-        } else {
-            let (in_chunks, in_rem) = input.iter_lane_chunks::<N>(shape, min_axis);
-            let (out_chunks, out_rem) = output.iter_lane_chunks_mut::<N>(shape, min_axis);
-
-            out_chunks.zip(in_chunks).for_each(|(mut o, i)| {
-                o.iter_mut().zip(i.iter()).for_each(|(o, i)| {
-                    o.into_iter()
-                        .zip(i.into_iter().cloned())
-                        .for_each(|(o, i)| {
-                            *o = i;
-                        });
-                });
-            });
-            (in_rem, out_rem)
-        };
-    out_lanes.zip(in_lanes).for_each(|(mut o, i)| {
-        o.iter_mut()
-            .zip(i.iter().cloned())
-            .for_each(|(o, i)| *o = i);
-    });
+    copy_over(input, output, shape, shape);
 
     for level in (0..level).rev() {
         let mut sub_shape = out_shapes[level].clone();
@@ -1600,7 +1557,7 @@ fn general_nd_per_inverse_multilevel<F, T, L, const N: usize>(
 pub mod parallel {
     use super::*;
 
-    use crate::iter::parallel::LanesParallelIterator;
+    use crate::iter::parallel::{LanesParallelIterator, copy_over};
     use rayon::iter::{IndexedParallelIterator, ParallelIterator};
 
     impl<T, BC, const N: usize> WaveletTransform<T, BC, N>
@@ -2386,6 +2343,12 @@ pub mod parallel {
         T: Clone + Zero + ChunkWidth<T, N> + Send + Sync,
     {
         let TransformParams { axes, level, width } = params;
+
+        if level == 0 {
+            // copy input into output
+            copy_over(input, output, in_shape, out_shape);
+            return;
+        }
         let ndim = in_shape.len();
         debug_assert_eq!(
             in_shape.len(),
@@ -2620,26 +2583,7 @@ pub mod parallel {
             }
         }
 
-        // copy input into output
-        let min_axis = output.min_stride_axis(out_shape);
-        let (in_chunks, in_rem) =
-            inwork.par_iter_lane_chunks_sub::<N>(in_shape, out_shape, min_axis);
-        let (out_chunks, out_rem) = output.par_iter_lane_chunks_mut::<N>(out_shape, min_axis);
-
-        out_chunks.zip(in_chunks).for_each(|(mut o, i)| {
-            o.iter_mut().zip(i.iter()).for_each(|(o, i)| {
-                o.into_iter()
-                    .zip(i.into_iter().cloned())
-                    .for_each(|(o, i)| {
-                        *o = i;
-                    });
-            });
-        });
-        out_rem.zip(in_rem).for_each(|(mut o, i)| {
-            o.iter_mut()
-                .zip(i.iter().cloned())
-                .for_each(|(o, i)| *o = i);
-        });
+        copy_over(inwork, output, in_shape, out_shape);
     }
 
     fn general_nd_per_forward_multilevel<F, T, L, const N: usize>(
@@ -2654,6 +2598,11 @@ pub mod parallel {
         L: LanesParallelIterator<Item = T> + ?Sized,
         T: Clone + Zero + ChunkWidth<T, N> + Send + Sync,
     {
+        if level == 0 {
+            // copy input into output
+            copy_over(input, output, shape, shape);
+            return;
+        }
         let ndim = shape.len();
         let axes = HashSet::<_>::from_iter(axes.iter().cloned());
         debug_assert!(axes.iter().all(|i| *i < ndim));
@@ -2830,24 +2779,7 @@ pub mod parallel {
         }
 
         // In per mode we can copy the input to the output right away and not modify the input array.
-        let min_axis = output.min_stride_axis(shape);
-        let (in_chunks, in_rem) = input.par_iter_lane_chunks::<N>(shape, min_axis);
-        let (out_chunks, out_rem) = output.par_iter_lane_chunks_mut::<N>(shape, min_axis);
-
-        out_chunks.zip(in_chunks).for_each(|(mut o, i)| {
-            o.iter_mut().zip(i.iter()).for_each(|(o, i)| {
-                o.into_iter()
-                    .zip(i.into_iter().cloned())
-                    .for_each(|(o, i)| {
-                        *o = i;
-                    });
-            });
-        });
-        out_rem.zip(in_rem).for_each(|(mut o, i)| {
-            o.iter_mut()
-                .zip(i.iter().cloned())
-                .for_each(|(o, i)| *o = i);
-        });
+        copy_over(input, output, shape, shape);
 
         for level in (0..level).rev() {
             let mut sub_shape = out_shapes[level].clone();
