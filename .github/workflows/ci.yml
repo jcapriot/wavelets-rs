@@ -81,7 +81,7 @@ jobs:
           RUSTDOCFLAGS: -D warnings
 
   python_testing:
-    name: Test Python ${{python-version}} Bindings
+    name: Test Python ${{ matrix.python-version }} Bindings
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -91,11 +91,13 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: ${{ python-version }}
+          python-version: ${{ matrix.python-version }}
           pip-install: numpy pytest
           cache: "pip" # caching pip dependencies
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: maturin
       - name: build package
-        run: maturin develop
+        run: cd ndwt-python; maturin develop
+      - name: Test
+        run: pytest
