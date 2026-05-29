@@ -1,6 +1,5 @@
 use pyo3::prelude::{pyclass, pymethods, pymodule};
 
-//mod dwt;
 mod dwt;
 mod lwt;
 use ndwt::boundarys;
@@ -13,7 +12,27 @@ use pyo3::FromPyObject;
 generate_wavelet_enum! {
     Wavelets,
     (Clone, Copy, Debug, PartialEq, Eq, Hash),
-    {#[pyclass]}
+    {
+        #[pyclass]
+        /// Wavelets supported for transformations.
+        ///
+        /// Members
+        /// -------
+        /// Daubechies[1-10]
+        ///     Daubechies family wavelets. Daubechies1 is equivalent to the Haar wavelet.
+        /// Symlet[4-6]
+        ///     Near-symmetric wavelets, least-asymmetric modifications of Daubechies wavelets.
+        ///     Symlets[1-3] are equivalent to the corresponding Daubechies wavelet.
+        /// Coiflet[1-3]
+        ///     Wavelets with vanishing moments for both analysis and synthethesis filters.
+        /// Bior[A_B]
+        ///     Biorthogonal wavelets use separate analysis and synthesis filters. The naming
+        ///     convention `BiorA_B` refers to the order of the synthesis/analysis filter pair.
+        ///     A is in the range 1-6, and B is between 1 and 9, but only certain combinations
+        ///     of the two are supported. Generally, they must both either be even or odd.
+        /// CDF5_3, CDF9_7
+        ///     The Cohen–Daubechies–Feauveau wavelets variants (also biorthogonal).
+    }
 }
 
 impl Wavelets {
@@ -24,11 +43,46 @@ impl Wavelets {
 
 #[pymethods]
 impl Wavelets {
+    /// Number of filter coefficients for this wavelet.
+    ///
+    /// Returns
+    /// -------
+    /// int
+    ///     Filter width (number of taps).
     fn width(&self) -> usize {
         self.as_ndwt_wavelet().width()
     }
 }
 
+/// Boundary extension mode used by non-periodic wavelet transforms.
+///
+/// Determines how the signal is extended beyond its edges before
+/// convolution with the wavelet filter.
+///
+/// Members
+/// -------
+/// Zero
+///     Extend with zeros (zero-padding).
+/// Periodic
+///     Treat the signal as periodic (circular extension).
+/// Constant
+///     Repeat the boundary sample value.
+/// Symmetric
+///     Even (mirror) reflection about the boundary sample.
+/// Reflect
+///     Odd reflection about a virtual point just outside the boundary.
+/// Antisymmetric
+///     Even reflection with sign flip.
+/// Smooth
+///     Linear extrapolation from the two outermost samples.
+/// Antireflect
+///     Odd-symmetric extension that preserves the first derivative.
+///
+/// Notes
+/// -----
+/// In the LWT transform, these extension modes are seperately applied to
+/// the even and odd elements, and applied at each lifting step independently so
+/// that each update step remains upper (or lower) triangular and trivially invertible.
 #[pyclass]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum BoundaryCondition {
@@ -145,6 +199,9 @@ enum ShapeOrOutArray<'py> {
     Complex64(PyReadwriteArrayDyn<'py, c64>), // Matches Python str
 }
 
+/// N-dimensional wavelet transforms for NumPy arrays.
+///
+/// See the ``ndwt`` package docstring for a full overview.
 #[pymodule]
 mod _ndwt_ext {
     use pyo3::prelude::{pyfunction, Py, PyAny, PyErr, PyResult, Python};
@@ -158,11 +215,44 @@ mod _ndwt_ext {
 
     use super::{ReadArray, ReadWriteArray, ShapeOrOutArray, ValOrVec};
 
+    /// Maximum decomposition levels for a 1-D signal.
+    ///
+    /// Parameters
+    /// ----------
+    /// wavelet : Wavelets
+    ///     Wavelet family.
+    /// n : int
+    ///     Signal length.
+    ///
+    /// Returns
+    /// -------
+    /// int
+    ///     Maximum number of decomposition levels.  Returns ``0`` when
+    ///     the signal is too short for even one level.
     #[pyfunction]
     fn max_level(wavelet: Wavelets, n: usize) -> usize {
         wavelet.as_ndwt_wavelet().max_level(n)
     }
 
+    /// Maximum decomposition levels for an N-D signal.
+    ///
+    /// Returns the minimum of :func:`max_level` across all transformed
+    /// axes — i.e. the largest level that can be applied to every axis
+    /// simultaneously.
+    ///
+    /// Parameters
+    /// ----------
+    /// wavelet : Wavelets
+    ///     Wavelet family.
+    /// shape : sequence of int
+    ///     Array shape.
+    /// axes : int | sequence of int, optional
+    ///     Axes to consider.  ``None`` (default) means all axes.
+    ///
+    /// Returns
+    /// -------
+    /// int
+    ///     Maximum number of decomposition levels.
     #[pyfunction]
     fn max_level_nd(
         wavelet: Wavelets,
@@ -176,6 +266,28 @@ mod _ndwt_ext {
         Ok(ndwt::max_level_nd(width, &shape, &axes))
     }
 
+    /// Output shape of a forward (or adjoint-inverse) multi-level DWT.
+    ///
+    /// For non-periodic transforms the coefficients from all decomposition
+    /// levels are packed into a single expanded array; use this function to
+    /// determine its shape before calling :func:`dwt` or :func:`idwt_adj`.
+    ///
+    /// Parameters
+    /// ----------
+    /// wavelet : Wavelets
+    ///     Wavelet family.
+    /// shape : sequence of int
+    ///     Input array shape.
+    /// axes : int | sequence of int, optional
+    ///     Axes to transform.  ``None`` (default) means all axes.
+    /// level : int, optional
+    ///     Number of decomposition levels.  ``0`` (default) selects the
+    ///     maximum possible level for the given ``wavelet`` and ``shape``.
+    ///
+    /// Returns
+    /// -------
+    /// tuple of int
+    ///     Output shape for the forward DWT.
     #[pyfunction]
     #[pyo3(signature = (wavelet, shape, *, axes=None, level=0))]
     fn get_dwt_shape<'py>(
@@ -202,6 +314,33 @@ mod _ndwt_ext {
         Ok(x.unbind())
     }
 
+    /// Forward multi-level Lifting Wavelet Transform (LWT).
+    ///
+    /// The output has the same shape as the input; coefficients from every
+    /// decomposition level are stored in-place within the array.
+    ///
+    /// Parameters
+    /// ----------
+    /// wavelet : Wavelets
+    ///     Wavelet family.
+    /// x : numpy.ndarray
+    ///     Input array.  Supported dtypes: ``float32``, ``float64``,
+    ///     ``complex64``, ``complex128``.
+    /// bc : BoundaryCondition, optional
+    ///     Boundary extension mode.  Default is ``BoundaryCondition.Symmetric``.
+    /// axes : int | sequence of int, optional
+    ///     Axes along which to transform.  ``None`` (default) means all axes.
+    /// level : int, optional
+    ///     Number of decomposition levels.  ``0`` (default) selects the
+    ///     maximum possible level.
+    /// out : numpy.ndarray, optional
+    ///     Pre-allocated output array with the same shape and dtype as ``x``.
+    ///     If ``None`` (default) a new array is allocated.
+    ///
+    /// Returns
+    /// -------
+    /// numpy.ndarray
+    ///     LWT coefficient array.  Same shape and dtype as ``x``.
     #[pyfunction]
     #[pyo3(signature = (wavelet, x, *, bc=BoundaryCondition::Symmetric, axes=None, level=0, out=None), text_signature = "(wavelet, x, *, bc=BoundaryCondition.Symmetric, axes=None, level=0, out=None)")]
     fn lwt<'py>(
@@ -240,6 +379,34 @@ mod _ndwt_ext {
         }
     }
 
+    /// Inverse multi-level Lifting Wavelet Transform (LWT).
+    ///
+    /// Reconstructs the original signal from its LWT representation.
+    /// The output has the same shape as the input.
+    ///
+    /// Parameters
+    /// ----------
+    /// wavelet : Wavelets
+    ///     Wavelet family used for the forward transform.
+    /// x : numpy.ndarray
+    ///     LWT coefficient array.  Supported dtypes: ``float32``, ``float64``,
+    ///     ``complex64``, ``complex128``.
+    /// bc : BoundaryCondition, optional
+    ///     Boundary extension mode.  Must match the forward transform.
+    ///     Default is ``BoundaryCondition.Symmetric``.
+    /// axes : int | sequence of int, optional
+    ///     Axes to reconstruct.  ``None`` (default) means all axes.
+    /// level : int, optional
+    ///     Number of decomposition levels.  ``0`` (default) selects the
+    ///     maximum possible level.
+    /// out : numpy.ndarray, optional
+    ///     Pre-allocated output array.  If ``None`` (default) a new array
+    ///     is allocated.
+    ///
+    /// Returns
+    /// -------
+    /// numpy.ndarray
+    ///     Reconstructed signal.  Same shape and dtype as ``x``.
     #[pyfunction]
     #[pyo3(signature = (wavelet, x, *, bc=BoundaryCondition::Symmetric, axes=None, level=0, out=None), text_signature = "(wavelet, x, *, bc=BoundaryCondition.Symmetric, axes=None, level=0, out=None)")]
     fn ilwt<'py>(
@@ -282,6 +449,35 @@ mod _ndwt_ext {
         }
     }
 
+    /// Adjoint of the forward Lifting Wavelet Transform.
+    ///
+    /// Computes the adjoint (transpose) of :func:`lwt`.  Together with
+    /// :func:`ilwt_adj` this forms the adjoint pair used in iterative
+    /// solvers and optimization problems.
+    ///
+    /// Parameters
+    /// ----------
+    /// wavelet : Wavelets
+    ///     Wavelet family.
+    /// x : numpy.ndarray
+    ///     Input array.  Supported dtypes: ``float32``, ``float64``,
+    ///     ``complex64``, ``complex128``.
+    /// bc : BoundaryCondition, optional
+    ///     Boundary extension mode.  Default is ``BoundaryCondition.Symmetric``.
+    /// axes : int | sequence of int, optional
+    ///     Axes along which to apply the adjoint.  ``None`` (default) means
+    ///     all axes.
+    /// level : int, optional
+    ///     Number of decomposition levels.  ``0`` (default) selects the
+    ///     maximum possible level.
+    /// out : numpy.ndarray, optional
+    ///     Pre-allocated output array.  If ``None`` (default) a new array
+    ///     is allocated.
+    ///
+    /// Returns
+    /// -------
+    /// numpy.ndarray
+    ///     Result of the adjoint forward LWT.  Same shape and dtype as ``x``.
     #[pyfunction]
     #[pyo3(signature = (wavelet, x, *, bc=BoundaryCondition::Symmetric, axes=None, level=0, out=None), text_signature = "(wavelet, x, *, bc=BoundaryCondition.Symmetric, axes=None, level=0, out=None)")]
     fn lwt_adj<'py>(
@@ -324,6 +520,35 @@ mod _ndwt_ext {
         }
     }
 
+    /// Adjoint of the inverse Lifting Wavelet Transform.
+    ///
+    /// Computes the adjoint (transpose) of :func:`ilwt`.  Together with
+    /// :func:`lwt_adj` this forms the adjoint pair used in iterative
+    /// solvers and optimization problems.
+    ///
+    /// Parameters
+    /// ----------
+    /// wavelet : Wavelets
+    ///     Wavelet family.
+    /// x : numpy.ndarray
+    ///     Input array.  Supported dtypes: ``float32``, ``float64``,
+    ///     ``complex64``, ``complex128``.
+    /// bc : BoundaryCondition, optional
+    ///     Boundary extension mode.  Default is ``BoundaryCondition.Symmetric``.
+    /// axes : int | sequence of int, optional
+    ///     Axes along which to apply the adjoint.  ``None`` (default) means
+    ///     all axes.
+    /// level : int, optional
+    ///     Number of decomposition levels.  ``0`` (default) selects the
+    ///     maximum possible level.
+    /// out : numpy.ndarray, optional
+    ///     Pre-allocated output array.  If ``None`` (default) a new array
+    ///     is allocated.
+    ///
+    /// Returns
+    /// -------
+    /// numpy.ndarray
+    ///     Result of the adjoint inverse LWT.  Same shape and dtype as ``x``.
     #[pyfunction]
     #[pyo3(signature = (wavelet, x, *, bc=BoundaryCondition::Symmetric, axes=None, level=0, out=None), text_signature = "(wavelet, x, *, bc=BoundaryCondition.Symmetric, axes=None, level=0, out=None)")]
     fn ilwt_adj<'py>(
@@ -366,6 +591,35 @@ mod _ndwt_ext {
         }
     }
 
+    /// Forward multi-level Discrete Wavelet Transform (DWT).
+    ///
+    /// The output shape is *larger* than the input; use :func:`get_dwt_shape`
+    /// to compute the required dimensions in advance.
+    ///
+    /// Parameters
+    /// ----------
+    /// wavelet : Wavelets
+    ///     Wavelet family.
+    /// x : numpy.ndarray
+    ///     Input array.  Supported dtypes: ``float32``, ``float64``,
+    ///     ``complex64``, ``complex128``.
+    /// bc : BoundaryCondition, optional
+    ///     Boundary extension mode.  Default is ``BoundaryCondition.Symmetric``.
+    /// axes : int | sequence of int, optional
+    ///     Axes along which to transform.  ``None`` (default) means all axes.
+    /// level : int, optional
+    ///     Number of decomposition levels.  ``0`` (default) selects the
+    ///     maximum possible level.
+    /// out : numpy.ndarray, optional
+    ///     Pre-allocated output array whose shape must equal
+    ///     ``get_dwt_shape(wavelet, x.shape, axes=axes, level=level)``
+    ///     and whose dtype must match ``x``.  If ``None`` (default) a new
+    ///     array is allocated.
+    ///
+    /// Returns
+    /// -------
+    /// numpy.ndarray
+    ///     DWT coefficient array.  Shape is given by :func:`get_dwt_shape`.
     #[pyfunction]
     #[pyo3(signature = (wavelet, x, *, bc=BoundaryCondition::Symmetric, axes=None, level=0, out=None), text_signature = "(wavelet, x, *, bc=BoundaryCondition.Symmetric, axes=None, level=0, out=None)")]
     fn dwt<'py>(
@@ -404,6 +658,39 @@ mod _ndwt_ext {
         }
     }
 
+    /// Inverse multi-level Discrete Wavelet Transform (DWT).
+    ///
+    /// Reconstructs the original signal from its DWT representation.
+    /// The input must have the expanded shape produced by :func:`dwt`.
+    ///
+    /// Parameters
+    /// ----------
+    /// wavelet : Wavelets
+    ///     Wavelet family used for the forward transform.
+    /// x : numpy.ndarray
+    ///     DWT coefficient array with the shape produced by :func:`dwt`
+    ///     for the same ``wavelet``, ``axes``, and ``level``.
+    /// out : numpy.ndarray | sequence of int
+    ///     Pre-allocated output array with the original signal shape, **or**
+    ///     a sequence of ints specifying that shape (a new array is then
+    ///     allocated).
+    /// bc : BoundaryCondition, optional
+    ///     Boundary extension mode.  Must match the forward transform.
+    ///     Default is ``BoundaryCondition.Symmetric``.
+    /// axes : int | sequence of int, optional
+    ///     Axes to reconstruct.  ``None`` (default) means all axes.
+    /// level : int, optional
+    ///     Number of decomposition levels.  ``0`` (default) selects the
+    ///     maximum possible level.
+    ///
+    /// Returns
+    /// -------
+    /// numpy.ndarray
+    ///     Reconstructed signal.
+    ///
+    /// Notes
+    /// -----
+    /// This function will always allocate an internal copy of the `x` array for its workspace.
     #[pyfunction]
     #[pyo3(signature = (wavelet, x, out,  *, bc=BoundaryCondition::Symmetric, axes=None, level=0), text_signature = "(wavelet, x, *, bc=BoundaryCondition.Symmetric, axes=None, level=0, out=None)")]
     fn idwt<'py>(
@@ -495,6 +782,38 @@ mod _ndwt_ext {
         }
     }
 
+    /// Adjoint of the forward Discrete Wavelet Transform.
+    ///
+    /// Computes the adjoint (transpose) of :func:`dwt`.  The input has the
+    /// expanded DWT shape; the output has the original signal shape.
+    ///
+    /// Parameters
+    /// ----------
+    /// wavelet : Wavelets
+    ///     Wavelet family.
+    /// x : numpy.ndarray
+    ///     Input array with the expanded DWT shape.
+    /// out : numpy.ndarray | sequence of int
+    ///     Pre-allocated output array with the original signal shape, **or**
+    ///     a sequence of ints specifying that shape (a new array is then
+    ///     allocated).
+    /// bc : BoundaryCondition, optional
+    ///     Boundary extension mode.  Default is ``BoundaryCondition.Symmetric``.
+    /// axes : int | sequence of int, optional
+    ///     Axes along which to apply the adjoint.  ``None`` (default) means
+    ///     all axes.
+    /// level : int, optional
+    ///     Number of decomposition levels.  ``0`` (default) selects the
+    ///     maximum possible level.
+    ///
+    /// Returns
+    /// -------
+    /// numpy.ndarray
+    ///     Result of the adjoint forward DWT.
+    ///
+    /// Notes
+    /// -----
+    /// This function will always allocate an internal copy of the `x` array for its workspace.
     #[pyfunction]
     #[pyo3(signature = (wavelet, x, out,  *, bc=BoundaryCondition::Symmetric, axes=None, level=0), text_signature = "(wavelet, x, *, bc=BoundaryCondition.Symmetric, axes=None, level=0, out=None)")]
     fn dwt_adj<'py>(
@@ -586,6 +905,36 @@ mod _ndwt_ext {
         }
     }
 
+    /// Adjoint of the inverse Discrete Wavelet Transform.
+    ///
+    /// Computes the adjoint (transpose) of :func:`idwt`.  The input has the
+    /// original signal shape; the output shape is *larger*, matching
+    /// :func:`get_dwt_shape`.
+    ///
+    /// Parameters
+    /// ----------
+    /// wavelet : Wavelets
+    ///     Wavelet family.
+    /// x : numpy.ndarray
+    ///     Input array with the original signal shape.
+    /// bc : BoundaryCondition, optional
+    ///     Boundary extension mode.  Default is ``BoundaryCondition.Symmetric``.
+    /// axes : int or sequence of int, optional
+    ///     Axes along which to apply the adjoint.  ``None`` (default) means
+    ///     all axes.
+    /// level : int, optional
+    ///     Number of decomposition levels.  ``0`` (default) selects the
+    ///     maximum possible level.
+    /// out : numpy.ndarray, optional
+    ///     Pre-allocated output array whose shape must equal
+    ///     ``get_dwt_shape(wavelet, x.shape, axes=axes, level=level)``.
+    ///     If ``None`` (default) a new array is allocated.
+    ///
+    /// Returns
+    /// -------
+    /// numpy.ndarray
+    ///     Result of the adjoint inverse DWT.  Shape given by
+    ///     :func:`get_dwt_shape`.
     #[pyfunction]
     #[pyo3(signature = (wavelet, x, *, bc=BoundaryCondition::Symmetric, axes=None, level=0, out=None), text_signature = "(wavelet, x, *, bc=BoundaryCondition.Symmetric, axes=None, level=0, out=None)")]
     fn idwt_adj<'py>(
@@ -628,6 +977,32 @@ mod _ndwt_ext {
         }
     }
 
+    /// Forward multi-level periodic Discrete Wavelet Transform (DWT).
+    ///
+    /// Uses circular (periodic) boundary extension.  The output shape
+    /// always equals the input shape.  Each transformed axis must have
+    /// even length.
+    ///
+    /// Parameters
+    /// ----------
+    /// wavelet : Wavelets
+    ///     Wavelet family.
+    /// x : numpy.ndarray
+    ///     Input array.  Supported dtypes: ``float32``, ``float64``,
+    ///     ``complex64``, ``complex128``.
+    /// axes : int | sequence of int, optional
+    ///     Axes along which to transform.  ``None`` (default) means all axes.
+    /// level : int, optional
+    ///     Number of decomposition levels.  ``0`` (default) selects the
+    ///     maximum possible level.
+    /// out : numpy.ndarray, optional
+    ///     Pre-allocated output array with the same shape and dtype as ``x``.
+    ///     If ``None`` (default) a new array is allocated.
+    ///
+    /// Returns
+    /// -------
+    /// numpy.ndarray
+    ///     Periodic DWT coefficient array.  Same shape and dtype as ``x``.
     #[pyfunction]
     #[pyo3(signature = (wavelet, x, *, axes=None, level=0, out=None))]
     fn dwt_per<'py>(
@@ -665,6 +1040,31 @@ mod _ndwt_ext {
         }
     }
 
+    /// Inverse multi-level periodic Discrete Wavelet Transform (DWT).
+    ///
+    /// Reconstructs the original signal from its periodic DWT representation.
+    /// The output shape equals the input shape.
+    ///
+    /// Parameters
+    /// ----------
+    /// wavelet : Wavelets
+    ///     Wavelet family used for the forward transform.
+    /// x : numpy.ndarray
+    ///     Periodic DWT coefficient array.  Supported dtypes: ``float32``,
+    ///     ``float64``, ``complex64``, ``complex128``.
+    /// axes : int | sequence of int, optional
+    ///     Axes to reconstruct.  ``None`` (default) means all axes.
+    /// level : int, optional
+    ///     Number of decomposition levels.  ``0`` (default) selects the
+    ///     maximum possible level.
+    /// out : numpy.ndarray, optional
+    ///     Pre-allocated output array.  If ``None`` (default) a new array
+    ///     is allocated.
+    ///
+    /// Returns
+    /// -------
+    /// numpy.ndarray
+    ///     Reconstructed signal.  Same shape and dtype as ``x``.
     #[pyfunction]
     #[pyo3(signature = (wavelet, x, *, axes=None, level=0, out=None))]
     fn idwt_per<'py>(
@@ -706,6 +1106,33 @@ mod _ndwt_ext {
         }
     }
 
+    /// Adjoint of the forward periodic Discrete Wavelet Transform.
+    ///
+    /// Computes the adjoint (transpose) of :func:`dwt_per`.  The output
+    /// shape equals the input shape.
+    ///
+    /// Parameters
+    /// ----------
+    /// wavelet : Wavelets
+    ///     Wavelet family.
+    /// x : numpy.ndarray
+    ///     Periodic DWT coefficient array.  Supported dtypes: ``float32``,
+    ///     ``float64``, ``complex64``, ``complex128``.
+    /// axes : int | sequence of int, optional
+    ///     Axes along which to apply the adjoint.  ``None`` (default) means
+    ///     all axes.
+    /// level : int, optional
+    ///     Number of decomposition levels.  ``0`` (default) selects the
+    ///     maximum possible level.
+    /// out : numpy.ndarray, optional
+    ///     Pre-allocated output array.  If ``None`` (default) a new array
+    ///     is allocated.
+    ///
+    /// Returns
+    /// -------
+    /// numpy.ndarray
+    ///     Result of the adjoint forward periodic DWT.  Same shape and
+    ///     dtype as ``x``.
     #[pyfunction]
     #[pyo3(signature = (wavelet, x, *, axes=None, level=0, out=None))]
     fn dwt_per_adj<'py>(
@@ -747,6 +1174,33 @@ mod _ndwt_ext {
         }
     }
 
+    /// Adjoint of the inverse periodic Discrete Wavelet Transform.
+    ///
+    /// Computes the adjoint (transpose) of :func:`idwt_per`.  The output
+    /// shape equals the input shape.
+    ///
+    /// Parameters
+    /// ----------
+    /// wavelet : Wavelets
+    ///     Wavelet family.
+    /// x : numpy.ndarray
+    ///     Input array with the original signal shape.  Supported dtypes:
+    ///     ``float32``, ``float64``, ``complex64``, ``complex128``.
+    /// axes : int | sequence of int, optional
+    ///     Axes along which to apply the adjoint.  ``None`` (default) means
+    ///     all axes.
+    /// level : int, optional
+    ///     Number of decomposition levels.  ``0`` (default) selects the
+    ///     maximum possible level.
+    /// out : numpy.ndarray, optional
+    ///     Pre-allocated output array.  If ``None`` (default) a new array
+    ///     is allocated.
+    ///
+    /// Returns
+    /// -------
+    /// numpy.ndarray
+    ///     Result of the adjoint inverse periodic DWT.  Same shape and
+    ///     dtype as ``x``.
     #[pyfunction]
     #[pyo3(signature = (wavelet, x, *, axes=None, level=0, out=None))]
     fn idwt_per_adj<'py>(

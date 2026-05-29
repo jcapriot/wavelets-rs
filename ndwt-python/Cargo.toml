@@ -1,6 +1,6 @@
 [package]
 name = "ndwt-python"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 
 [lib]
@@ -10,8 +10,8 @@ crate-type = ["cdylib"]
 
 [dependencies]
 numpy = "0.27.1"
-ndwt = { path = "../ndwt" }
-ndwt-macros = { path = "../ndwt-macros" }
+ndwt = { path = "../ndwt", version = "0.1.1" }
+ndwt-macros = { path = "../ndwt-macros", version = "0.1.1" }
 num-complex = "0.4.6"
 num-traits = "0.2.19"
 
