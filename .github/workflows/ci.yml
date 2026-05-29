@@ -95,8 +95,8 @@ jobs:
           pip-install: numpy pytest
           cache: "pip" # caching pip dependencies
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: maturin
+      - name: Install Maturin
+        run: pipx install maturin
       - name: build package
         run: cd ndwt-python; maturin develop
       - name: Test
