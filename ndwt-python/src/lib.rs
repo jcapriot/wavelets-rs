@@ -254,6 +254,7 @@ mod _ndwt_ext {
     /// int
     ///     Maximum number of decomposition levels.
     #[pyfunction]
+    #[pyo3(signature = (wavelet, shape, *, axes=None))]
     fn max_level_nd(
         wavelet: Wavelets,
         shape: Vec<usize>,
