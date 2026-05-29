@@ -13,6 +13,7 @@ numpy = "0.27.1"
 ndwt = { path = "../ndwt" }
 ndwt-macros = { path = "../ndwt-macros" }
 num-complex = "0.4.6"
+num-traits = "0.2.19"
 
 [dependencies.pyo3]
 version = "0.27.0"
