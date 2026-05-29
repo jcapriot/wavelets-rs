@@ -2245,6 +2245,12 @@ pub mod parallel {
             );
             assert!(axes.iter().all(|i| *i < shape.len()));
 
+            let level = if level == 0 {
+                max_level_nd(self.width, shape, axes)
+            } else {
+                level
+            };
+
             general_nd_per_forward_multilevel(
                 |x, s, d| (self.dwt_forward)(x, s, d),
                 input,
@@ -2275,6 +2281,12 @@ pub mod parallel {
                 "input and output shapes must be the same."
             );
             assert!(axes.iter().all(|i| *i < shape.len()));
+
+            let level = if level == 0 {
+                max_level_nd(self.width, shape, axes)
+            } else {
+                level
+            };
 
             general_nd_per_inverse_multilevel(
                 |s, d, x| (self.dwt_inverse)(s, d, x),
@@ -2307,6 +2319,12 @@ pub mod parallel {
             );
             assert!(axes.iter().all(|i| *i < shape.len()));
 
+            let level = if level == 0 {
+                max_level_nd(self.width, shape, axes)
+            } else {
+                level
+            };
+
             general_nd_per_inverse_multilevel(
                 |s, d, x| (self.dwt_adj_forward)(s, d, x),
                 input,
@@ -2337,6 +2355,12 @@ pub mod parallel {
                 "input and output shapes must be the same."
             );
             assert!(axes.iter().all(|i| *i < shape.len()));
+
+            let level = if level == 0 {
+                max_level_nd(self.width, shape, axes)
+            } else {
+                level
+            };
 
             general_nd_per_forward_multilevel(
                 |x, s, d| (self.dwt_adj_inverse)(x, s, d),
