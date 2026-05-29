@@ -52,12 +52,12 @@ jobs:
                   persist-credentials: false # Highly recommended as a good security practice to not store credentials in disk, unless you need this for your specific use case
 
             - name: Build SDist
-              run: pipx run build --sdist
+              run: cd ndwt-python; pipx run build --sdist
 
             - uses: actions/upload-artifact@v4
               with:
                   name: cibw-sdist
-                  path: dist/*.tar.gz
+                  path: ndwt-python/dist/*.tar.gz
 
     upload_all:
         needs: [build_wheels, make_sdist]
