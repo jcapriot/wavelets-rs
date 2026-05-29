@@ -1,10 +1,6 @@
 name: Deploy
 
-on:
-    push:
-        branches: [main, dev]
-    pull_request:
-        branches: [main, dev]
+on: [push, pull_request]
 concurrency:
     group: ${{ github.workflow }}-${{ github.ref }}
     cancel-in-progress: true
@@ -60,13 +56,14 @@ jobs:
                   name: cibw-sdist
                   path: ndwt-python/dist/*.tar.gz
 
-    upload_all:
+    upload_all_wheels:
+        name: Publish to PyPi
         needs: [build_wheels, make_sdist]
-        environment: pypi
+        environment: publish
         permissions:
             id-token: write
         runs-on: ubuntu-latest
-        if: github.event_name == 'release' && github.event.action == 'published'
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         steps:
             - uses: actions/download-artifact@v5
               with:
@@ -75,3 +72,14 @@ jobs:
                   merge-multiple: true
 
             - uses: pypa/gh-action-pypi-publish@release/v1
+
+    upload_to_crates:
+        name: Publish to Crates.io
+        environment: publish
+        runs-on: ubuntu-latest
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        steps:
+            - uses: actions/checkout@v6
+            - uses: dtolnay/rust-toolchain@stable
+            - name: Upload to Crates.io
+              run: cargo publish --workspace --exclude ndwt-python

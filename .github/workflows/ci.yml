@@ -25,6 +25,15 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+  package:
+    name: Publish Dryrun
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Check formatting
+        run: cargo package --dry-run --no-verify --workspace --exclude ndwt-python
+
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
