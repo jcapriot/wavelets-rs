@@ -203,7 +203,7 @@ mod _ndwt_ext {
     }
 
     #[pyfunction]
-    #[pyo3(signature = (wavelet, x, *, bc=BoundaryCondition::Symmetric, axes=None, level=0, out=None))]
+    #[pyo3(signature = (wavelet, x, *, bc=BoundaryCondition::Symmetric, axes=None, level=0, out=None), text_signature = "(wavelet, x, *, bc=BoundaryCondition.Symmetric, axes=None, level=0, out=None)")]
     fn lwt<'py>(
         py: Python,
         wavelet: Wavelets,
@@ -241,7 +241,7 @@ mod _ndwt_ext {
     }
 
     #[pyfunction]
-    #[pyo3(signature = (wavelet, x, *, bc=BoundaryCondition::Symmetric, axes=None, level=0, out=None))]
+    #[pyo3(signature = (wavelet, x, *, bc=BoundaryCondition::Symmetric, axes=None, level=0, out=None), text_signature = "(wavelet, x, *, bc=BoundaryCondition.Symmetric, axes=None, level=0, out=None)")]
     fn ilwt<'py>(
         py: Python,
         wavelet: Wavelets,
@@ -283,7 +283,7 @@ mod _ndwt_ext {
     }
 
     #[pyfunction]
-    #[pyo3(signature = (wavelet, x, *, bc=BoundaryCondition::Symmetric, axes=None, level=0, out=None))]
+    #[pyo3(signature = (wavelet, x, *, bc=BoundaryCondition::Symmetric, axes=None, level=0, out=None), text_signature = "(wavelet, x, *, bc=BoundaryCondition.Symmetric, axes=None, level=0, out=None)")]
     fn lwt_adj<'py>(
         py: Python,
         wavelet: Wavelets,
@@ -325,7 +325,7 @@ mod _ndwt_ext {
     }
 
     #[pyfunction]
-    #[pyo3(signature = (wavelet, x, *, bc=BoundaryCondition::Symmetric, axes=None, level=0, out=None))]
+    #[pyo3(signature = (wavelet, x, *, bc=BoundaryCondition::Symmetric, axes=None, level=0, out=None), text_signature = "(wavelet, x, *, bc=BoundaryCondition.Symmetric, axes=None, level=0, out=None)")]
     fn ilwt_adj<'py>(
         py: Python,
         wavelet: Wavelets,
@@ -367,7 +367,7 @@ mod _ndwt_ext {
     }
 
     #[pyfunction]
-    #[pyo3(signature = (wavelet, x, *, bc=BoundaryCondition::Symmetric, axes=None, level=0, out=None))]
+    #[pyo3(signature = (wavelet, x, *, bc=BoundaryCondition::Symmetric, axes=None, level=0, out=None), text_signature = "(wavelet, x, *, bc=BoundaryCondition.Symmetric, axes=None, level=0, out=None)")]
     fn dwt<'py>(
         py: Python,
         wavelet: Wavelets,
@@ -405,7 +405,7 @@ mod _ndwt_ext {
     }
 
     #[pyfunction]
-    #[pyo3(signature = (wavelet, x, out,  *, bc=BoundaryCondition::Symmetric, axes=None, level=0))]
+    #[pyo3(signature = (wavelet, x, out,  *, bc=BoundaryCondition::Symmetric, axes=None, level=0), text_signature = "(wavelet, x, *, bc=BoundaryCondition.Symmetric, axes=None, level=0, out=None)")]
     fn idwt<'py>(
         py: Python,
         wavelet: Wavelets,
@@ -496,7 +496,7 @@ mod _ndwt_ext {
     }
 
     #[pyfunction]
-    #[pyo3(signature = (wavelet, x, out,  *, bc=BoundaryCondition::Symmetric, axes=None, level=0))]
+    #[pyo3(signature = (wavelet, x, out,  *, bc=BoundaryCondition::Symmetric, axes=None, level=0), text_signature = "(wavelet, x, *, bc=BoundaryCondition.Symmetric, axes=None, level=0, out=None)")]
     fn dwt_adj<'py>(
         py: Python,
         wavelet: Wavelets,
@@ -587,7 +587,7 @@ mod _ndwt_ext {
     }
 
     #[pyfunction]
-    #[pyo3(signature = (wavelet, x, *, bc=BoundaryCondition::Symmetric, axes=None, level=0, out=None))]
+    #[pyo3(signature = (wavelet, x, *, bc=BoundaryCondition::Symmetric, axes=None, level=0, out=None), text_signature = "(wavelet, x, *, bc=BoundaryCondition.Symmetric, axes=None, level=0, out=None)")]
     fn idwt_adj<'py>(
         py: Python,
         wavelet: Wavelets,
