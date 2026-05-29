@@ -290,7 +290,7 @@ mod _ndwt_ext {
     ///     Output shape for the forward DWT.
     #[pyfunction]
     #[pyo3(signature = (wavelet, shape, *, axes=None, level=0))]
-    fn get_dwt_shape<'py>(
+    fn get_dwt_shape(
         py: Python,
         wavelet: Wavelets,
         shape: Vec<usize>,
@@ -343,7 +343,7 @@ mod _ndwt_ext {
     ///     LWT coefficient array.  Same shape and dtype as ``x``.
     #[pyfunction]
     #[pyo3(signature = (wavelet, x, *, bc=BoundaryCondition::Symmetric, axes=None, level=0, out=None), text_signature = "(wavelet, x, *, bc=BoundaryCondition.Symmetric, axes=None, level=0, out=None)")]
-    fn lwt<'py>(
+    fn lwt(
         py: Python,
         wavelet: Wavelets,
         x: ReadArray,
@@ -409,7 +409,7 @@ mod _ndwt_ext {
     ///     Reconstructed signal.  Same shape and dtype as ``x``.
     #[pyfunction]
     #[pyo3(signature = (wavelet, x, *, bc=BoundaryCondition::Symmetric, axes=None, level=0, out=None), text_signature = "(wavelet, x, *, bc=BoundaryCondition.Symmetric, axes=None, level=0, out=None)")]
-    fn ilwt<'py>(
+    fn ilwt(
         py: Python,
         wavelet: Wavelets,
         x: ReadArray,
@@ -480,7 +480,7 @@ mod _ndwt_ext {
     ///     Result of the adjoint forward LWT.  Same shape and dtype as ``x``.
     #[pyfunction]
     #[pyo3(signature = (wavelet, x, *, bc=BoundaryCondition::Symmetric, axes=None, level=0, out=None), text_signature = "(wavelet, x, *, bc=BoundaryCondition.Symmetric, axes=None, level=0, out=None)")]
-    fn lwt_adj<'py>(
+    fn lwt_adj(
         py: Python,
         wavelet: Wavelets,
         x: ReadArray,
@@ -551,7 +551,7 @@ mod _ndwt_ext {
     ///     Result of the adjoint inverse LWT.  Same shape and dtype as ``x``.
     #[pyfunction]
     #[pyo3(signature = (wavelet, x, *, bc=BoundaryCondition::Symmetric, axes=None, level=0, out=None), text_signature = "(wavelet, x, *, bc=BoundaryCondition.Symmetric, axes=None, level=0, out=None)")]
-    fn ilwt_adj<'py>(
+    fn ilwt_adj(
         py: Python,
         wavelet: Wavelets,
         x: ReadArray,
@@ -622,7 +622,7 @@ mod _ndwt_ext {
     ///     DWT coefficient array.  Shape is given by :func:`get_dwt_shape`.
     #[pyfunction]
     #[pyo3(signature = (wavelet, x, *, bc=BoundaryCondition::Symmetric, axes=None, level=0, out=None), text_signature = "(wavelet, x, *, bc=BoundaryCondition.Symmetric, axes=None, level=0, out=None)")]
-    fn dwt<'py>(
+    fn dwt(
         py: Python,
         wavelet: Wavelets,
         x: ReadArray,
@@ -693,7 +693,7 @@ mod _ndwt_ext {
     /// This function will always allocate an internal copy of the `x` array for its workspace.
     #[pyfunction]
     #[pyo3(signature = (wavelet, x, out,  *, bc=BoundaryCondition::Symmetric, axes=None, level=0), text_signature = "(wavelet, x, *, bc=BoundaryCondition.Symmetric, axes=None, level=0, out=None)")]
-    fn idwt<'py>(
+    fn idwt(
         py: Python,
         wavelet: Wavelets,
         x: ReadArray,
@@ -816,7 +816,7 @@ mod _ndwt_ext {
     /// This function will always allocate an internal copy of the `x` array for its workspace.
     #[pyfunction]
     #[pyo3(signature = (wavelet, x, out,  *, bc=BoundaryCondition::Symmetric, axes=None, level=0), text_signature = "(wavelet, x, *, bc=BoundaryCondition.Symmetric, axes=None, level=0, out=None)")]
-    fn dwt_adj<'py>(
+    fn dwt_adj(
         py: Python,
         wavelet: Wavelets,
         x: ReadArray,
@@ -937,7 +937,7 @@ mod _ndwt_ext {
     ///     :func:`get_dwt_shape`.
     #[pyfunction]
     #[pyo3(signature = (wavelet, x, *, bc=BoundaryCondition::Symmetric, axes=None, level=0, out=None), text_signature = "(wavelet, x, *, bc=BoundaryCondition.Symmetric, axes=None, level=0, out=None)")]
-    fn idwt_adj<'py>(
+    fn idwt_adj(
         py: Python,
         wavelet: Wavelets,
         x: ReadArray,
@@ -1005,7 +1005,7 @@ mod _ndwt_ext {
     ///     Periodic DWT coefficient array.  Same shape and dtype as ``x``.
     #[pyfunction]
     #[pyo3(signature = (wavelet, x, *, axes=None, level=0, out=None))]
-    fn dwt_per<'py>(
+    fn dwt_per(
         py: Python,
         wavelet: Wavelets,
         x: ReadArray,
@@ -1067,7 +1067,7 @@ mod _ndwt_ext {
     ///     Reconstructed signal.  Same shape and dtype as ``x``.
     #[pyfunction]
     #[pyo3(signature = (wavelet, x, *, axes=None, level=0, out=None))]
-    fn idwt_per<'py>(
+    fn idwt_per(
         py: Python,
         wavelet: Wavelets,
         x: ReadArray,
@@ -1135,7 +1135,7 @@ mod _ndwt_ext {
     ///     dtype as ``x``.
     #[pyfunction]
     #[pyo3(signature = (wavelet, x, *, axes=None, level=0, out=None))]
-    fn dwt_per_adj<'py>(
+    fn dwt_per_adj(
         py: Python,
         wavelet: Wavelets,
         x: ReadArray,
@@ -1203,7 +1203,7 @@ mod _ndwt_ext {
     ///     dtype as ``x``.
     #[pyfunction]
     #[pyo3(signature = (wavelet, x, *, axes=None, level=0, out=None))]
-    fn idwt_per_adj<'py>(
+    fn idwt_per_adj(
         py: Python,
         wavelet: Wavelets,
         x: ReadArray,

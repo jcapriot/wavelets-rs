@@ -9,17 +9,17 @@ use super::{check_axes, normalize_axes, BoundaryCondition, ValOrVec, Wavelets};
 macro_rules! implement_transform {
     ($(($name:ident, $trans_func:ident)),*) => {
         $(
-        pub(crate) fn $name<'py, T, const N: usize>(
-            py: Python<'py>,
+        pub(crate) fn $name<T, const N: usize>(
+            py: Python,
             wavelet: Wavelets,
-            x: PyReadonlyArrayDyn<'py, T>,
-            y: Option<PyReadwriteArrayDyn<'py, T>>,
+            x: PyReadonlyArrayDyn<T>,
+            y: Option<PyReadwriteArrayDyn<T>>,
             bc: BoundaryCondition,
             axes: Option<ValOrVec<isize>>,
             level: usize,
         ) -> PyResult<Py<PyAny>>
         where
-            T: SimdTransformable + numpy::Element + num_traits::Zero + ChunkWidth<T, N> + 'py,
+            T: SimdTransformable + numpy::Element + num_traits::Zero + ChunkWidth<T, N>
         {
             let x = x.as_array();
 

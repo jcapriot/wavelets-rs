@@ -71,7 +71,7 @@ implement_expand_transform! {
 macro_rules! implement_contract_transform {
     ($(($name:ident, $trans_func:ident)),*) => {
         $(
-        pub(crate) fn $name<'py, T, const N: usize>(
+        pub(crate) fn $name<T, const N: usize>(
             py: Python,
             wavelet: Wavelets,
             x: PyReadonlyArrayDyn<T>,
@@ -81,7 +81,7 @@ macro_rules! implement_contract_transform {
             level: usize,
         ) -> PyResult<Py<PyAny>>
         where
-            T: Transformable + numpy::Element + num_traits::Zero + ChunkWidth<T, N> + 'py,
+            T: Transformable + numpy::Element + num_traits::Zero + ChunkWidth<T, N>,
         {
             let mut x = x.as_array().to_owned();
             let ndim = x.ndim();
@@ -129,16 +129,16 @@ implement_contract_transform! {
 macro_rules! implement_per_transform {
     ($(($name:ident, $trans_func:ident)),*) => {
         $(
-        pub(crate) fn $name<'py, T, const N: usize>(
-            py: Python<'py>,
+        pub(crate) fn $name<T, const N: usize>(
+            py: Python,
             wavelet: Wavelets,
-            x: PyReadonlyArrayDyn<'py, T>,
-            y: Option<PyReadwriteArrayDyn<'py, T>>,
+            x: PyReadonlyArrayDyn<T>,
+            y: Option<PyReadwriteArrayDyn<T>>,
             axes: Option<ValOrVec<isize>>,
             level: usize,
         ) -> PyResult<Py<PyAny>>
         where
-            T: Transformable + numpy::Element + num_traits::Zero + ChunkWidth<T, N> + 'py,
+            T: Transformable + numpy::Element + num_traits::Zero + ChunkWidth<T, N>,
         {
             let x = x.as_array();
 
