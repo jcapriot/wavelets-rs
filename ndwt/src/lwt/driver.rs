@@ -1041,6 +1041,11 @@ pub mod parallel {
         ) {
             let shape = input.shape();
             assert!(axes.iter().all(|i| *i < shape.len()));
+            let level = if level == 0 {
+                max_level_nd(self.width, shape, axes)
+            } else {
+                level
+            };
             assert_eq!(
                 shape,
                 output.shape(),
