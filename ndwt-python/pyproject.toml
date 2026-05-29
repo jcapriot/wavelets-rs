@@ -30,3 +30,8 @@ testpaths = ["tests"]
 module-name = "ndwt._ndwt_ext"
 profile = "release"
 editable-profile = "release"
+
+[tool.cibuildwheel]
+build = "cp312-*"
+skip = "*_ppc64le *_i686 *_s390x *_armv7l *_riscv64"
+build-verbosity = 3
