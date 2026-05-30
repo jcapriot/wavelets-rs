@@ -22,15 +22,14 @@ jobs:
                         macos-14,
                     ]
 
-                include:
-                    - os: macos-15-intel
-                      env:
-                          MACOSX_DEPLOYMENT_TARGET: 10.12
-
         steps:
             - uses: actions/checkout@v6
               with:
                   persist-credentials: false
+
+            - name: Set MacOSX minimum deployement
+              if: ${{ matrix.os == 'macos-15-intel' }}
+              run: echo "MACOSX_DEPLOYMENT_TARGET=10.12" >> "$GITHUB_ENV"
 
             - name: Build wheels
               uses: pypa/cibuildwheel@v3.4.1
