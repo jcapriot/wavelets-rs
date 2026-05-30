@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - name: Check formatting
-        run: cargo package --dry-run --no-verify --workspace --exclude ndwt-python
+        run: cargo package --no-verify --workspace --exclude ndwt-python
 
   clippy:
     name: Clippy
