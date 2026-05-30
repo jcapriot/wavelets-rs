@@ -5,6 +5,9 @@ on:
     branches: [main, dev]
   pull_request:
     branches: [main, dev]
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -22,6 +25,15 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+  package:
+    name: Publish Dryrun
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Check formatting
+        run: cargo package --no-verify --workspace --exclude ndwt-python
+
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
@@ -32,7 +44,7 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - name: Clippy
-        run: cargo clippy --workspace --exclude ndwt-python -- -D warnings
+        run: cargo clippy -- -D warnings
 
   test:
     name: Test (${{ matrix.os }})
@@ -46,9 +58,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Build
-        run: cargo build --workspace --exclude ndwt-python
+        run: cargo build -p ndwt
       - name: Test
-        run: cargo test --workspace --exclude ndwt-python
+        run: cargo test -p ndwt
       - name: Test (no default features)
         if: matrix.os == 'ubuntu-latest'
         run: cargo test -p ndwt --no-default-features
@@ -76,6 +88,32 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Build docs
-        run: cargo doc --workspace --exclude ndwt-python --no-deps
+        run: cargo doc -p ndwt --no-deps --workspace --exclude ndwt-python
         env:
           RUSTDOCFLAGS: -D warnings
+
+  python_testing:
+    name: Test Python ${{ matrix.python-version }} Bindings
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12"] #["3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Set up Python Environment
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          activate-environment: "true"
+
+      - name: Install Python build dependencies
+        run: uv pip install maturin numpy pytest
+
+      - name: build package
+        run: cd ndwt-python; maturin develop
+
+      - name: Run Tests
+        run: pytest

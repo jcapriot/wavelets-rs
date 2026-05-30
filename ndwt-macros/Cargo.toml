@@ -1,6 +1,6 @@
 [package]
 name = "ndwt-macros"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "Procedural macros for wavelet filter-coefficient generation and lifting-scheme expansion (used by the `ndwt` crate)."
 license = "MIT"
@@ -13,5 +13,5 @@ proc-macro = true
 
 [dependencies]
 proc-macro2 = "1.0.106"
-quote = "1.0.44"
-syn = { version = "2.0.116", features = ["full"] }
+quote = "1.0.45"
+syn = { version = "2.0.117", features = ["full"] }

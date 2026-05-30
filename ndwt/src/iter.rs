@@ -9,11 +9,12 @@ pub mod chunk_strided_slice;
 pub mod strided_slice;
 #[cfg(feature = "ndarray")]
 use ndarray::{ArrayRef, Dimension};
+use num_traits::Zero;
 use std::marker::PhantomData;
 use std::ops::ControlFlow;
 use std::ptr::NonNull;
 
-use crate::utils::stride_from_shape;
+use crate::{ChunkWidth, utils::stride_from_shape};
 use chunk_strided_slice::{IterLaneChunks, IterLaneChunksMut};
 use strided_slice::{IterLanes, IterLanesMut};
 
@@ -574,6 +575,46 @@ impl<T, D: ::ndarray::Dimension> LanesIterator for ArrayRef<T, D> {
     }
 }
 
+pub(crate) fn copy_over<T, L, const N: usize>(
+    input: &L,
+    output: &mut L,
+    in_shape: &[usize],
+    out_shape: &[usize],
+) where
+    L: LanesIterator<Item = T> + ?Sized,
+    T: Clone + Zero + ChunkWidth<T, N>,
+{
+    // copy input into output
+    let min_axis = output.min_stride_axis(out_shape);
+    let (in_lanes, out_lanes) = if input.is_ax_contiguous(min_axis, in_shape)
+        || output.is_ax_contiguous(min_axis, out_shape)
+    {
+        (
+            input.iter_lanes_sub(in_shape, out_shape, min_axis),
+            output.iter_lanes_mut(out_shape, min_axis),
+        )
+    } else {
+        let (in_chunks, in_rem) = input.iter_lane_chunks_sub::<N>(in_shape, out_shape, min_axis);
+        let (out_chunks, out_rem) = output.iter_lane_chunks_mut::<N>(out_shape, min_axis);
+
+        out_chunks.zip(in_chunks).for_each(|(mut o, i)| {
+            o.iter_mut().zip(i.iter()).for_each(|(o, i)| {
+                o.into_iter()
+                    .zip(i.into_iter().cloned())
+                    .for_each(|(o, i)| {
+                        *o = i;
+                    });
+            });
+        });
+        (in_rem, out_rem)
+    };
+    out_lanes.zip(in_lanes).for_each(|(mut o, i)| {
+        o.iter_mut()
+            .zip(i.iter().cloned())
+            .for_each(|(o, i)| *o = i);
+    });
+}
+
 #[cfg(feature = "rayon")]
 /// Parallel lane iteration using Rayon.
 ///
@@ -878,5 +919,37 @@ pub mod parallel {
         ) {
             ParIterLaneChunksMut::from_ndarray(self, sub_shape, axis)
         }
+    }
+
+    pub(crate) fn copy_over<T, L, const N: usize>(
+        input: &L,
+        output: &mut L,
+        in_shape: &[usize],
+        out_shape: &[usize],
+    ) where
+        L: LanesParallelIterator<Item = T> + ?Sized,
+        T: Clone + Zero + ChunkWidth<T, N> + Send + Sync,
+    {
+        use rayon::iter::{IndexedParallelIterator, ParallelIterator};
+        // copy input into output
+        let min_axis = output.min_stride_axis(out_shape);
+        let (in_chunks, in_rem) =
+            input.par_iter_lane_chunks_sub::<N>(in_shape, out_shape, min_axis);
+        let (out_chunks, out_rem) = output.par_iter_lane_chunks_mut::<N>(out_shape, min_axis);
+
+        out_chunks.zip(in_chunks).for_each(|(mut o, i)| {
+            o.iter_mut().zip(i.iter()).for_each(|(o, i)| {
+                o.into_iter()
+                    .zip(i.into_iter().cloned())
+                    .for_each(|(o, i)| {
+                        *o = i;
+                    });
+            });
+        });
+        out_rem.zip(in_rem).for_each(|(mut o, i)| {
+            o.iter_mut()
+                .zip(i.iter().cloned())
+                .for_each(|(o, i)| *o = i);
+        });
     }
 }
