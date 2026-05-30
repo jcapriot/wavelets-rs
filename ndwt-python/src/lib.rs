@@ -13,7 +13,6 @@ generate_wavelet_enum! {
     Wavelets,
     (Clone, Copy, Debug, PartialEq, Eq, Hash),
     {
-        #[pyclass]
         /// Wavelets supported for transformations.
         ///
         /// Members
@@ -32,6 +31,7 @@ generate_wavelet_enum! {
         ///     of the two are supported. Generally, they must both either be even or odd.
         /// CDF5_3, CDF9_7
         ///     The Cohen–Daubechies–Feauveau wavelets variants (also biorthogonal).
+        #[pyclass(from_py_object)]
     }
 }
 
@@ -83,7 +83,7 @@ impl Wavelets {
 /// In the LWT transform, these extension modes are seperately applied to
 /// the even and odd elements, and applied at each lifting step independently so
 /// that each update step remains upper (or lower) triangular and trivially invertible.
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum BoundaryCondition {
     Zero,
