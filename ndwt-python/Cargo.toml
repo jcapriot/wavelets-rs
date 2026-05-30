@@ -15,13 +15,13 @@ name = "ndwt"
 crate-type = ["cdylib"]
 
 [dependencies]
-numpy = "0.27.1"
+numpy = "0.28.0"
 ndwt = { path = "../ndwt", version = "0.1.1" }
 ndwt-macros = { path = "../ndwt-macros", version = "0.1.1" }
 num-complex = "0.4.6"
 num-traits = "0.2.19"
 
 [dependencies.pyo3]
-version = "0.27.0"
+version = "0.28.3"
 # "abi3-py11" tells pyo3 (and maturin) to build using the stable ABI with minimum Python version 3.11
 features = ["abi3-py311"]
