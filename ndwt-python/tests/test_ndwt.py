@@ -52,13 +52,14 @@ BCS = [BoundaryCondition.Symmetric, BoundaryCondition.Periodic, BoundaryConditio
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+
 def _rng_array(shape, dtype, seed=0):
     rng = np.random.default_rng(seed)
     if np.issubdtype(dtype, np.complexfloating):
         arr = rng.standard_normal(shape) + 1j * rng.standard_normal(shape)
     else:
         arr = rng.standard_normal(shape)
-    arr = arr + 10 # Shift the array values away from zero for beter rtol commparisons.
+    arr = arr + 10  # Shift the array values away from zero for beter rtol commparisons.
     return arr.astype(dtype)
 
 
@@ -74,25 +75,28 @@ def _tol(dtype):
     return {"atol": 1e-10, "rtol": 1e-10}
 
 
-
-
 @pytest.fixture(params=WAVELETS)
 def wavelet(request):
     return request.param
+
 
 @pytest.fixture(params=ALL_DTYPES)
 def dtype(request):
     return request.param
 
+
 @pytest.fixture(params=BCS)
 def bc(request):
     return request.param
+
 
 @pytest.fixture(params=[63, 64])
 def size(request):
     return request.param
 
+
 # ── Utility tests ─────────────────────────────────────────────────────────────
+
 
 class TestUtilities:
     def test_max_level_increases_with_n(self):
@@ -142,7 +146,7 @@ class TestUtilities:
         w = Wavelets.Daubechies4
         shape = (32, 64)
         out_shape = get_dwt_shape(w, shape, axes=1)
-        assert out_shape[0] == shape[0]   # untransformed axis unchanged
+        assert out_shape[0] == shape[0]  # untransformed axis unchanged
         assert out_shape[1] > shape[1]
 
     def test_wavelet_width_positive(self, wavelet):
@@ -157,16 +161,24 @@ class TestUtilities:
 class TestLWT:
     def test_roundtrip_1d(self, wavelet, dtype, bc, size):
         x = _rng_array((size,), dtype)
-        npt.assert_allclose(ilwt(wavelet, lwt(wavelet, x, bc=bc), bc=bc), x, **_tol(dtype))
+        npt.assert_allclose(
+            ilwt(wavelet, lwt(wavelet, x, bc=bc), bc=bc), x, **_tol(dtype)
+        )
 
     def test_roundtrip_2d(self, wavelet, dtype, bc, size):
         x = _rng_array((size, size), dtype)
-        npt.assert_allclose(ilwt(wavelet, lwt(wavelet, x, bc=bc), bc=bc), x, **_tol(dtype))
+        npt.assert_allclose(
+            ilwt(wavelet, lwt(wavelet, x, bc=bc), bc=bc), x, **_tol(dtype)
+        )
 
     @pytest.mark.parametrize("axis", [0, 1, -1, -2, -3])
     def test_roundtrip_2d_single_axis(self, wavelet, dtype, bc, size, axis):
         x = _rng_array((size, size), dtype)
-        npt.assert_allclose(ilwt(wavelet, lwt(wavelet, x, axes=axis, bc=bc), axes=axis, bc=bc), x, **_tol(dtype))
+        npt.assert_allclose(
+            ilwt(wavelet, lwt(wavelet, x, axes=axis, bc=bc), axes=axis, bc=bc),
+            x,
+            **_tol(dtype),
+        )
 
     def test_output_shape_unchanged(self, wavelet, dtype):
         x = _rng_array((64,), dtype)
@@ -212,7 +224,9 @@ class TestLWT:
         x_2 = func(wavelet, x_in)
         npt.assert_equal(x_in, x_2)
 
+
 # ── DWT tests ─────────────────────────────────────────────────────────────────
+
 
 class TestDWT:
     def test_roundtrip_1d(self, wavelet, dtype, bc, size):
@@ -264,7 +278,6 @@ class TestDWT:
         rhs = _inner(x, dwt_adj(wavelet, y, x.shape, bc=bc))
         npt.assert_allclose(lhs, rhs, **_tol(dtype))
 
-
     def test_adjoint_inverse(self, wavelet, dtype, bc, size):
         """⟨idwt(x_big, shape), y⟩ == ⟨x_big, idwt_adj(y)⟩"""
         orig_shape = (size,)
@@ -275,7 +288,6 @@ class TestDWT:
         rhs = _inner(x_big, idwt_adj(wavelet, y, bc=bc))
         npt.assert_allclose(lhs, rhs, **_tol(dtype))
 
- 
     def test_adjoint_forward_2d(self, wavelet, dtype, bc, size):
         x = _rng_array((size, size), dtype, seed=0)
         out_shape = get_dwt_shape(wavelet, x.shape)
@@ -299,6 +311,7 @@ class TestDWT:
 
 # ── DWT-per tests ─────────────────────────────────────────────────────────────
 
+
 class TestDWTPer:
     def test_roundtrip_1d(self, wavelet, dtype, size):
         x = _rng_array((size,), dtype)
@@ -310,7 +323,9 @@ class TestDWTPer:
 
     def test_roundtrip_single_axis(self, wavelet, dtype, size):
         x = _rng_array((size, size), dtype)
-        npt.assert_allclose(idwt_per(wavelet, dwt_per(wavelet, x, axes=0), axes=0), x, **_tol(dtype))
+        npt.assert_allclose(
+            idwt_per(wavelet, dwt_per(wavelet, x, axes=0), axes=0), x, **_tol(dtype)
+        )
 
     def test_shape_preserved(self, wavelet, dtype):
         x = _rng_array((32, 64), dtype)
@@ -357,6 +372,7 @@ class TestDWTPer:
 
 
 # ── Error tests ───────────────────────────────────────────────────────────────
+
 
 class TestErrors:
     def test_lwt_invalid_dtype(self):

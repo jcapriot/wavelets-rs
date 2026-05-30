@@ -13,7 +13,6 @@ T = TypeVar("Inexact", np.float32, np.float64, np.complex64, np.complex128)
 # Enumerations
 
 class Wavelets:
-
     # Daubechies
     Daubechies1: Wavelets
     Daubechies2: Wavelets
@@ -53,11 +52,9 @@ class Wavelets:
     CDF5_3: Wavelets
     CDF9_7: Wavelets
 
-    def width(self) -> int:
-        ...
+    def width(self) -> int: ...
 
 class BoundaryCondition:
-
     Zero: BoundaryCondition
     Periodic: BoundaryCondition
     Constant: BoundaryCondition
@@ -69,24 +66,19 @@ class BoundaryCondition:
 
 # Utilities
 
-def max_level(wavelet: Wavelets, n: int) -> int:
-    ...
-
+def max_level(wavelet: Wavelets, n: int) -> int: ...
 def max_level_nd(
     wavelet: Wavelets,
     shape: Sequence[int],
     axes: int | Sequence[int] | None = None,
-) -> int:
-    ...
-
+) -> int: ...
 def get_dwt_shape(
     wavelet: Wavelets,
     shape: Sequence[int],
     *,
     axes: int | Sequence[int] | None = None,
     level: UnsignedInt = 0,
-) -> tuple[int, ...]:
-    ...
+) -> tuple[int, ...]: ...
 
 # LWT
 
@@ -95,12 +87,10 @@ def lwt(
     x: npt.NDArray[T],
     *,
     bc: BoundaryCondition = BoundaryCondition.Symmetric,
-    axes: int | Sequence[int]  | None = None,
+    axes: int | Sequence[int] | None = None,
     level: UnsignedInt = 0,
     out: npt.NDArray[T] | None = None,
-) -> npt.NDArray[T]:
-    ...
-
+) -> npt.NDArray[T]: ...
 def ilwt(
     wavelet: Wavelets,
     x: npt.NDArray[T],
@@ -109,9 +99,7 @@ def ilwt(
     axes: int | Sequence[int] | None = None,
     level: UnsignedInt = 0,
     out: npt.NDArray[T] | None = None,
-) -> npt.NDArray[T]:
-    ...
-
+) -> npt.NDArray[T]: ...
 def lwt_adj(
     wavelet: Wavelets,
     x: npt.NDArray[T],
@@ -120,9 +108,7 @@ def lwt_adj(
     axes: int | Sequence[int] | None = None,
     level: UnsignedInt = 0,
     out: npt.NDArray[T] | None = None,
-) -> npt.NDArray[T]:
-    ...
-
+) -> npt.NDArray[T]: ...
 def ilwt_adj(
     wavelet: Wavelets,
     x: npt.NDArray[T],
@@ -131,8 +117,7 @@ def ilwt_adj(
     axes: int | Sequence[int] | None = None,
     level: UnsignedInt = 0,
     out: npt.NDArray[T] | None = None,
-) -> npt.NDArray[T]:
-    ...
+) -> npt.NDArray[T]: ...
 
 # DWT
 
@@ -144,9 +129,7 @@ def dwt(
     axes: int | Sequence[int] | None = None,
     level: UnsignedInt = 0,
     out: npt.NDArray[T] | None = None,
-) -> npt.NDArray[T]:
-    ...
-
+) -> npt.NDArray[T]: ...
 def idwt(
     wavelet: Wavelets,
     x: npt.NDArray[T],
@@ -155,9 +138,7 @@ def idwt(
     bc: BoundaryCondition = BoundaryCondition.Symmetric,
     axes: int | Sequence[int] | None = None,
     level: UnsignedInt = 0,
-) -> npt.NDArray[T]:
-    ...
-
+) -> npt.NDArray[T]: ...
 def dwt_adj(
     wavelet: Wavelets,
     x: npt.NDArray[T],
@@ -166,9 +147,7 @@ def dwt_adj(
     bc: BoundaryCondition = BoundaryCondition.Symmetric,
     axes: int | Sequence[int] | None = None,
     level: UnsignedInt = 0,
-) -> npt.NDArray[T]:
-    ...
-
+) -> npt.NDArray[T]: ...
 def idwt_adj(
     wavelet: Wavelets,
     x: npt.NDArray[T],
@@ -177,8 +156,7 @@ def idwt_adj(
     axes: int | Sequence[int] | None = None,
     level: UnsignedInt = 0,
     out: npt.NDArray[T] | None = None,
-) -> npt.NDArray[T]:
-    ...
+) -> npt.NDArray[T]: ...
 
 # DWT (periodic boundary condition)
 
@@ -189,9 +167,7 @@ def dwt_per(
     axes: int | Sequence[int] | None = None,
     level: UnsignedInt = 0,
     out: npt.NDArray[T] | None = None,
-) -> npt.NDArray[T]:
-    ...
-
+) -> npt.NDArray[T]: ...
 def idwt_per(
     wavelet: Wavelets,
     x: npt.NDArray[T],
@@ -199,9 +175,7 @@ def idwt_per(
     axes: int | Sequence[int] | None = None,
     level: UnsignedInt = 0,
     out: npt.NDArray[T] | None = None,
-) -> npt.NDArray[T]:
-    ...
-
+) -> npt.NDArray[T]: ...
 def dwt_per_adj(
     wavelet: Wavelets,
     x: npt.NDArray[T],
@@ -209,9 +183,7 @@ def dwt_per_adj(
     axes: int | Sequence[int] | None = None,
     level: UnsignedInt = 0,
     out: npt.NDArray[T] | None = None,
-) -> npt.NDArray[T]:
-    ...
-
+) -> npt.NDArray[T]: ...
 def idwt_per_adj(
     wavelet: Wavelets,
     x: npt.NDArray[T],
@@ -219,5 +191,4 @@ def idwt_per_adj(
     axes: int | Sequence[int] | None = None,
     level: UnsignedInt = 0,
     out: npt.NDArray[T] | None = None,
-) -> npt.NDArray[T]:
-    ...
+) -> npt.NDArray[T]: ...
