@@ -12,45 +12,45 @@ T = TypeVar("Inexact", np.float32, np.float64, np.complex64, np.complex128)
 
 # Enumerations
 
-class Wavelets:
+class Wavelet:
     # Daubechies
-    Daubechies1: Wavelets
-    Daubechies2: Wavelets
-    Daubechies3: Wavelets
-    Daubechies4: Wavelets
-    Daubechies5: Wavelets
-    Daubechies6: Wavelets
-    Daubechies7: Wavelets
-    Daubechies8: Wavelets
-    Daubechies9: Wavelets
-    Daubechies10: Wavelets
+    Daubechies1: Wavelet
+    Daubechies2: Wavelet
+    Daubechies3: Wavelet
+    Daubechies4: Wavelet
+    Daubechies5: Wavelet
+    Daubechies6: Wavelet
+    Daubechies7: Wavelet
+    Daubechies8: Wavelet
+    Daubechies9: Wavelet
+    Daubechies10: Wavelet
     # Symlets
-    Symlet4: Wavelets
-    Symlet5: Wavelets
-    Symlet6: Wavelets
+    Symlet4: Wavelet
+    Symlet5: Wavelet
+    Symlet6: Wavelet
     # Coiflets
-    Coiflet2: Wavelets
-    Coiflet3: Wavelets
+    Coiflet2: Wavelet
+    Coiflet3: Wavelet
     # Biorthogonal
-    Bior1_3: Wavelets
-    Bior1_5: Wavelets
-    Bior2_2: Wavelets
-    Bior2_4: Wavelets
-    Bior2_6: Wavelets
-    Bior2_8: Wavelets
-    Bior3_1: Wavelets
-    Bior3_3: Wavelets
-    Bior3_5: Wavelets
-    Bior3_7: Wavelets
-    Bior3_9: Wavelets
-    Bior4_2: Wavelets
-    Bior4_4: Wavelets
-    Bior4_6: Wavelets
-    Bior5_5: Wavelets
-    Bior6_8: Wavelets
+    Bior1_3: Wavelet
+    Bior1_5: Wavelet
+    Bior2_2: Wavelet
+    Bior2_4: Wavelet
+    Bior2_6: Wavelet
+    Bior2_8: Wavelet
+    Bior3_1: Wavelet
+    Bior3_3: Wavelet
+    Bior3_5: Wavelet
+    Bior3_7: Wavelet
+    Bior3_9: Wavelet
+    Bior4_2: Wavelet
+    Bior4_4: Wavelet
+    Bior4_6: Wavelet
+    Bior5_5: Wavelet
+    Bior6_8: Wavelet
     # CDF
-    CDF5_3: Wavelets
-    CDF9_7: Wavelets
+    CDF5_3: Wavelet
+    CDF9_7: Wavelet
 
     def width(self) -> int: ...
 
@@ -66,14 +66,14 @@ class BoundaryCondition:
 
 # Utilities
 
-def max_level(wavelet: Wavelets, n: int) -> int: ...
+def max_level(wavelet: Wavelet, n: int) -> int: ...
 def max_level_nd(
-    wavelet: Wavelets,
+    wavelet: Wavelet,
     shape: Sequence[int],
     axes: int | Sequence[int] | None = None,
 ) -> int: ...
 def get_dwt_shape(
-    wavelet: Wavelets,
+    wavelet: Wavelet,
     shape: Sequence[int],
     *,
     axes: int | Sequence[int] | None = None,
@@ -83,7 +83,7 @@ def get_dwt_shape(
 # LWT
 
 def lwt(
-    wavelet: Wavelets,
+    wavelet: Wavelet,
     x: npt.NDArray[T],
     *,
     bc: BoundaryCondition = BoundaryCondition.Symmetric,
@@ -92,7 +92,7 @@ def lwt(
     out: npt.NDArray[T] | None = None,
 ) -> npt.NDArray[T]: ...
 def ilwt(
-    wavelet: Wavelets,
+    wavelet: Wavelet,
     x: npt.NDArray[T],
     *,
     bc: BoundaryCondition = BoundaryCondition.Symmetric,
@@ -101,7 +101,7 @@ def ilwt(
     out: npt.NDArray[T] | None = None,
 ) -> npt.NDArray[T]: ...
 def lwt_adj(
-    wavelet: Wavelets,
+    wavelet: Wavelet,
     x: npt.NDArray[T],
     *,
     bc: BoundaryCondition = BoundaryCondition.Symmetric,
@@ -110,7 +110,7 @@ def lwt_adj(
     out: npt.NDArray[T] | None = None,
 ) -> npt.NDArray[T]: ...
 def ilwt_adj(
-    wavelet: Wavelets,
+    wavelet: Wavelet,
     x: npt.NDArray[T],
     *,
     bc: BoundaryCondition = BoundaryCondition.Symmetric,
@@ -122,7 +122,7 @@ def ilwt_adj(
 # DWT
 
 def dwt(
-    wavelet: Wavelets,
+    wavelet: Wavelet,
     x: npt.NDArray[T],
     *,
     bc: BoundaryCondition = BoundaryCondition.Symmetric,
@@ -131,7 +131,7 @@ def dwt(
     out: npt.NDArray[T] | None = None,
 ) -> npt.NDArray[T]: ...
 def idwt(
-    wavelet: Wavelets,
+    wavelet: Wavelet,
     x: npt.NDArray[T],
     out: npt.NDArray[T] | Sequence[int],
     *,
@@ -140,7 +140,7 @@ def idwt(
     level: UnsignedInt = 0,
 ) -> npt.NDArray[T]: ...
 def dwt_adj(
-    wavelet: Wavelets,
+    wavelet: Wavelet,
     x: npt.NDArray[T],
     out: npt.NDArray[T] | Sequence[int],
     *,
@@ -149,7 +149,7 @@ def dwt_adj(
     level: UnsignedInt = 0,
 ) -> npt.NDArray[T]: ...
 def idwt_adj(
-    wavelet: Wavelets,
+    wavelet: Wavelet,
     x: npt.NDArray[T],
     *,
     bc: BoundaryCondition = BoundaryCondition.Symmetric,
@@ -161,7 +161,7 @@ def idwt_adj(
 # DWT (periodic boundary condition)
 
 def dwt_per(
-    wavelet: Wavelets,
+    wavelet: Wavelet,
     x: npt.NDArray[T],
     *,
     axes: int | Sequence[int] | None = None,
@@ -169,7 +169,7 @@ def dwt_per(
     out: npt.NDArray[T] | None = None,
 ) -> npt.NDArray[T]: ...
 def idwt_per(
-    wavelet: Wavelets,
+    wavelet: Wavelet,
     x: npt.NDArray[T],
     *,
     axes: int | Sequence[int] | None = None,
@@ -177,7 +177,7 @@ def idwt_per(
     out: npt.NDArray[T] | None = None,
 ) -> npt.NDArray[T]: ...
 def dwt_per_adj(
-    wavelet: Wavelets,
+    wavelet: Wavelet,
     x: npt.NDArray[T],
     *,
     axes: int | Sequence[int] | None = None,
@@ -185,7 +185,7 @@ def dwt_per_adj(
     out: npt.NDArray[T] | None = None,
 ) -> npt.NDArray[T]: ...
 def idwt_per_adj(
-    wavelet: Wavelets,
+    wavelet: Wavelet,
     x: npt.NDArray[T],
     *,
     axes: int | Sequence[int] | None = None,

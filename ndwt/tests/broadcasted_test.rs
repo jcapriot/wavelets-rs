@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use ndwt::Wavelets;
+use ndwt::Wavelet;
 use ndwt::boundarys::ZeroBoundary;
 use ndwt::iter::LanesIterator;
 use ndwt::lwt::driver::WaveletTransform;
@@ -12,7 +12,7 @@ pub fn test_broadcasted_db2() {
     let n_total = shape.iter().product();
     let x = (0..n_total).map(|i| i as f64).collect_vec();
 
-    let wvlt = Wavelets::Daubechies2;
+    let wvlt = Wavelet::Daubechies2;
     let trans = WaveletTransform::new(wvlt, ZeroBoundary {});
 
     let mut sd = vec![0.0; n_total];
@@ -52,7 +52,7 @@ pub fn test_broadcasted_db2_full() {
     let n_total = shape.iter().product();
     let x = (0..n_total).map(|i| i as f64).collect_vec();
 
-    let wvlt = Wavelets::Daubechies2;
+    let wvlt = Wavelet::Daubechies2;
     let trans = WaveletTransform::new(wvlt, ZeroBoundary {});
 
     let mut sd = vec![0.0; n_total];

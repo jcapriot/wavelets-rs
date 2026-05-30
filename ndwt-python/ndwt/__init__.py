@@ -14,9 +14,9 @@ axes. The operation is parallelized for N-D transforms when N>2.
 
 Enumerations
 ------------
-Wavelets
+Wavelet
     Supported wavelet families (Daubechies, Symlets, Coiflets, Biorthogonal,
-    CDF).  Every transform function accepts a ``Wavelets`` member as its first
+    CDF).  Every transform function accepts a ``Wavelet`` member as its first
     argument.
 BoundaryCondition
     Signal extension modes used by non-periodic transforms: ``Zero``,

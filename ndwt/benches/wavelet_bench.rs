@@ -553,7 +553,7 @@ fn deinterleave_benchmark(c: &mut Criterion) {
 
 fn driver_vs_array_db2(c: &mut Criterion) {
     use extras::db2_forward_arr;
-    use ndwt::Wavelets;
+    use ndwt::Wavelet;
     use ndwt::boundarys::ZeroBoundary;
     use ndwt::daubechies::Daubechies2;
     use ndwt::iter::LanesIterator;
@@ -562,7 +562,7 @@ fn driver_vs_array_db2(c: &mut Criterion) {
     use ndwt::simd::Alignable;
 
     let n = 1000;
-    let wvlt = Wavelets::Daubechies2;
+    let wvlt = Wavelet::Daubechies2;
     let bc = ZeroBoundary;
 
     let mut group = c.benchmark_group("driver_vs_array");
@@ -670,7 +670,7 @@ fn driver_vs_array_db2(c: &mut Criterion) {
 }
 
 fn broadcasted_vs_strided_db2(c: &mut Criterion) {
-    use ndwt::Wavelets;
+    use ndwt::Wavelet;
     use ndwt::boundarys::ZeroBoundary;
     use ndwt::lwt::LiftingTransform;
     use ndwt::lwt::driver::WaveletTransform;
@@ -682,7 +682,7 @@ fn broadcasted_vs_strided_db2(c: &mut Criterion) {
     let n_total = shape.iter().product();
     let x = (0..n_total).map(|i| i as f64).collect_vec();
 
-    let wvlt = Wavelets::Daubechies2;
+    let wvlt = Wavelet::Daubechies2;
     let trans = WaveletTransform::new(wvlt, ZeroBoundary {});
 
     let mut sd = vec![0.0; n_total];
@@ -722,7 +722,7 @@ fn broadcasted_vs_strided_db2(c: &mut Criterion) {
 }
 
 fn broadcasted_vs_strided_db4(c: &mut Criterion) {
-    use ndwt::Wavelets;
+    use ndwt::Wavelet;
     use ndwt::boundarys::ZeroBoundary;
     use ndwt::lwt::LiftingTransform;
     use ndwt::lwt::driver::WaveletTransform;
@@ -734,7 +734,7 @@ fn broadcasted_vs_strided_db4(c: &mut Criterion) {
     let n_total = shape.iter().product();
     let x = (0..n_total).map(|i| i as f64).collect_vec();
 
-    let wvlt = Wavelets::Daubechies4;
+    let wvlt = Wavelet::Daubechies4;
     let trans = WaveletTransform::new(wvlt, ZeroBoundary {});
 
     let mut sd = vec![0.0; n_total];
@@ -775,7 +775,7 @@ fn broadcasted_vs_strided_db4(c: &mut Criterion) {
 }
 
 fn broadcasted_vs_strided_db6(c: &mut Criterion) {
-    use ndwt::Wavelets;
+    use ndwt::Wavelet;
     use ndwt::boundarys::ZeroBoundary;
     use ndwt::lwt::LiftingTransform;
     use ndwt::lwt::driver::WaveletTransform;
@@ -787,7 +787,7 @@ fn broadcasted_vs_strided_db6(c: &mut Criterion) {
     let n_total = shape.iter().product();
     let x = (0..n_total).map(|i| i as f64).collect_vec();
 
-    let wvlt = Wavelets::Daubechies6;
+    let wvlt = Wavelet::Daubechies6;
     let trans = WaveletTransform::new(wvlt, ZeroBoundary {});
 
     let mut sd = vec![0.0; n_total];
