@@ -8,7 +8,7 @@ use aligned_vec::avec;
 use crate::boundarys::BoundaryExtension;
 use crate::dwt::{DiscreteTransform, get_outlen};
 use crate::iter::{LanesIterator, copy_over};
-use crate::{Wavelets, max_level_nd};
+use crate::{Wavelet, max_level_nd};
 
 use crate::{ChunkWidth, Transformable};
 use ndwt_macros::generate_wavelet_match_arms;
@@ -120,28 +120,28 @@ where
     /// Function pointers to the correct DWT implementations are resolved at construction
     /// time so that every subsequent transform call is a direct (non-virtual) dispatch
     /// with no runtime branching on the wavelet type.
-    pub fn new(wvlt: Wavelets, bc: BC) -> Self {
+    pub fn new(wvlt: Wavelet, bc: BC) -> Self {
         use crate::dwt::bior::*;
         use crate::dwt::coiflet::*;
         use crate::dwt::daubechies::*;
         use crate::dwt::symlet::*;
         let dwt_forward: fn(&[T], &mut [T], &mut [T], &BC) = generate_wavelet_match_arms! {
-            Wavelets,
+            Wavelet,
             wvlt,
             {#wvlt::forward,}
         };
         let dwt_inverse: fn(&[T], &[T], &mut [T]) = generate_wavelet_match_arms! {
-            Wavelets,
+            Wavelet,
             wvlt,
             {#wvlt::inverse,}
         };
         let dwt_adj_forward: fn(&[T], &[T], &mut [T], &BC) = generate_wavelet_match_arms! {
-            Wavelets,
+            Wavelet,
             wvlt,
             {#wvlt::adjoint_forward,}
         };
         let dwt_adj_inverse: fn(&[T], &mut [T], &mut [T]) = generate_wavelet_match_arms! {
-            Wavelets,
+            Wavelet,
             wvlt,
             {#wvlt::adjoint_inverse,}
         };
@@ -635,28 +635,28 @@ where
     /// Function pointers are resolved at construction time; see [`WaveletTransform::new`]
     /// for details.  No boundary condition is stored because the periodic transform
     /// always wraps circularly.
-    pub fn new(wvlt: Wavelets) -> Self {
+    pub fn new(wvlt: Wavelet) -> Self {
         use crate::dwt::bior::*;
         use crate::dwt::coiflet::*;
         use crate::dwt::daubechies::*;
         use crate::dwt::symlet::*;
         let dwt_forward: fn(&[T], &mut [T], &mut [T]) = generate_wavelet_match_arms! {
-            Wavelets,
+            Wavelet,
             wvlt,
             {#wvlt::forward_per,}
         };
         let dwt_inverse: fn(&[T], &[T], &mut [T]) = generate_wavelet_match_arms! {
-            Wavelets,
+            Wavelet,
             wvlt,
             {#wvlt::inverse_per,}
         };
         let dwt_adj_forward: fn(&[T], &[T], &mut [T]) = generate_wavelet_match_arms! {
-            Wavelets,
+            Wavelet,
             wvlt,
             {#wvlt::adjoint_forward_per,}
         };
         let dwt_adj_inverse: fn(&[T], &mut [T], &mut [T]) = generate_wavelet_match_arms! {
-            Wavelets,
+            Wavelet,
             wvlt,
             {#wvlt::adjoint_inverse_per,}
         };

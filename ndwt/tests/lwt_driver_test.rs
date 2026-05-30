@@ -1,4 +1,4 @@
-use ndwt::Wavelets;
+use ndwt::Wavelet;
 use ndwt::boundarys::BoundaryCondition;
 use ndwt::iter::LanesIterator;
 use ndwt::lwt::driver::WaveletTransform;
@@ -13,7 +13,7 @@ use rstest::rstest;
 pub fn test_lwt_driver_db2_single_level_1d_along() {
     let shape = [30, 35];
     let axes = [1];
-    let wvlt = Wavelets::Daubechies2;
+    let wvlt = Wavelet::Daubechies2;
     let bc = BoundaryCondition::Periodic;
     let trans = WaveletTransform::new(wvlt, bc);
 
@@ -46,7 +46,7 @@ pub fn test_lwt_driver_db2_single_level_1d_along() {
 pub fn test_lwt_driver_db2_single_level_1d_across() {
     let shape = [30, 35];
     let axes = [0];
-    let wvlt = Wavelets::Daubechies2;
+    let wvlt = Wavelet::Daubechies2;
     let bc = BoundaryCondition::Periodic;
     let trans = WaveletTransform::new(wvlt, bc);
 
@@ -81,7 +81,7 @@ pub fn test_lwt_driver_db2_single_level_1d_across() {
 pub fn test_lwt_driver_db2_single_2d() {
     let shape = [30, 35];
     let axes = [0, 1];
-    let wvlt = Wavelets::Daubechies2;
+    let wvlt = Wavelet::Daubechies2;
     let bc = BoundaryCondition::Periodic;
     let trans = WaveletTransform::new(wvlt, bc);
 
@@ -106,7 +106,7 @@ pub fn test_lwt_driver_db2_multi_level_1d() {
     let shape = [30, 35];
     let axes = [1];
     let level = 3;
-    let wvlt = Wavelets::Daubechies2;
+    let wvlt = Wavelet::Daubechies2;
     let bc = BoundaryCondition::Periodic;
     let trans = WaveletTransform::new(wvlt, bc);
 
@@ -158,7 +158,7 @@ pub fn test_lwt_driver_db2_multi_level_1d() {
 pub fn test_lwt_driver_inv_db2_single_level_1d_along() {
     let shape = [30, 35];
     let axes = [1];
-    let wvlt = Wavelets::Daubechies2;
+    let wvlt = Wavelet::Daubechies2;
     let bc = BoundaryCondition::Periodic;
     let trans = WaveletTransform::new(wvlt, bc);
 
@@ -178,7 +178,7 @@ pub fn test_lwt_driver_inv_db2_single_level_1d_along() {
 pub fn test_lwt_driver_inv_db2_single_level_1d_across() {
     let shape = [30, 35];
     let axes = [0];
-    let wvlt = Wavelets::Daubechies2;
+    let wvlt = Wavelet::Daubechies2;
     let bc = BoundaryCondition::Periodic;
     let trans = WaveletTransform::new(wvlt, bc);
 
@@ -198,7 +198,7 @@ pub fn test_lwt_driver_inv_db2_single_level_1d_across() {
 pub fn test_lwt_driver_inv_db2_single_level_2d() {
     let shape = [30, 35];
     let axes = [0, 1];
-    let wvlt = Wavelets::Daubechies2;
+    let wvlt = Wavelet::Daubechies2;
     let bc = BoundaryCondition::Periodic;
     let trans = WaveletTransform::new(wvlt, bc);
 
@@ -219,7 +219,7 @@ pub fn test_lwt_driver_inv_db2_multi_level_1d() {
     let shape = [30, 35];
     let axes = [1];
     let level = 3;
-    let wvlt = Wavelets::Daubechies2;
+    let wvlt = Wavelet::Daubechies2;
     let bc = BoundaryCondition::Periodic;
     let trans = WaveletTransform::new(wvlt, bc);
 
@@ -240,7 +240,7 @@ pub fn test_lwt_driver_inv_db2_multi_level_2d() {
     let shape = [30, 35];
     let axes = [0, 1];
     let level = 3;
-    let wvlt = Wavelets::Daubechies2;
+    let wvlt = Wavelet::Daubechies2;
     let bc = BoundaryCondition::Periodic;
     let trans = WaveletTransform::new(wvlt, bc);
 
@@ -265,7 +265,7 @@ pub fn test_lwt_driver_inv_db2_zero_bc_multi_level_1d() {
     let shape = [30, 35];
     let axes = [1];
     let level = 3;
-    let wvlt = Wavelets::Daubechies2;
+    let wvlt = Wavelet::Daubechies2;
     let trans = WaveletTransform::new(wvlt, ZeroBoundary {});
 
     let n_total = shape.iter().product();
@@ -287,18 +287,18 @@ pub fn test_lwt_driver_inv_db2_zero_bc_multi_level_1d() {
 /// Uses periodic boundary so that all wavelets have an exact inverse regardless
 /// of signal length.
 #[rstest]
-#[case(Wavelets::Daubechies2, 1)]
-#[case(Wavelets::Daubechies4, 1)]
-#[case(Wavelets::Daubechies4, 3)]
-#[case(Wavelets::Symlet4, 1)]
-#[case(Wavelets::Symlet4, 3)]
-#[case(Wavelets::Coiflet2, 1)]
-#[case(Wavelets::Coiflet2, 3)]
-#[case(Wavelets::Bior2_2, 1)]
-#[case(Wavelets::Bior2_2, 3)]
-#[case(Wavelets::CDF9_7, 1)]
-#[case(Wavelets::CDF9_7, 3)]
-pub fn test_round_trip_wavelet_families(#[case] wvlt: Wavelets, #[case] level: usize) {
+#[case(Wavelet::Daubechies2, 1)]
+#[case(Wavelet::Daubechies4, 1)]
+#[case(Wavelet::Daubechies4, 3)]
+#[case(Wavelet::Symlet4, 1)]
+#[case(Wavelet::Symlet4, 3)]
+#[case(Wavelet::Coiflet2, 1)]
+#[case(Wavelet::Coiflet2, 3)]
+#[case(Wavelet::Bior2_2, 1)]
+#[case(Wavelet::Bior2_2, 3)]
+#[case(Wavelet::CDF9_7, 1)]
+#[case(Wavelet::CDF9_7, 3)]
+pub fn test_round_trip_wavelet_families(#[case] wvlt: Wavelet, #[case] level: usize) {
     let shape = [30, 35];
     let axes = [1];
     let bc = BoundaryCondition::Periodic;
@@ -321,14 +321,14 @@ pub fn test_round_trip_wavelet_families(#[case] wvlt: Wavelets, #[case] level: u
 ///
 /// Both u and v live in the same space (LWT is shape-preserving).
 #[rstest]
-#[case(Wavelets::Daubechies2, 1)]
-#[case(Wavelets::Daubechies4, 1)]
-#[case(Wavelets::Daubechies4, 3)]
-#[case(Wavelets::Symlet4, 1)]
-#[case(Wavelets::Coiflet2, 1)]
-#[case(Wavelets::Bior2_2, 1)]
-#[case(Wavelets::CDF9_7, 1)]
-pub fn test_adj_forward_wavelet_families(#[case] wvlt: Wavelets, #[case] level: usize) {
+#[case(Wavelet::Daubechies2, 1)]
+#[case(Wavelet::Daubechies4, 1)]
+#[case(Wavelet::Daubechies4, 3)]
+#[case(Wavelet::Symlet4, 1)]
+#[case(Wavelet::Coiflet2, 1)]
+#[case(Wavelet::Bior2_2, 1)]
+#[case(Wavelet::CDF9_7, 1)]
+pub fn test_adj_forward_wavelet_families(#[case] wvlt: Wavelet, #[case] level: usize) {
     let n: usize = 64;
     let shape = [n];
     let axes = [0];
@@ -351,14 +351,14 @@ pub fn test_adj_forward_wavelet_families(#[case] wvlt: Wavelets, #[case] level: 
 /// Adjoint property: `<v, T^{-1}(u)> = <(T^{-1})*(v), u>` where `T^{-1}` is
 /// the inverse LWT and `(T^{-1})*` is `adj_inverse`.
 #[rstest]
-#[case(Wavelets::Daubechies2, 1)]
-#[case(Wavelets::Daubechies4, 1)]
-#[case(Wavelets::Daubechies4, 3)]
-#[case(Wavelets::Symlet4, 1)]
-#[case(Wavelets::Coiflet2, 1)]
-#[case(Wavelets::Bior2_2, 1)]
-#[case(Wavelets::CDF9_7, 1)]
-pub fn test_adj_inverse_wavelet_families(#[case] wvlt: Wavelets, #[case] level: usize) {
+#[case(Wavelet::Daubechies2, 1)]
+#[case(Wavelet::Daubechies4, 1)]
+#[case(Wavelet::Daubechies4, 3)]
+#[case(Wavelet::Symlet4, 1)]
+#[case(Wavelet::Coiflet2, 1)]
+#[case(Wavelet::Bior2_2, 1)]
+#[case(Wavelet::CDF9_7, 1)]
+pub fn test_adj_inverse_wavelet_families(#[case] wvlt: Wavelet, #[case] level: usize) {
     let n: usize = 64;
     let shape = [n];
     let axes = [0];
@@ -386,7 +386,7 @@ pub fn test_adj_inverse_wavelet_families(#[case] wvlt: Wavelets, #[case] level: 
 /// Round-trip test using `Complex32` element type.
 #[test]
 pub fn test_round_trip_complex32() {
-    let wvlt = Wavelets::Daubechies4;
+    let wvlt = Wavelet::Daubechies4;
     let shape = [32];
     let axes = [0];
     let level = 2;
@@ -416,7 +416,7 @@ pub fn test_round_trip_complex32() {
 /// Round-trip test using `Complex64` element type.
 #[test]
 pub fn test_round_trip_complex64() {
-    let wvlt = Wavelets::Daubechies4;
+    let wvlt = Wavelet::Daubechies4;
     let shape = [32];
     let axes = [0];
     let level = 2;

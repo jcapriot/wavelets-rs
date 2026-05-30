@@ -2,12 +2,12 @@
 //!
 //! Run with: `cargo run --example dwt_1d`
 
-use ndwt::Wavelets;
+use ndwt::Wavelet;
 use ndwt::boundarys::ZeroBoundary;
 use ndwt::dwt::driver::{WaveletTransform, get_transform_shape};
 
 fn main() {
-    let wvlt = Wavelets::Daubechies4;
+    let wvlt = Wavelet::Daubechies4;
     let level = 3;
     let shape = [128_usize];
     let axes = [0_usize];

@@ -13,10 +13,9 @@ import numpy.testing as npt
 import pytest
 from typing import Any
 
-import ndwt
 from ndwt import (
     BoundaryCondition,
-    Wavelets,
+    Wavelet,
     dwt,
     dwt_adj,
     dwt_per,
@@ -38,10 +37,10 @@ from ndwt import (
 
 # Representative wavelets across families.
 WAVELETS = [
-    Wavelets.Daubechies4,
-    Wavelets.Symlet4,
-    Wavelets.Bior2_2,
-    Wavelets.CDF9_7,
+    Wavelet.Daubechies4,
+    Wavelet.Symlet4,
+    Wavelet.Bior2_2,
+    Wavelet.CDF9_7,
 ]
 
 REAL_DTYPES: list[Any] = [np.float32, np.float64]
@@ -100,34 +99,34 @@ def size(request):
 
 class TestUtilities:
     def test_max_level_increases_with_n(self):
-        w = Wavelets.Daubechies4
+        w = Wavelet.Daubechies4
         assert max_level(w, 8) <= max_level(w, 16) <= max_level(w, 64)
 
     def test_max_level_zero_for_short_signal(self):
-        assert max_level(Wavelets.Daubechies4, 1) == 0
+        assert max_level(Wavelet.Daubechies4, 1) == 0
 
     def test_max_level_nd_is_min_across_axes(self):
-        w = Wavelets.Daubechies4
+        w = Wavelet.Daubechies4
         shape = (64, 32)
         l_0 = max_level(w, shape[0])
         l_1 = max_level(w, shape[1])
         assert max_level_nd(w, shape) == min(l_0, l_1)
 
     def test_max_level_nd_single_axis(self):
-        w = Wavelets.Daubechies4
+        w = Wavelet.Daubechies4
         shape = (64, 32)
         assert max_level_nd(w, shape, axes=0) == max_level(w, shape[0])
         assert max_level_nd(w, shape, axes=1) == max_level(w, shape[1])
 
     def test_get_dwt_shape_expands(self):
-        w = Wavelets.Daubechies4
+        w = Wavelet.Daubechies4
         shape = (64,)
         out_shape = get_dwt_shape(w, shape)
         assert out_shape != shape
         assert out_shape[0] > shape[0]
 
     def test_get_dwt_shape_explicit_level(self):
-        w = Wavelets.Daubechies4
+        w = Wavelet.Daubechies4
         shape = (64,)
         # Different levels must produce different shapes.
         s1 = get_dwt_shape(w, shape, level=1)
@@ -135,7 +134,7 @@ class TestUtilities:
         assert s1 != s2
 
     def test_get_dwt_shape_2d(self):
-        w = Wavelets.Daubechies4
+        w = Wavelet.Daubechies4
         shape = (32, 64)
         out_shape = get_dwt_shape(w, shape)
         assert len(out_shape) == 2
@@ -143,7 +142,7 @@ class TestUtilities:
         assert out_shape[1] > shape[1]
 
     def test_get_dwt_shape_single_axis(self):
-        w = Wavelets.Daubechies4
+        w = Wavelet.Daubechies4
         shape = (32, 64)
         out_shape = get_dwt_shape(w, shape, axes=1)
         assert out_shape[0] == shape[0]  # untransformed axis unchanged
@@ -154,7 +153,7 @@ class TestUtilities:
 
     def test_wavelet_width_known_value(self):
         # Daubechies-4 has 8 coefficients.
-        assert Wavelets.Daubechies4.width() == 8
+        assert Wavelet.Daubechies4.width() == 8
 
 
 # ── LWT tests ─────────────────────────────────────────────────────────────────
@@ -218,7 +217,7 @@ class TestLWT:
     @pytest.mark.parametrize("shape", [(5,), (5, 5), (4, 5, 2)])
     def test_small_copy_over(self, func, shape, dtype):
         """The transform functions should just copy to the output if max_level is 0."""
-        wavelet = Wavelets.Daubechies10  # has a width of 20
+        wavelet = Wavelet.Daubechies10  # has a width of 20
         x_in = _rng_array(shape, dtype, seed=2)
         assert max_level_nd(wavelet, x_in.shape) == 0
         x_2 = func(wavelet, x_in)
@@ -300,7 +299,7 @@ class TestDWT:
     @pytest.mark.parametrize("shape", [(5,), (5, 5), (4, 5, 2)])
     def test_small_copy_over(self, func, shape, dtype):
         """The transform functions should just copy to the output if max_level is 0."""
-        wavelet = Wavelets.Daubechies10  # has a width of 20
+        wavelet = Wavelet.Daubechies10  # has a width of 20
         x_in = _rng_array(shape, dtype, seed=2)
         assert max_level_nd(wavelet, x_in.shape) == 0
         assert get_dwt_shape(wavelet, x_in.shape, level=0) == x_in.shape
@@ -364,7 +363,7 @@ class TestDWTPer:
     @pytest.mark.parametrize("shape", [(5,), (5, 5), (4, 5, 2)])
     def test_small_copy_over(self, func, shape, dtype):
         """The transform functions should just copy to the output if max_level is 0."""
-        wavelet = Wavelets.Daubechies10  # has a width of 20
+        wavelet = Wavelet.Daubechies10  # has a width of 20
         x_in = _rng_array(shape, dtype, seed=2)
         assert max_level_nd(wavelet, x_in.shape) == 0
         x_2 = func(wavelet, x_in)
@@ -379,51 +378,51 @@ class TestErrors:
         """Unsupported dtype raises TypeError."""
         x = np.ones((64,), dtype=np.int32)
         with pytest.raises(TypeError):
-            lwt(Wavelets.Daubechies4, x)
+            lwt(Wavelet.Daubechies4, x)
 
     def test_dwt_invalid_dtype(self):
         x = np.ones((64,), dtype=np.int32)
         with pytest.raises(TypeError):
-            dwt(Wavelets.Daubechies4, x)
+            dwt(Wavelet.Daubechies4, x)
 
     def test_dwt_per_invalid_dtype(self):
         x = np.ones((64,), dtype=np.int32)
         with pytest.raises(TypeError):
-            dwt_per(Wavelets.Daubechies4, x)
+            dwt_per(Wavelet.Daubechies4, x)
 
     def test_lwt_axis_out_of_range(self):
         """Axis beyond array dimensionality raises ValueError."""
         x = np.ones((64,), dtype=np.float64)
         with pytest.raises(ValueError):
-            lwt(Wavelets.Daubechies4, x, axes=2)
+            lwt(Wavelet.Daubechies4, x, axes=2)
 
     def test_dwt_axis_out_of_range(self):
         x = np.ones((64,), dtype=np.float64)
         with pytest.raises(ValueError):
-            dwt(Wavelets.Daubechies4, x, axes=2)
+            dwt(Wavelet.Daubechies4, x, axes=2)
 
     def test_dwt_per_axis_out_of_range(self):
         x = np.ones((64,), dtype=np.float64)
         with pytest.raises(ValueError):
-            dwt_per(Wavelets.Daubechies4, x, axes=2)
+            dwt_per(Wavelet.Daubechies4, x, axes=2)
 
     def test_lwt_out_dtype_mismatch(self):
         """Mismatched dtypes between x and out raise ValueError."""
         x = np.ones((64,), dtype=np.float32)
         out = np.empty((64,), dtype=np.float64)
         with pytest.raises(ValueError):
-            lwt(Wavelets.Daubechies4, x, out=out)
+            lwt(Wavelet.Daubechies4, x, out=out)
 
     def test_dwt_out_dtype_mismatch(self):
         x = np.ones((64,), dtype=np.float32)
-        out = np.empty(get_dwt_shape(Wavelets.Daubechies4, (64,)), dtype=np.float64)
+        out = np.empty(get_dwt_shape(Wavelet.Daubechies4, (64,)), dtype=np.float64)
         with pytest.raises(ValueError):
-            dwt(Wavelets.Daubechies4, x, out=out)
+            dwt(Wavelet.Daubechies4, x, out=out)
 
     def test_max_level_nd_axis_out_of_range(self):
         with pytest.raises(ValueError):
-            max_level_nd(Wavelets.Daubechies4, (64,), axes=5)
+            max_level_nd(Wavelet.Daubechies4, (64,), axes=5)
 
     def test_get_dwt_shape_axis_out_of_range(self):
         with pytest.raises(ValueError):
-            get_dwt_shape(Wavelets.Daubechies4, (64,), axes=5)
+            get_dwt_shape(Wavelet.Daubechies4, (64,), axes=5)

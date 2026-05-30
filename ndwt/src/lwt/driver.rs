@@ -3,7 +3,7 @@ use ndarray::{ArrayRef, Dimension};
 use num_traits::Zero;
 use std::collections::HashSet;
 
-use crate::Wavelets;
+use crate::Wavelet;
 use crate::boundarys::BoundaryExtension;
 use crate::iter::{LanesIterator, copy_over};
 
@@ -25,10 +25,10 @@ use ndwt_macros::generate_wavelet_match_arms;
 /// # Example
 ///
 /// ```rust,ignore
-/// use wavelets::{Wavelets, boundarys::BoundaryCondition, lwt::driver::WaveletTransform};
+/// use wavelets::{Wavelet, boundarys::BoundaryCondition, lwt::driver::WaveletTransform};
 ///
 /// let xfm: WaveletTransform =
-///     WaveletTransform::new(Wavelets::Daubechies4, BoundaryCondition::Periodic);
+///     WaveletTransform::new(Wavelet::Daubechies4, BoundaryCondition::Periodic);
 ///
 /// let input = vec![1.0_f64; 64];
 /// let mut output = vec![0.0_f64; 64];
@@ -56,28 +56,28 @@ where
     /// Function pointers to the correct lifting-step implementations are resolved at
     /// construction time so every subsequent transform call is a direct (non-virtual)
     /// dispatch with no runtime branching on the wavelet type.
-    pub fn new(wvlt: Wavelets, bc: BC) -> Self {
+    pub fn new(wvlt: Wavelet, bc: BC) -> Self {
         use crate::lwt::bior::*;
         use crate::lwt::coiflet::*;
         use crate::lwt::daubechies::*;
         use crate::lwt::symlet::*;
         let lwt_forward: fn(&mut [T], &mut [T], &BC) = generate_wavelet_match_arms! {
-            Wavelets,
+            Wavelet,
             wvlt,
             {#wvlt::forward,}
         };
         let lwt_inverse: fn(&mut [T], &mut [T], &BC) = generate_wavelet_match_arms! {
-            Wavelets,
+            Wavelet,
             wvlt,
             {#wvlt::inverse,}
         };
         let lwt_adj_forward: fn(&mut [T], &mut [T], &BC) = generate_wavelet_match_arms! {
-            Wavelets,
+            Wavelet,
             wvlt,
             {#wvlt::adjoint_forward,}
         };
         let lwt_adj_inverse: fn(&mut [T], &mut [T], &BC) = generate_wavelet_match_arms! {
-            Wavelets,
+            Wavelet,
             wvlt,
             {#wvlt::adjoint_inverse,}
         };

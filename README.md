@@ -33,11 +33,11 @@ Default features enable `rayon` (multi-threading), `ndarray` integration, and `x
 ### DWT — 1-D signal
 
 ```rust
-use ndwt::Wavelets;
+use ndwt::Wavelet;
 use ndwt::boundarys::ZeroBoundary;
 use ndwt::dwt::driver::{WaveletTransform, get_transform_shape};
 
-let wvlt = Wavelets::Daubechies4;
+let wvlt = Wavelet::Daubechies4;
 let level = 3;
 let shape = [128_usize];
 let axes = [0_usize];
@@ -59,11 +59,11 @@ trans.inverse_multilevel_nd(&mut coeffs, &mut x2, &shape, &axes, level);
 ### LWT — 2-D image (periodic boundary)
 
 ```rust
-use ndwt::Wavelets;
+use ndwt::Wavelet;
 use ndwt::boundarys::BoundaryCondition;
 use ndwt::lwt::driver::WaveletTransform;
 
-let wvlt = Wavelets::Daubechies4;
+let wvlt = Wavelet::Daubechies4;
 let level = 3;
 let shape = [64_usize, 64];
 let axes = [0_usize, 1]; // both axes
@@ -91,7 +91,7 @@ trans.inverse_multilevel_nd(&coeffs, &mut x2, &shape, &axes, level);
 | CDF (JPEG 2000) | CDF5\_3, CDF9\_7 | `ndwt::bior` |
 
 Each wavelet type is a zero-size marker struct carrying filter coefficients as compile-time
-constants. The [`Wavelets`](https://docs.rs/ndwt/latest/ndwt/enum.Wavelets.html) enum
+constants. The [`Wavelet`](https://docs.rs/ndwt/latest/ndwt/enum.Wavelet.html) enum
 lets you select a wavelet at runtime without generics.
 
 ## Boundary conditions

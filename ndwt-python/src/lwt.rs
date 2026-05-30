@@ -4,14 +4,14 @@ use ndwt::ChunkWidth;
 use numpy::{PyArrayDyn, PyArrayMethods, PyReadonlyArrayDyn, PyReadwriteArrayDyn};
 use pyo3::prelude::{Py, PyAny, PyErr, PyResult, Python};
 
-use super::{check_axes, normalize_axes, BoundaryCondition, ValOrVec, Wavelets};
+use super::{check_axes, normalize_axes, BoundaryCondition, ValOrVec, Wavelet};
 
 macro_rules! implement_transform {
     ($(($name:ident, $trans_func:ident)),*) => {
         $(
         pub(crate) fn $name<T, const N: usize>(
             py: Python,
-            wavelet: Wavelets,
+            wavelet: Wavelet,
             x: PyReadonlyArrayDyn<T>,
             y: Option<PyReadwriteArrayDyn<T>>,
             bc: BoundaryCondition,

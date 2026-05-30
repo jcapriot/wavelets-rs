@@ -2,12 +2,12 @@
 //!
 //! Run with: `cargo run --example lwt_2d`
 
-use ndwt::Wavelets;
+use ndwt::Wavelet;
 use ndwt::boundarys::BoundaryCondition;
 use ndwt::lwt::driver::WaveletTransform;
 
 fn main() {
-    let wvlt = Wavelets::Daubechies4;
+    let wvlt = Wavelet::Daubechies4;
     let level = 3;
     let rows = 64_usize;
     let cols = 64_usize;

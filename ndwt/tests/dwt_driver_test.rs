@@ -1,4 +1,4 @@
-use ndwt::Wavelets;
+use ndwt::Wavelet;
 use ndwt::boundarys::{PeriodicBoundary, ZeroBoundary};
 use ndwt::dwt::driver::{WaveletTransform, WaveletTransformPer, get_transform_shape};
 use ndwt::dwt::{DiscreteTransform, get_outlen};
@@ -11,7 +11,7 @@ pub fn test_dwt_driver_db2_single_level_1d_along() {
     let shape = [30, 35];
     let axes = [1];
     let level = 1;
-    let wvlt = Wavelets::Daubechies2;
+    let wvlt = Wavelet::Daubechies2;
 
     let n_ax: usize = shape[axes[0]];
     let n_sd = get_outlen(wvlt.width(), n_ax);
@@ -51,7 +51,7 @@ pub fn test_dwt_driver_db2_single_level_1d_across() {
     let shape = [30, 35];
     let axes = [0];
     let level = 1;
-    let wvlt = Wavelets::Daubechies2;
+    let wvlt = Wavelet::Daubechies2;
 
     let n_ax: usize = shape[axes[0]];
     let n_sd = get_outlen(wvlt.width(), n_ax);
@@ -94,7 +94,7 @@ pub fn test_dwt_driver_db2_single_2d() {
     let shape = [30, 35];
     let axes = [0, 1];
     let level = 1;
-    let wvlt = Wavelets::Daubechies2;
+    let wvlt = Wavelet::Daubechies2;
     let bc = ZeroBoundary {};
 
     let inter_shape = get_transform_shape(&shape, &[axes[0]], level, wvlt.width(), false);
@@ -132,7 +132,7 @@ pub fn test_dwt_driver_db2_multi_level_1d() {
     let shape = [30, 35];
     let axes = [1];
     let level = 3;
-    let wvlt = Wavelets::Daubechies2;
+    let wvlt = Wavelet::Daubechies2;
 
     dbg!(&shape, &axes, level, wvlt.width());
 
@@ -188,7 +188,7 @@ pub fn test_dwt_driver_db2_multi_level_2d() {
     let shape = dbg!([30, 35]);
     let axes = [1, 0];
     let level = 3;
-    let wvlt = Wavelets::Daubechies2;
+    let wvlt = Wavelet::Daubechies2;
 
     let out_shape = dbg!(get_transform_shape(
         &shape,
@@ -321,7 +321,7 @@ pub fn test_dwt_driver_inv_db2_single_level_1d_along() {
     let shape = [30, 35];
     let axes = [1];
     let level = 1;
-    let wvlt = Wavelets::Daubechies2;
+    let wvlt = Wavelet::Daubechies2;
 
     let n_ax: usize = shape[axes[0]];
     let n_sd = get_outlen(wvlt.width(), n_ax);
@@ -354,7 +354,7 @@ pub fn test_dwt_driver_inv_db2_single_level_1d_across() {
     let shape = [30, 35];
     let axes = [0];
     let level = 1;
-    let wvlt = Wavelets::Daubechies2;
+    let wvlt = Wavelet::Daubechies2;
 
     let n_ax: usize = shape[axes[0]];
     let n_sd = get_outlen(wvlt.width(), n_ax);
@@ -387,7 +387,7 @@ pub fn test_dwt_driver_inv_db2_single_level_2d() {
     let shape = [30, 35];
     let axes = [0, 1];
     let level = 1;
-    let wvlt = Wavelets::Daubechies2;
+    let wvlt = Wavelet::Daubechies2;
 
     let out_shape = get_transform_shape(&shape, &axes, level, wvlt.width(), false);
 
@@ -415,7 +415,7 @@ pub fn test_dwt_driver_inv_db2_multi_level_1d() {
     let shape = [30, 35];
     let axes = [1];
     let level = 3;
-    let wvlt = Wavelets::Daubechies2;
+    let wvlt = Wavelet::Daubechies2;
 
     let out_shape = get_transform_shape(&shape, &axes, level, wvlt.width(), false);
 
@@ -443,7 +443,7 @@ pub fn test_dwt_driver_inv_db2_multi_level_2d() {
     let shape = [30, 35];
     let axes = [0, 1];
     let level = 3;
-    let wvlt = Wavelets::Daubechies2;
+    let wvlt = Wavelet::Daubechies2;
 
     let out_shape = get_transform_shape(&shape, &axes, level, wvlt.width(), false);
 
@@ -471,7 +471,7 @@ pub fn test_dwt_driver_db2_per_single_level_1d_along() {
     let shape = [30, 35];
     let axes = [1];
     let level = 1;
-    let wvlt = Wavelets::Daubechies2;
+    let wvlt = Wavelet::Daubechies2;
 
     let out_shape = get_transform_shape(&shape, &axes, level, wvlt.width(), false);
 
@@ -512,7 +512,7 @@ pub fn test_dwt_driver_db2_per_single_level_1d_across() {
     let shape = [30, 35];
     let axes = [0];
     let level = 1;
-    let wvlt = Wavelets::Daubechies2;
+    let wvlt = Wavelet::Daubechies2;
 
     let out_shape = get_transform_shape(&shape, &axes, level, wvlt.width(), false);
 
@@ -556,7 +556,7 @@ pub fn test_dwt_driver_db2_per_single_level_1d_across() {
 pub fn test_dwt_driver_db2_per_single_2d() {
     let shape = [30, 35];
     let axes = [0, 1];
-    let wvlt = Wavelets::Daubechies2;
+    let wvlt = Wavelet::Daubechies2;
 
     let n_total = shape.iter().product();
 
@@ -582,7 +582,7 @@ pub fn test_dwt_driver_db2_per_multi_level_1d() {
     let shape = [30, 35];
     let axes = [1];
     let level = 3;
-    let wvlt = Wavelets::Daubechies2;
+    let wvlt = Wavelet::Daubechies2;
 
     let n_total = shape.iter().product();
 
@@ -635,7 +635,7 @@ pub fn test_dwt_driver_db2_per_multi_level_2d() {
     let shape = [30, 35];
     let axes = [1, 0];
     let level = 3;
-    let wvlt = Wavelets::Daubechies2;
+    let wvlt = Wavelet::Daubechies2;
 
     let n_total = shape.iter().product();
     let trans = WaveletTransformPer::new(wvlt);
@@ -704,7 +704,7 @@ pub fn test_dwt_driver_db2_per_multi_level_2d() {
 pub fn test_dwt_driver_inv_db2_per_single_level_1d_along() {
     let shape = [30, 35];
     let axes = [1];
-    let wvlt = Wavelets::Daubechies2;
+    let wvlt = Wavelet::Daubechies2;
 
     let n_total = shape.iter().product();
 
@@ -726,7 +726,7 @@ pub fn test_dwt_driver_inv_db2_per_single_level_1d_along() {
 pub fn test_dwt_driver_inv_db2_per_single_level_1d_across() {
     let shape = [30, 35];
     let axes = [0];
-    let wvlt = Wavelets::Daubechies2;
+    let wvlt = Wavelet::Daubechies2;
 
     let n_total = shape.iter().product();
 
@@ -748,7 +748,7 @@ pub fn test_dwt_driver_inv_db2_per_single_level_1d_across() {
 pub fn test_dwt_driver_inv_db2_per_single_level_2d() {
     let shape = [30, 35];
     let axes = [0, 1];
-    let wvlt = Wavelets::Daubechies2;
+    let wvlt = Wavelet::Daubechies2;
 
     let n_total = shape.iter().product();
 
@@ -771,7 +771,7 @@ pub fn test_dwt_driver_inv_db2_per_multi_level_1d() {
     let shape = [30, 35];
     let axes = [1];
     let level = 3;
-    let wvlt = Wavelets::Daubechies2;
+    let wvlt = Wavelet::Daubechies2;
 
     let n_total = shape.iter().product();
 
@@ -794,7 +794,7 @@ pub fn test_dwt_driver_inv_db2_per_multi_level_2d() {
     let shape = [30, 35];
     let axes = [0, 1];
     let level = 3;
-    let wvlt = Wavelets::Daubechies2;
+    let wvlt = Wavelet::Daubechies2;
 
     let n_total = shape.iter().product();
 
@@ -819,17 +819,17 @@ pub fn test_dwt_driver_inv_db2_per_multi_level_2d() {
 /// For all wavelet families and levels 1 and 3, checks that
 /// `inverse(forward(x)) ≈ x` on a 2-D signal with the default zero boundary.
 #[rstest]
-#[case(Wavelets::Daubechies4, 1)]
-#[case(Wavelets::Daubechies4, 3)]
-#[case(Wavelets::Symlet4, 1)]
-#[case(Wavelets::Symlet4, 3)]
-#[case(Wavelets::Coiflet2, 1)]
-#[case(Wavelets::Coiflet2, 3)]
-#[case(Wavelets::Bior2_2, 1)]
-#[case(Wavelets::Bior2_2, 3)]
-#[case(Wavelets::CDF9_7, 1)]
-#[case(Wavelets::CDF9_7, 3)]
-pub fn test_round_trip_wavelet_families(#[case] wvlt: Wavelets, #[case] level: usize) {
+#[case(Wavelet::Daubechies4, 1)]
+#[case(Wavelet::Daubechies4, 3)]
+#[case(Wavelet::Symlet4, 1)]
+#[case(Wavelet::Symlet4, 3)]
+#[case(Wavelet::Coiflet2, 1)]
+#[case(Wavelet::Coiflet2, 3)]
+#[case(Wavelet::Bior2_2, 1)]
+#[case(Wavelet::Bior2_2, 3)]
+#[case(Wavelet::CDF9_7, 1)]
+#[case(Wavelet::CDF9_7, 3)]
+pub fn test_round_trip_wavelet_families(#[case] wvlt: Wavelet, #[case] level: usize) {
     let shape = [30, 35];
     let axes = [1];
     let bc = ZeroBoundary {};
@@ -852,13 +852,13 @@ pub fn test_round_trip_wavelet_families(#[case] wvlt: Wavelets, #[case] level: u
 /// Adjoint property: `<v, T(u)> ≈ <T*(v), u>` where `T` is the forward DWT and
 /// `T*` is `adj_forward`.
 #[rstest]
-#[case(Wavelets::Daubechies4, 1)]
-#[case(Wavelets::Daubechies4, 3)]
-#[case(Wavelets::Symlet4, 1)]
-#[case(Wavelets::Coiflet2, 1)]
-#[case(Wavelets::Bior2_2, 1)]
-#[case(Wavelets::CDF9_7, 1)]
-pub fn test_adj_forward_wavelet_families(#[case] wvlt: Wavelets, #[case] level: usize) {
+#[case(Wavelet::Daubechies4, 1)]
+#[case(Wavelet::Daubechies4, 3)]
+#[case(Wavelet::Symlet4, 1)]
+#[case(Wavelet::Coiflet2, 1)]
+#[case(Wavelet::Bior2_2, 1)]
+#[case(Wavelet::CDF9_7, 1)]
+pub fn test_adj_forward_wavelet_families(#[case] wvlt: Wavelet, #[case] level: usize) {
     let n_signal: usize = 64;
     let shape = [n_signal];
     let axes = [0];
@@ -888,7 +888,7 @@ pub fn test_adj_forward_wavelet_families(#[case] wvlt: Wavelets, #[case] level: 
 /// Round-trip test using `Complex32` element type.
 #[test]
 pub fn test_round_trip_complex32() {
-    let wvlt = Wavelets::Daubechies4;
+    let wvlt = Wavelet::Daubechies4;
     let shape = [32];
     let axes = [0];
     let level = 2;
@@ -921,7 +921,7 @@ pub fn test_round_trip_complex32() {
 /// Round-trip test using `Complex64` element type.
 #[test]
 pub fn test_round_trip_complex64() {
-    let wvlt = Wavelets::Daubechies4;
+    let wvlt = Wavelet::Daubechies4;
     let shape = [32];
     let axes = [0];
     let level = 2;

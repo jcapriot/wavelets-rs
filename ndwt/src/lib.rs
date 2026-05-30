@@ -26,15 +26,15 @@
 //! | [`coiflet`] | Coiflets 1–3 |
 //! | [`bior`] | Biorthogonal & CDF variants |
 //!
-//! The [`Wavelets`] enum lets you select a wavelet at runtime without generics.
+//! The [`Wavelet`] enum lets you select a wavelet at runtime without generics.
 //!
 //! # Quick start
 //!
 //! ```rust,ignore
-//! use ndwt::{Wavelets, boundarys::BoundaryCondition, dwt::driver::WaveletTransform};
+//! use ndwt::{Wavelet, boundarys::BoundaryCondition, dwt::driver::WaveletTransform};
 //!
 //! // Build a DWT driver for Daubechies-4 with zero boundary padding.
-//! let xfm: = WaveletTransform::new(Wavelets::Daubechies4, BoundaryCondition::Zero);
+//! let xfm: = WaveletTransform::new(Wavelet::Daubechies4, BoundaryCondition::Zero);
 //!
 //! let input = vec![1.0_f64; 128];
 //! let nsd = ndwt::dwt::get_outlen(8, input.len());
@@ -62,7 +62,7 @@ macro_rules! gen_wavelet_struct {
         $(
             /// Zero-size marker struct representing a specific wavelet.
             ///
-            /// `WIDTH` is the filter length (number of coefficients).  Use [`crate::Wavelets`] to
+            /// `WIDTH` is the filter length (number of coefficients).  Use [`crate::Wavelet`] to
             /// select a wavelet dynamically.
             pub struct $name;
             impl $name{
@@ -190,7 +190,7 @@ pub fn max_level_nd(width: usize, shape: &[usize], axes: &[usize]) -> usize {
 }
 
 generate_wavelet_enum!(
-    Wavelets,
+    Wavelet,
     (Clone, Copy, Debug, PartialEq, Eq, Hash),
     {
     /// Wavelet family selector.
@@ -200,7 +200,7 @@ generate_wavelet_enum!(
     }
 );
 
-impl Wavelets {
+impl Wavelet {
     /// Maximum decomposition levels for a signal of length `n`.
     pub fn max_level(&self, n: usize) -> usize {
         max_level(self.width(), n)

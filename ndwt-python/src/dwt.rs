@@ -4,7 +4,7 @@ use ndwt::Transformable;
 use numpy::{PyArrayDyn, PyArrayMethods, PyReadonlyArrayDyn, PyReadwriteArrayDyn};
 use pyo3::prelude::{Py, PyAny, PyErr, PyResult, Python};
 
-use super::{check_axes, normalize_axes, BoundaryCondition, ValOrVec, Wavelets};
+use super::{check_axes, normalize_axes, BoundaryCondition, ValOrVec, Wavelet};
 
 pub(crate) enum ShapeOrOutArray<'py, T: numpy::Element> {
     Shape(Vec<usize>),
@@ -18,7 +18,7 @@ macro_rules! implement_expand_transform {
         $(
         pub(crate) fn $name<'py, T, const N: usize>(
             py: Python<'py>,
-            wavelet: Wavelets,
+            wavelet: Wavelet,
             x: PyReadonlyArrayDyn<'py, T>,
             y: Option<PyReadwriteArrayDyn<'py, T>>,
             bc: BoundaryCondition,
@@ -73,7 +73,7 @@ macro_rules! implement_contract_transform {
         $(
         pub(crate) fn $name<T, const N: usize>(
             py: Python,
-            wavelet: Wavelets,
+            wavelet: Wavelet,
             x: PyReadonlyArrayDyn<T>,
             y: ShapeOrOutArray<T>,
             bc: BoundaryCondition,
@@ -132,7 +132,7 @@ macro_rules! implement_per_transform {
         $(
         pub(crate) fn $name<T, const N: usize>(
             py: Python,
-            wavelet: Wavelets,
+            wavelet: Wavelet,
             x: PyReadonlyArrayDyn<T>,
             y: Option<PyReadwriteArrayDyn<T>>,
             axes: Option<ValOrVec<isize>>,

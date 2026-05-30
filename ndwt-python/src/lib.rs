@@ -10,7 +10,7 @@ use numpy::{PyReadonlyArrayDyn, PyReadwriteArrayDyn};
 use pyo3::FromPyObject;
 
 generate_wavelet_enum! {
-    Wavelets,
+    Wavelet,
     (Clone, Copy, Debug, PartialEq, Eq, Hash),
     {
         /// Wavelets supported for transformations.
@@ -35,14 +35,14 @@ generate_wavelet_enum! {
     }
 }
 
-impl Wavelets {
-    fn as_ndwt_wavelet(&self) -> ndwt::Wavelets {
-        generate_wavelet_match_arms! {Self, self, {ndwt::Wavelets::#wvlt,}}
+impl Wavelet {
+    fn as_ndwt_wavelet(&self) -> ndwt::Wavelet {
+        generate_wavelet_match_arms! {Self, self, {ndwt::Wavelet::#wvlt,}}
     }
 }
 
 #[pymethods]
-impl Wavelets {
+impl Wavelet {
     /// Number of filter coefficients for this wavelet.
     ///
     /// Returns
@@ -208,7 +208,7 @@ mod _ndwt_ext {
     use pyo3::types::PyTuple;
 
     #[pymodule_export]
-    use super::Wavelets;
+    use super::Wavelet;
 
     #[pymodule_export]
     use super::BoundaryCondition;
@@ -219,7 +219,7 @@ mod _ndwt_ext {
     ///
     /// Parameters
     /// ----------
-    /// wavelet : Wavelets
+    /// wavelet : Wavelet
     ///     Wavelet family.
     /// n : int
     ///     Signal length.
@@ -230,7 +230,7 @@ mod _ndwt_ext {
     ///     Maximum number of decomposition levels.  Returns ``0`` when
     ///     the signal is too short for even one level.
     #[pyfunction]
-    fn max_level(wavelet: Wavelets, n: usize) -> usize {
+    fn max_level(wavelet: Wavelet, n: usize) -> usize {
         wavelet.as_ndwt_wavelet().max_level(n)
     }
 
@@ -242,7 +242,7 @@ mod _ndwt_ext {
     ///
     /// Parameters
     /// ----------
-    /// wavelet : Wavelets
+    /// wavelet : Wavelet
     ///     Wavelet family.
     /// shape : sequence of int
     ///     Array shape.
@@ -256,7 +256,7 @@ mod _ndwt_ext {
     #[pyfunction]
     #[pyo3(signature = (wavelet, shape, *, axes=None))]
     fn max_level_nd(
-        wavelet: Wavelets,
+        wavelet: Wavelet,
         shape: Vec<usize>,
         axes: Option<ValOrVec<isize>>,
     ) -> PyResult<usize> {
@@ -275,7 +275,7 @@ mod _ndwt_ext {
     ///
     /// Parameters
     /// ----------
-    /// wavelet : Wavelets
+    /// wavelet : Wavelet
     ///     Wavelet family.
     /// shape : sequence of int
     ///     Input array shape.
@@ -293,7 +293,7 @@ mod _ndwt_ext {
     #[pyo3(signature = (wavelet, shape, *, axes=None, level=0))]
     fn get_dwt_shape(
         py: Python,
-        wavelet: Wavelets,
+        wavelet: Wavelet,
         shape: Vec<usize>,
         axes: Option<ValOrVec<isize>>,
         level: usize,
@@ -322,7 +322,7 @@ mod _ndwt_ext {
     ///
     /// Parameters
     /// ----------
-    /// wavelet : Wavelets
+    /// wavelet : Wavelet
     ///     Wavelet family.
     /// x : numpy.ndarray
     ///     Input array.  Supported dtypes: ``float32``, ``float64``,
@@ -346,7 +346,7 @@ mod _ndwt_ext {
     #[pyo3(signature = (wavelet, x, *, bc=BoundaryCondition::Symmetric, axes=None, level=0, out=None), text_signature = "(wavelet, x, *, bc=BoundaryCondition.Symmetric, axes=None, level=0, out=None)")]
     fn lwt(
         py: Python,
-        wavelet: Wavelets,
+        wavelet: Wavelet,
         x: ReadArray,
         bc: BoundaryCondition,
         axes: Option<ValOrVec<isize>>,
@@ -387,7 +387,7 @@ mod _ndwt_ext {
     ///
     /// Parameters
     /// ----------
-    /// wavelet : Wavelets
+    /// wavelet : Wavelet
     ///     Wavelet family used for the forward transform.
     /// x : numpy.ndarray
     ///     LWT coefficient array.  Supported dtypes: ``float32``, ``float64``,
@@ -412,7 +412,7 @@ mod _ndwt_ext {
     #[pyo3(signature = (wavelet, x, *, bc=BoundaryCondition::Symmetric, axes=None, level=0, out=None), text_signature = "(wavelet, x, *, bc=BoundaryCondition.Symmetric, axes=None, level=0, out=None)")]
     fn ilwt(
         py: Python,
-        wavelet: Wavelets,
+        wavelet: Wavelet,
         x: ReadArray,
         bc: BoundaryCondition,
         axes: Option<ValOrVec<isize>>,
@@ -458,7 +458,7 @@ mod _ndwt_ext {
     ///
     /// Parameters
     /// ----------
-    /// wavelet : Wavelets
+    /// wavelet : Wavelet
     ///     Wavelet family.
     /// x : numpy.ndarray
     ///     Input array.  Supported dtypes: ``float32``, ``float64``,
@@ -483,7 +483,7 @@ mod _ndwt_ext {
     #[pyo3(signature = (wavelet, x, *, bc=BoundaryCondition::Symmetric, axes=None, level=0, out=None), text_signature = "(wavelet, x, *, bc=BoundaryCondition.Symmetric, axes=None, level=0, out=None)")]
     fn lwt_adj(
         py: Python,
-        wavelet: Wavelets,
+        wavelet: Wavelet,
         x: ReadArray,
         bc: BoundaryCondition,
         axes: Option<ValOrVec<isize>>,
@@ -529,7 +529,7 @@ mod _ndwt_ext {
     ///
     /// Parameters
     /// ----------
-    /// wavelet : Wavelets
+    /// wavelet : Wavelet
     ///     Wavelet family.
     /// x : numpy.ndarray
     ///     Input array.  Supported dtypes: ``float32``, ``float64``,
@@ -554,7 +554,7 @@ mod _ndwt_ext {
     #[pyo3(signature = (wavelet, x, *, bc=BoundaryCondition::Symmetric, axes=None, level=0, out=None), text_signature = "(wavelet, x, *, bc=BoundaryCondition.Symmetric, axes=None, level=0, out=None)")]
     fn ilwt_adj(
         py: Python,
-        wavelet: Wavelets,
+        wavelet: Wavelet,
         x: ReadArray,
         bc: BoundaryCondition,
         axes: Option<ValOrVec<isize>>,
@@ -599,7 +599,7 @@ mod _ndwt_ext {
     ///
     /// Parameters
     /// ----------
-    /// wavelet : Wavelets
+    /// wavelet : Wavelet
     ///     Wavelet family.
     /// x : numpy.ndarray
     ///     Input array.  Supported dtypes: ``float32``, ``float64``,
@@ -625,7 +625,7 @@ mod _ndwt_ext {
     #[pyo3(signature = (wavelet, x, *, bc=BoundaryCondition::Symmetric, axes=None, level=0, out=None), text_signature = "(wavelet, x, *, bc=BoundaryCondition.Symmetric, axes=None, level=0, out=None)")]
     fn dwt(
         py: Python,
-        wavelet: Wavelets,
+        wavelet: Wavelet,
         x: ReadArray,
         bc: BoundaryCondition,
         axes: Option<ValOrVec<isize>>,
@@ -666,7 +666,7 @@ mod _ndwt_ext {
     ///
     /// Parameters
     /// ----------
-    /// wavelet : Wavelets
+    /// wavelet : Wavelet
     ///     Wavelet family used for the forward transform.
     /// x : numpy.ndarray
     ///     DWT coefficient array with the shape produced by :func:`dwt`
@@ -696,7 +696,7 @@ mod _ndwt_ext {
     #[pyo3(signature = (wavelet, x, out,  *, bc=BoundaryCondition::Symmetric, axes=None, level=0), text_signature = "(wavelet, x, *, bc=BoundaryCondition.Symmetric, axes=None, level=0, out=None)")]
     fn idwt(
         py: Python,
-        wavelet: Wavelets,
+        wavelet: Wavelet,
         x: ReadArray,
         out: ShapeOrOutArray,
         bc: BoundaryCondition,
@@ -790,7 +790,7 @@ mod _ndwt_ext {
     ///
     /// Parameters
     /// ----------
-    /// wavelet : Wavelets
+    /// wavelet : Wavelet
     ///     Wavelet family.
     /// x : numpy.ndarray
     ///     Input array with the expanded DWT shape.
@@ -819,7 +819,7 @@ mod _ndwt_ext {
     #[pyo3(signature = (wavelet, x, out,  *, bc=BoundaryCondition::Symmetric, axes=None, level=0), text_signature = "(wavelet, x, *, bc=BoundaryCondition.Symmetric, axes=None, level=0, out=None)")]
     fn dwt_adj(
         py: Python,
-        wavelet: Wavelets,
+        wavelet: Wavelet,
         x: ReadArray,
         out: ShapeOrOutArray,
         bc: BoundaryCondition,
@@ -914,7 +914,7 @@ mod _ndwt_ext {
     ///
     /// Parameters
     /// ----------
-    /// wavelet : Wavelets
+    /// wavelet : Wavelet
     ///     Wavelet family.
     /// x : numpy.ndarray
     ///     Input array with the original signal shape.
@@ -940,7 +940,7 @@ mod _ndwt_ext {
     #[pyo3(signature = (wavelet, x, *, bc=BoundaryCondition::Symmetric, axes=None, level=0, out=None), text_signature = "(wavelet, x, *, bc=BoundaryCondition.Symmetric, axes=None, level=0, out=None)")]
     fn idwt_adj(
         py: Python,
-        wavelet: Wavelets,
+        wavelet: Wavelet,
         x: ReadArray,
         bc: BoundaryCondition,
         axes: Option<ValOrVec<isize>>,
@@ -986,7 +986,7 @@ mod _ndwt_ext {
     ///
     /// Parameters
     /// ----------
-    /// wavelet : Wavelets
+    /// wavelet : Wavelet
     ///     Wavelet family.
     /// x : numpy.ndarray
     ///     Input array.  Supported dtypes: ``float32``, ``float64``,
@@ -1008,7 +1008,7 @@ mod _ndwt_ext {
     #[pyo3(signature = (wavelet, x, *, axes=None, level=0, out=None))]
     fn dwt_per(
         py: Python,
-        wavelet: Wavelets,
+        wavelet: Wavelet,
         x: ReadArray,
         axes: Option<ValOrVec<isize>>,
         level: usize,
@@ -1048,7 +1048,7 @@ mod _ndwt_ext {
     ///
     /// Parameters
     /// ----------
-    /// wavelet : Wavelets
+    /// wavelet : Wavelet
     ///     Wavelet family used for the forward transform.
     /// x : numpy.ndarray
     ///     Periodic DWT coefficient array.  Supported dtypes: ``float32``,
@@ -1070,7 +1070,7 @@ mod _ndwt_ext {
     #[pyo3(signature = (wavelet, x, *, axes=None, level=0, out=None))]
     fn idwt_per(
         py: Python,
-        wavelet: Wavelets,
+        wavelet: Wavelet,
         x: ReadArray,
         axes: Option<ValOrVec<isize>>,
         level: usize,
@@ -1114,7 +1114,7 @@ mod _ndwt_ext {
     ///
     /// Parameters
     /// ----------
-    /// wavelet : Wavelets
+    /// wavelet : Wavelet
     ///     Wavelet family.
     /// x : numpy.ndarray
     ///     Periodic DWT coefficient array.  Supported dtypes: ``float32``,
@@ -1138,7 +1138,7 @@ mod _ndwt_ext {
     #[pyo3(signature = (wavelet, x, *, axes=None, level=0, out=None))]
     fn dwt_per_adj(
         py: Python,
-        wavelet: Wavelets,
+        wavelet: Wavelet,
         x: ReadArray,
         axes: Option<ValOrVec<isize>>,
         level: usize,
@@ -1182,7 +1182,7 @@ mod _ndwt_ext {
     ///
     /// Parameters
     /// ----------
-    /// wavelet : Wavelets
+    /// wavelet : Wavelet
     ///     Wavelet family.
     /// x : numpy.ndarray
     ///     Input array with the original signal shape.  Supported dtypes:
@@ -1206,7 +1206,7 @@ mod _ndwt_ext {
     #[pyo3(signature = (wavelet, x, *, axes=None, level=0, out=None))]
     fn idwt_per_adj(
         py: Python,
-        wavelet: Wavelets,
+        wavelet: Wavelet,
         x: ReadArray,
         axes: Option<ValOrVec<isize>>,
         level: usize,
