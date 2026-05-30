@@ -1,0 +1,105 @@
+name: Deploy
+
+on:
+    push:
+        branches: [main]
+    pull_request:
+        branches: [main]
+    release:
+        types: [published]
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    build_wheels:
+        name: Build wheels on ${{ matrix.os }}
+        runs-on: ${{ matrix.os }}
+        strategy:
+            matrix:
+                # macos-15-intel is an Intel runner, macos-14 is Apple silicon
+                os:
+                    [
+                        ubuntu-latest,
+                        ubuntu-24.04-arm,
+                        windows-latest,
+                        windows-11-arm,
+                        macos-15-intel,
+                        macos-14,
+                    ]
+
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  persist-credentials: false
+
+            - name: Set MacOSX minimum deployement
+              if: ${{ matrix.os == 'macos-15-intel' }}
+              run: echo "MACOSX_DEPLOYMENT_TARGET=10.12" >> "$GITHUB_ENV"
+
+            - name: Build wheels
+              uses: pypa/cibuildwheel@v3.4.1
+              env:
+                  CIBW_TEST_REQUIRES: pytest
+                  CIBW_TEST_COMMAND: "pytest {project}/ndwt-python/tests"
+                  CIBW_BUILD: "cp311* cp312* cp313* cp314*"
+                  CIBW_SKIP: "*i686 *ppc64le *s390x *armv7l *riscv64 *win32"
+              with:
+                  package-dir: ndwt-python
+
+            - uses: actions/upload-artifact@v4
+              with:
+                  name: cibw-wheels-${{ matrix.os }}-${{ strategy.job-index }}
+                  path: ./wheelhouse/*.whl
+
+    make_sdist:
+        name: Make SDist
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  persist-credentials: false # Highly recommended as a good security practice to not store credentials in disk, unless you need this for your specific use case
+
+            - name: Build SDist
+              run: cd ndwt-python; pipx run build --sdist
+
+            - uses: actions/upload-artifact@v4
+              with:
+                  name: cibw-sdist
+                  path: ndwt-python/dist/*.tar.gz
+
+    upload_all_wheels:
+        name: Publish to PyPi
+        needs: [build_wheels, make_sdist]
+        environment: publish
+        permissions:
+            contents: read
+            id-token: write
+        runs-on: ubuntu-latest
+        if: github.event_name == 'release' && github.event.action == 'published'
+        steps:
+            - uses: actions/download-artifact@v5
+              with:
+                  pattern: cibw-*
+                  path: dist
+                  merge-multiple: true
+
+            - uses: pypa/gh-action-pypi-publish@release/v1
+
+    upload_to_crates:
+        name: Publish to Crates.io
+        environment: publish
+        permissions:
+            contents: read
+            id-token: write
+        runs-on: ubuntu-latest
+        if: github.event_name == 'release' && github.event.action == 'published'
+        steps:
+            - uses: actions/checkout@v6
+            - uses: dtolnay/rust-toolchain@stable
+            - uses: rust-lang/crates-io-auth-action@v1
+              id: auth
+            - name: Upload to Crates.io
+              run: cargo publish --workspace --exclude ndwt-python
+              env:
+                  CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}

@@ -516,19 +516,16 @@ pub fn dwt_per_forward<T: Transformable + Zero, const N: usize>(
     let (x, s) = if ns > nd {
         // for the odd length transform, the last x value just becomes the last approximation coefficient.
         // Then shorten x and s by one element.
-        if let Some(sl) = s.last_mut()
-            && let Some(xl) = x.last()
-        {
-            *sl = xl.clone();
-        }
-        // if ns == 1 (or 0), there is nothing to do.
-        if nd == 0 {
-            return;
-        }
+        // s will be at least 1 value, and so will x, thus:
+        *s.last_mut().unwrap() = x.last().unwrap().clone();
         (&x[0..nx - 1], &mut s[0..nd])
     } else {
         (x, s)
     };
+    // if ns == 1 (or 0), there is nothing to do.
+    if nd == 0 {
+        return;
+    }
 
     let offset = const { get_offset(N) };
     let gh: [_; N] = core::array::from_fn(|i| {
@@ -642,19 +639,16 @@ pub fn dwt_per_inverse<T: Transformable + Zero, const N: usize, const NH: usize>
     let (x, s) = if ns > nd {
         // for the odd length inverse transform, the last smooth coefficient just becomes the last x coefficient.
         // Then shorten x and s by one element.
-        if let Some(sl) = s.last()
-            && let Some(xl) = x.last_mut()
-        {
-            *xl = sl.clone();
-        }
-        // if ns == 1 (or 0), there is nothing to do.
-        if nd == 0 {
-            return;
-        }
+        // ns > 1 here (and so is nx) so the following is gauranteed to succeed:
+        *x.last_mut().unwrap() = s.last().unwrap().clone();
         (&mut x[0..nx - 1], &s[0..nd])
     } else {
         (x, s)
     };
+    // if ns == 1 (or 0), there is nothing to do.
+    if nd == 0 {
+        return;
+    }
 
     let gh: [_; N] = core::array::from_fn(|i| {
         [

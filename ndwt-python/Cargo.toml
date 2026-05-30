@@ -1,7 +1,13 @@
 [package]
 name = "ndwt-python"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
+description = "High-performance discrete and lifting wavelet transforms for 1-D and N-D signals, with SIMD acceleration, adjoint operations, and 8 boundary conditions."
+license = "MIT"
+repository = "https://github.com/jcapriot/wavelets-rs"
+documentation = "https://docs.rs/ndwt"
+readme = "../README.md"
+keywords = ["wavelet", "signal-processing", "dwt", "lwt"]
 
 [lib]
 name = "ndwt"
@@ -9,11 +15,13 @@ name = "ndwt"
 crate-type = ["cdylib"]
 
 [dependencies]
-numpy = "0.27.1"
-ndwt = { path = "../ndwt" }
-ndwt-macros = { path = "../ndwt-macros" }
+numpy = "0.28.0"
+ndwt = { path = "../ndwt", version = "0.1.1" }
+ndwt-macros = { path = "../ndwt-macros", version = "0.1.1" }
+num-complex = "0.4.6"
+num-traits = "0.2.19"
 
 [dependencies.pyo3]
-version = "0.27.0"
-# "abi3-py38" tells pyo3 (and maturin) to build using the stable ABI with minimum Python version 3.8
-features = ["abi3-py38"]
+version = "0.28.3"
+# "abi3-py11" tells pyo3 (and maturin) to build using the stable ABI with minimum Python version 3.11
+features = ["abi3-py311"]

@@ -100,10 +100,6 @@ pub fn generate_wavelet_enum(input: proc_macro::TokenStream) -> proc_macro::Toke
         .collect();
     quote! {
         #extras
-        /// Wavelet family selector.
-        ///
-        /// Pass one of these variants to [`dwt::driver::WaveletTransform::new`] or
-        /// [`lwt::driver::WaveletTransform::new`] to select the filter coefficients.
         #[derive(#(#derives),*)]
         pub enum #enum_name {
             #(#[doc = #docs] #wvlts),*
